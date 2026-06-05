@@ -2,9 +2,9 @@
 
 ## Goal
 
-Build a Python CLI agent from scratch. The first version should be a stable, extensible core for code development tasks, with a small local document research module for PDF and Office files.
+Build a Python CLI agent from scratch. The first releases should create a stable, extensible core for code development tasks first, then add provider, skill, memory, and local document research capabilities in later increments.
 
-The agent should run from the command line, use DeepSeek as the first real LLM provider, manage local project context, call tools through an internal action protocol, enforce Codex-like safety boundaries, load skills, run lifecycle hooks, and keep Claude-like memory with confirmed writes.
+The agent should run from the command line, manage local project context, call tools through a versioned internal action protocol, enforce Codex-like safety boundaries, and keep durable run logs. DeepSeek, skills, memory, hooks, and local PDF/Office document tools are staged after the core safety and protocol layer is working.
 
 ## Non-Goals
 
@@ -14,14 +14,19 @@ The agent should run from the command line, use DeepSeek as the first real LLM p
 - No fully automatic long-term memory writes by default.
 - No marketplace or remote skill installation in the first version.
 - No native binary packaging in the first version, though the structure should allow it later.
+- No document tools in `v0.1`; PDF and Office support starts in `v0.3`.
 
 ## Selected Approach
 
 Use the "extensible minimal core" approach.
 
-The first version includes the core agent loop, context management, internal tool protocol, safety policy, run logging, configuration, skill loading, hooks, and a lightweight memory system. Code development and local document research are implemented as built-in capability modules on top of the same core.
+The first version is split into three increments:
 
-This avoids a throwaway prototype while keeping the scope smaller than a full all-purpose office and coding agent.
+- `v0.1 Core MVP`: CLI run and doctor commands, config merge, fake LLM, versioned action and observation schemas, code-development tools, workspace sandbox, risky-confirm approval, run logs, and core tests.
+- `v0.2 Provider + Skills + Memory`: DeepSeek provider, `AGENTS.md` loading, skills list/show/load, memory list/review/confirmed write, memory provenance, timestamps, and undo support.
+- `v0.3 Documents`: PDF and Office reading, Markdown and Word report writing, and explicit document prompt-injection isolation.
+
+This avoids a throwaway prototype while keeping each release small enough to test and trust.
 
 ## Architecture
 
@@ -29,13 +34,13 @@ The system is split into clear layers:
 
 - CLI Layer: parses commands, options, and interactive prompts.
 - Agent Core: owns the run loop, context assembly, action execution, recovery, and final summary.
-- LLM Layer: provides a unified `LLMClient` interface. The first real provider is `DeepSeekClient`; tests use `FakeLLMClient`.
-- Tool Layer: provides controlled operations for files, shell commands, git, documents, and reports.
+- LLM Layer: provides a unified `LLMClient` interface. `v0.1` uses `FakeLLMClient`; `v0.2` adds `DeepSeekClient`.
+- Tool Layer: provides controlled operations for files, shell commands, git, documents, and reports as each release enables them.
 - Policy Layer: enforces sandbox and approval rules before tools run.
-- Memory Layer: loads relevant memory automatically and writes long-term memory only after confirmation.
-- Skill Layer: loads folder-based skills from `SKILL.md` files.
-- Hook Layer: exposes lifecycle extension points.
-- Logging Layer: writes run logs, tool calls, summaries, and memory candidates.
+- Memory Layer: added in `v0.2`; loads relevant memory automatically and writes long-term memory only after confirmation.
+- Skill Layer: added in `v0.2`; loads folder-based skills from `SKILL.md` files without bypassing policy.
+- Hook Layer: added after the core policy path exists; hooks are disabled by default and are policy-checked before execution.
+- Logging Layer: writes run logs, tool calls, summaries, and, in `v0.2+`, memory candidates.
 
 The LLM never directly touches files or the shell. It emits structured actions. The core parses, validates, authorizes, executes, records, and returns observations.
 
@@ -46,26 +51,26 @@ For `agent run "<task>"`:
 1. CLI receives the task and options.
 2. Config is loaded from defaults, global config, project config, and CLI overrides.
 3. A `RunContext` is created with task, mode, workspace, sandbox, approval policy, and run id.
-4. Project instructions, memory, skills, and recent context are loaded.
+4. Project instructions, memory, skills, and recent context are loaded when the current release supports them.
 5. `PromptBuilder` creates a compact context pack for the LLM.
-6. The LLM returns a strict JSON action envelope.
+6. The LLM returns a strict, versioned JSON action envelope.
 7. `ActionParser` validates the action.
 8. `Policy` checks whether the action is allowed, needs confirmation, or must be denied.
 9. `ToolExecutor` runs the tool and returns an observation.
 10. The observation is logged and sent back into the loop.
 11. The loop stops on `done`, `blocked`, `need_user_confirm`, or a configured iteration limit.
-12. The agent writes `summary.md`, tool call logs, and memory candidates.
-13. Candidate memory is written only if the user accepts it, or if `--memory-auto-write` is set.
+12. The agent writes `summary.md` and tool call logs.
+13. In `v0.2+`, candidate memory is written only if the user accepts it, or if `--memory-auto-write` is set.
 
 ## Core Data Types
 
-- `RunContext`: task, working directory, mode, sandbox, approval policy, selected skills, run id, and timestamps.
+- `RunContext`: task, working directory, mode, sandbox, approval policy, selected skills, run id, protocol version, and timestamps.
 - `ContextPack`: compact context sent to the model, including instructions, memory, skills, file summaries, and recent observations.
-- `Action`: structured model request such as `read_file`, `apply_patch`, or `run_command`.
-- `Observation`: structured result returned to the model after tool execution.
+- `Action`: structured model request with `protocol_version`, `run_id`, `action_id`, `created_at`, tool name, and arguments.
+- `Observation`: structured result returned after tool execution with matching ids, status, error code, output summary, and optional data.
 - `ToolResult`: raw tool outcome including stdout, stderr, exit code, changed files, and errors.
 - `RunLog`: persistent record of tool calls, confirmations, decisions, and final outcome.
-- `MemoryCandidate`: proposed long-term memory item extracted at the end of a run.
+- `MemoryCandidate`: proposed long-term memory item with source run id, source excerpt, timestamps, status, and revision metadata.
 
 ## LLM Interface
 
@@ -77,19 +82,23 @@ class LLMClient:
         ...
 ```
 
-First implementations:
+Implementations by release:
 
-- `DeepSeekClient`: calls the DeepSeek API using `httpx`. The API key is read from `DEEPSEEK_API_KEY` or config.
-- `FakeLLMClient`: deterministic fake responses for tests and dry runs.
+- `v0.1`: `FakeLLMClient` with deterministic fake responses for tests and dry runs.
+- `v0.2`: `DeepSeekClient`, which calls the DeepSeek API using `httpx`. The API key is read from `DEEPSEEK_API_KEY` or config.
 
 The model provider is not allowed to define the internal tool protocol. Provider-specific formats are adapted at the LLM layer.
 
 ## Action Protocol
 
-The model must return a strict JSON envelope:
+The model must return a strict JSON envelope. The protocol is versioned from the first release:
 
 ```json
 {
+  "protocol_version": "agent-action-v1",
+  "run_id": "20260606-120000-a1b2c3",
+  "action_id": "act_000001",
+  "created_at": "2026-06-06T12:00:00Z",
   "message": "I need to inspect the project structure first.",
   "action": {
     "name": "search_files",
@@ -100,7 +109,62 @@ The model must return a strict JSON envelope:
 }
 ```
 
-Supported terminal actions include:
+Every tool execution returns an `Observation`:
+
+```json
+{
+  "protocol_version": "agent-observation-v1",
+  "run_id": "20260606-120000-a1b2c3",
+  "action_id": "act_000001",
+  "observation_id": "obs_000001",
+  "created_at": "2026-06-06T12:00:01Z",
+  "status": "ok",
+  "error": null,
+  "summary": "Found 3 Python files.",
+  "data": {
+    "matches": ["src/agent/cli.py", "src/agent/core/loop.py"]
+  }
+}
+```
+
+Error observations use the same schema:
+
+```json
+{
+  "protocol_version": "agent-observation-v1",
+  "run_id": "20260606-120000-a1b2c3",
+  "action_id": "act_000002",
+  "observation_id": "obs_000002",
+  "created_at": "2026-06-06T12:00:03Z",
+  "status": "error",
+  "error": {
+    "code": "POLICY_DENIED",
+    "message": "Command is denied by policy.",
+    "details": {
+      "category": "dangerous_delete"
+    }
+  },
+  "summary": "Denied command before execution.",
+  "data": null
+}
+```
+
+Standard error codes:
+
+- `INVALID_JSON`
+- `UNSUPPORTED_PROTOCOL_VERSION`
+- `MISSING_REQUIRED_FIELD`
+- `UNKNOWN_TOOL`
+- `INVALID_ARGUMENT`
+- `SANDBOX_VIOLATION`
+- `APPROVAL_REQUIRED`
+- `APPROVAL_DENIED`
+- `POLICY_DENIED`
+- `TOOL_FAILED`
+- `TIMEOUT`
+- `INTERNAL_ERROR`
+
+Supported `v0.1` terminal actions:
 
 - `done`: finish with a final answer.
 - `ask_user`: request clarification or approval.
@@ -112,6 +176,9 @@ Supported terminal actions include:
 - `run_command`
 - `git_status`
 - `git_diff`
+
+Supported `v0.3` document actions:
+
 - `read_pdf`
 - `read_docx`
 - `read_xlsx`
@@ -119,17 +186,29 @@ Supported terminal actions include:
 - `write_markdown_report`
 - `write_docx_report`
 
-If the model returns invalid JSON, the core enters a repair loop and asks the model to emit a valid action. Unknown tools or invalid arguments produce an observation error instead of running anything.
+If the model returns invalid JSON, the core enters a bounded repair loop and asks the model to emit a valid action. Unknown tools or invalid arguments produce an error observation instead of running anything. The repair loop must not execute partial or inferred actions.
 
 ## CLI Commands
 
-Primary commands:
+`v0.1` primary commands:
 
 ```text
 agent run "<task>"
 agent "<task>"
+agent doctor
+```
+
+`v0.2+` commands:
+
+```text
 agent chat
 agent status
+agent skills list
+agent skills show <name>
+agent memory list
+agent memory add
+agent memory review
+agent memory undo <memory-id>
 ```
 
 Run history:
@@ -139,29 +218,12 @@ agent runs list
 agent runs show <run-id>
 ```
 
-Memory:
-
-```text
-agent memory list
-agent memory add
-agent memory review
-agent memory edit
-```
-
-Skills:
-
-```text
-agent skills list
-agent skills show <name>
-```
-
 Tools and config:
 
 ```text
 agent tools list
 agent config show
 agent config doctor
-agent doctor
 ```
 
 Core options:
@@ -170,8 +232,8 @@ Core options:
 --mode step|guided|auto|plan-first
 --sandbox read-only|workspace-write|danger-full-access
 --approval risky-confirm|always|never
---skill <name>
---memory-auto-write
+--skill <name>               # v0.2+
+--memory-auto-write          # v0.2+
 --dry-run
 --cwd <path>
 ```
@@ -227,9 +289,28 @@ Risky examples:
 
 Each tool call is logged with action, args, approval result, and observation.
 
+Sandbox checks must use resolved filesystem paths, not string prefix checks. The implementation must:
+
+- Resolve the configured workspace root to a canonical path.
+- Resolve each target path before access.
+- Normalize path casing on case-insensitive filesystems such as Windows.
+- Reject paths that resolve outside the workspace in `workspace-write`.
+- Reject symlink and junction escapes even when the original input path starts with the workspace path.
+- Treat missing write targets by resolving the nearest existing parent and checking that parent stays inside the workspace.
+
+`run_command` must use structured argv, not a raw shell string, unless a command is explicitly classified as requiring a shell. The policy checks the executable and arguments before execution.
+
+Command categories:
+
+- Allowed by default: `git status`, `git diff`, `rg`, read-only directory listing, configured test/lint commands, and Python test commands such as `pytest` when arguments stay inside the workspace.
+- Requires confirmation: dependency installation, package-manager commands, commands that write many files, scripts from the repository, network commands, long-running commands, and commands with shell metacharacters.
+- Denied by default: recursive delete, disk formatting, permission changes outside the workspace, writing system paths, credential exfiltration patterns, shell pipelines that hide subcommands, and commands that target paths outside the sandbox.
+
+`run_command` logs argv, working directory, environment allowlist, timeout, policy decision, exit code, stdout/stderr summaries, and whether output was truncated.
+
 ## Tools
 
-Code development tools:
+`v0.1` code development tools:
 
 - `read_file`
 - `write_file`
@@ -240,7 +321,7 @@ Code development tools:
 - `git_status`
 - `git_diff`
 
-Document tools:
+`v0.3` document tools:
 
 - `read_pdf`: extract text from local PDF files.
 - `read_docx`: extract paragraphs and headings.
@@ -249,9 +330,11 @@ Document tools:
 - `write_markdown_report`: write a Markdown report.
 - `write_docx_report`: write a Word report.
 
-The first version supports reading and summarizing local PDF, Word, Excel, and PowerPoint files, then generating Markdown or Word reports. It does not edit existing Office documents in place.
+Document contents are untrusted data. Extracted PDF and Office text must be wrapped in a context section that says it is source material only, not instructions. Document text must not override system, developer, user, policy, memory, or skill instructions. Malicious document text such as "ignore previous instructions" is summarized as document content and must never trigger a tool call or change the agent policy.
 
 ## Memory
+
+Memory starts in `v0.2`.
 
 Memory uses a Claude-like lite design:
 
@@ -284,10 +367,25 @@ Write path:
 2. Show candidates to the user.
 3. Accept, reject, or edit candidates.
 4. Write accepted candidates to the right memory file and update `MEMORY.md`.
+5. Record provenance and revision metadata.
 
 `--memory-auto-write` bypasses confirmation for the current run, but the default remains confirmation before writing.
 
+Each memory item must include:
+
+- Stable memory id.
+- Source run id.
+- Source excerpt or source summary.
+- Created timestamp.
+- Updated timestamp.
+- Status: `active`, `superseded`, or `deleted`.
+- Optional replacement memory id.
+
+Memory undo must be reversible. The first implementation uses tombstones or revision history instead of silently deleting historical entries.
+
 ## Skills
+
+Skills start in `v0.2`.
 
 Skills are folder-based:
 
@@ -315,16 +413,24 @@ allowed_tools:
 
 The body contains instructions loaded into the context. Skills can be selected automatically by description matching or manually with `--skill`.
 
-First built-in skills:
+Skill priority:
+
+```text
+CLI --skill > project config default_skills > automatic task matching > package default skills
+```
+
+Skills cannot grant permissions that global policy or sandbox denies. A skill may suggest or narrow allowed tools for the task, but all tool calls still pass through policy. Project skills are untrusted unless explicitly enabled by config or CLI.
+
+First built-in skills in `v0.2`:
 
 - `code-dev`
 - `doc-research`
 
-Future skill directories may contain scripts, templates, and resources, but the first version only needs to load instructions and metadata.
+Future skill directories may contain scripts, templates, and resources, but `v0.2` only needs to load instructions and metadata.
 
 ## Hooks
 
-The first version supports these lifecycle hooks:
+Hooks start after the core policy path exists. The first hook implementation supports these lifecycle hooks:
 
 - `before_run`
 - `before_tool`
@@ -332,7 +438,14 @@ The first version supports these lifecycle hooks:
 - `after_run`
 - `before_memory_write`
 
-Hooks are optional. The first implementation can be local Python callables or config-driven commands, with a simple event payload. Hook failures are logged. By default, hook failures should not crash the run unless configured as blocking.
+Hooks are disabled by default.
+
+The first implementation only supports:
+
+- Package-provided built-in hooks.
+- Project hooks that are explicitly enabled in config.
+
+Every hook execution is represented as an internal action and must pass through policy before it runs. Shell-command hooks are postponed until a dedicated approval and sandbox policy exists. Hook failures are logged. By default, hook failures do not crash the run unless configured as blocking.
 
 ## Configuration
 
@@ -358,6 +471,7 @@ Important config keys:
 - `commands.format`
 
 `agent config show` displays the merged config. `agent config doctor` checks config files, API key availability, writable directories, and document dependencies.
+In `v0.1`, `agent doctor` only checks local environment, config readability, workspace permissions, and core command availability. DeepSeek checks start in `v0.2`; document dependency checks start in `v0.3`.
 
 ## Output and Logs
 
@@ -365,7 +479,7 @@ Terminal output is structured and concise:
 
 ```text
 [run] Goal: fix failing tests
-[context] Loaded AGENTS.md, 2 memories, code-dev skill
+[context] Loaded workspace config
 [tool] run_command: pytest
 [result] 3 failed, 21 passed
 [edit] apply_patch: src/example.py
@@ -380,7 +494,7 @@ Each run writes:
 - `log.md`
 - `tool_calls.jsonl`
 - `summary.md`
-- `memory_candidates.md`
+- `memory_candidates.md` in `v0.2+`
 
 ## Project Structure
 
@@ -433,12 +547,18 @@ F:\agent\
 
 Use `uv` and `pyproject.toml`.
 
-Runtime dependencies:
+`v0.1` runtime dependencies:
 
 - `typer`
 - `rich`
 - `pydantic`
+
+`v0.2` runtime dependencies:
+
 - `httpx`
+
+`v0.3` runtime dependencies:
+
 - `pypdf`
 - `python-docx`
 - `openpyxl`
@@ -465,43 +585,77 @@ Future:
 
 ## Testing
 
-Test coverage should focus on behavior and safety:
+`v0.1` tests:
 
 - Config merge precedence.
-- Action JSON parsing and repair failures.
+- Action and observation schema validation.
+- Standard error codes.
+- Action JSON parsing and bounded repair failures.
 - Unknown tool and invalid argument handling.
 - Workspace sandbox path checks.
+- Symlink or junction escape rejection.
 - Risky command detection and approval behavior.
-- Skill discovery and `SKILL.md` loading.
-- Memory index loading and candidate write confirmation.
-- PDF, Word, Excel, and PowerPoint extraction smoke tests.
+- Dangerous command denial.
 - Run logging.
 - End-to-end run loop using `FakeLLMClient`.
+
+`v0.2` tests:
+
+- DeepSeek config diagnosis.
+- `AGENTS.md` loading.
+- Skill discovery, priority, and permission boundaries.
+- Memory index loading.
+- Confirmed memory write.
+- Memory undo through tombstone or revision history.
+
+`v0.3` tests:
+
+- PDF, Word, Excel, and PowerPoint extraction smoke tests.
+- Document prompt-injection isolation.
+- Markdown and Word report generation.
+- Malicious document text cannot trigger tool calls or mutate instructions.
 
 DeepSeek integration should be covered by `agent doctor` and optional manual tests, not required in the default automated test suite.
 
 ## Acceptance Criteria
 
-The first version is acceptable when:
+`v0.1 Core MVP` is acceptable when:
 
-- `agent run "<task>"` can execute a simple fake or real code task through the action loop.
-- The CLI exposes the agreed basic command surface.
-- DeepSeek config can be diagnosed.
+- `agent run "<task>"` can execute a simple fake code task through the action loop.
+- `agent doctor` can inspect the local environment.
+- Config merge works across defaults, global config, project config, and CLI overrides.
+- The versioned Action and Observation schemas are enforced.
+- Standard error codes are emitted for parser, policy, sandbox, and tool failures.
 - Workspace write boundaries are enforced.
+- Symlink and junction escapes are rejected.
 - Risky commands require confirmation under the default policy.
-- Skills can be listed, shown, and loaded.
+- Denied commands never execute.
+- Each run produces durable logs and a summary.
+- Tests cover config, parser, observation schema, policy, sandbox, run logs, and fake end-to-end flow.
+
+`v0.2 Provider + Skills + Memory` is acceptable when:
+
+- DeepSeek config can be diagnosed.
+- `AGENTS.md` is loaded into context.
+- Skills can be listed, shown, and loaded according to priority rules.
+- Skills cannot bypass policy or sandbox.
 - Memory can be listed and candidate writes can be reviewed.
+- Accepted memory writes include source, time, status, and revision metadata.
+- Memory undo marks entries as deleted or superseded without silent deletion.
+
+`v0.3 Documents` is acceptable when:
+
 - PDF, Word, Excel, and PowerPoint files can be read at a basic level.
 - Markdown and Word reports can be generated.
-- Each run produces durable logs and a summary.
-- Tests cover the core parser, policy, config, skill, memory, and fake end-to-end flow.
+- Extracted document text is treated as untrusted source material.
+- Malicious document instructions cannot override agent instructions or trigger tool calls.
 
 ## First-Version Defaults
 
-- DeepSeek model default: `deepseek-chat`, configurable through global config, project config, or CLI override.
+- DeepSeek model default in `v0.2`: `deepseek-chat`, configurable through global config, project config, or CLI override.
 - Hook implementation: in-process Python hook registry only. Shell-command hooks are postponed because they need their own approval and sandbox policy.
-- Built-in skill location: package-provided built-in skills, with project overrides and additions loaded from `.agent/skills`.
+- Built-in skill location in `v0.2`: package-provided built-in skills, with explicitly enabled project overrides and additions loaded from `.agent/skills`.
 - Memory retrieval: deterministic keyword and filename matching only. Embeddings and model-assisted memory selection are postponed.
-- Report output: Markdown is the default report format; Word reports are generated only when requested.
+- Report output in `v0.3`: Markdown is the default report format; Word reports are generated only when requested.
 
 These defaults keep the first implementation deterministic, testable, and safe while leaving clear extension points.
