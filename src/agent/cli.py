@@ -23,6 +23,13 @@ def doctor() -> None:
     console.print("agent import: ok")
 
 
+@app.command()
+def run(task: str) -> None:
+    """Run an agent task."""
+    console.print(f"task: {task}")
+    console.print("status: not implemented")
+
+
 def main() -> None:
     app()
 
