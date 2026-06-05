@@ -22,8 +22,8 @@ Use the "extensible minimal core" approach.
 
 The first version is split into three increments:
 
-- `v0.1 Core MVP`: CLI run and doctor commands, config merge, `AGENTS.md` loading, fake LLM, versioned action and observation schemas, code-development tools, workspace sandbox, risky-confirm approval, redacted run logs, and core tests.
-- `v0.2 Provider + Skills + Memory + Hooks`: DeepSeek provider, skills list/show/load, memory list/review/confirmed write, memory provenance, timestamps, undo support, and disabled-by-default hooks.
+- `v0.1 Core MVP`: CLI run and doctor commands, config merge, `AGENTS.md` loading, fake LLM, versioned action and observation schemas, code-development tools, workspace sandbox, risky-confirm approval, non-interactive approval failure semantics, shell network disabled by default, write snapshots with restore guidance, context budget limits, redacted run logs, and core tests.
+- `v0.2 Provider + Skills + Memory + Hooks`: DeepSeek provider, skills list/show/load with progressive disclosure, memory list/review/confirmed write, memory provenance, timestamps, undo support, retrieval budget limits, and disabled-by-default hooks.
 - `v0.3 Documents`: PDF and Office reading, Markdown and Word report writing, and explicit document prompt-injection isolation.
 
 This avoids a throwaway prototype while keeping each release small enough to test and trust.
@@ -56,11 +56,13 @@ For `agent run "<task>"`:
 6. The LLM returns a strict, versioned JSON action envelope.
 7. `ActionParser` validates the action.
 8. `Policy` checks whether the action is allowed, needs confirmation, or must be denied.
-9. `ToolExecutor` runs the tool and returns an observation.
-10. The observation is logged and sent back into the loop.
-11. The loop stops on `done`, `blocked`, `need_user_confirm`, or a configured iteration limit.
-12. The agent writes `summary.md` and tool call logs.
-13. In `v0.2+`, candidate memory is written only if the user accepts it, or if `--memory-auto-write` is set.
+9. If the action needs confirmation but the run is non-interactive or `approval=never`, the core returns an `APPROVAL_REQUIRED` or `POLICY_DENIED` observation immediately instead of waiting.
+10. If the action will write files, `ToolExecutor` saves affected-file snapshots before modifying anything.
+11. `ToolExecutor` runs the tool and returns an observation.
+12. The observation is logged and sent back into the loop.
+13. The loop stops on `done`, `blocked`, `need_user_confirm`, a policy failure that cannot proceed, or a configured iteration limit.
+14. The agent writes `summary.md`, tool call logs, and restore guidance for any snapshots.
+15. In `v0.2+`, candidate memory is written only if the user accepts it, or if `--memory-auto-write` is set.
 
 ## Core Data Types
 
@@ -70,6 +72,9 @@ For `agent run "<task>"`:
 - `Observation`: structured result returned after tool execution with matching ids, status, error code, output summary, and optional data.
 - `ToolResult`: raw tool outcome including stdout, stderr, exit code, changed files, and errors.
 - `RunLog`: persistent record of tool calls, confirmations, decisions, and final outcome.
+- `ContextBudget`: per-run limits for context assembly, tool output excerpts, observations, repair turns, and loop iterations. `v0.1` uses character and item limits, not token-perfect accounting.
+- `FileSnapshot`: pre-write copy or metadata record for an affected path, including original path, snapshot path, hash when available, action id, timestamp, and whether the original file existed.
+- `RunSnapshot`: collection of `FileSnapshot` records for a run, stored under `.agent/runs/<run-id>/snapshots/` with restore instructions.
 - `MemoryCandidate`: proposed long-term memory item with source run id, source excerpt, timestamps, status, and revision metadata.
 
 ## LLM Interface
@@ -180,6 +185,22 @@ Standard error codes:
 - `TIMEOUT`
 - `INTERNAL_ERROR`
 
+## Context Budget
+
+`ContextBudget` exists in `v0.1` because even the minimal core must protect itself from unbounded prompts, logs, and observations. The first implementation does not need exact tokenizer accounting; deterministic character and item limits are enough.
+
+Budgeted inputs and outputs include:
+
+- `AGENTS.md` content loaded into the prompt.
+- `read_file` excerpts and large file handling.
+- `search_files` match count and per-match excerpt length.
+- `run_command` stdout and stderr excerpts.
+- Observation `summary` and `data` payload size.
+- Repair loop turns after invalid JSON.
+- Maximum action loop iterations per run.
+
+When content exceeds budget, the core must truncate with an explicit truncation marker, preserve source path and locator metadata where possible, and log that truncation happened. Large files should be chunked only when the tool explicitly supports chunking; otherwise the tool returns a bounded observation that asks for a narrower read.
+
 Supported `v0.1` terminal actions:
 
 - `done`: finish with a final answer.
@@ -212,6 +233,8 @@ If the model returns invalid JSON, the core enters a bounded repair loop and ask
 agent run "<task>"
 agent "<task>"
 agent doctor
+agent runs list
+agent runs show <run-id>
 ```
 
 `v0.2+` commands:
@@ -234,6 +257,8 @@ agent runs list
 agent runs show <run-id>
 ```
 
+`agent runs show <run-id>` is part of `v0.1` because write snapshots are not useful unless the user can inspect where they were stored and how to restore them. `agent runs list` may be a minimal listing in `v0.1`.
+
 Tools and config:
 
 ```text
@@ -253,6 +278,8 @@ Core options:
 --dry-run
 --cwd <path>
 ```
+
+In `v0.1`, `--dry-run` parses and validates the planned action flow but does not execute write tools or shell commands. A dry run may call the fake model, build context, classify actions, and report which actions would need approval.
 
 Defaults:
 
@@ -284,6 +311,12 @@ Approval modes:
 - `always`: every tool action requires confirmation.
 - `never`: no interactive approvals; unsafe actions are denied.
 
+Non-interactive approval behavior:
+
+- If stdin is not a TTY, the user requested `--approval never`, or the host process marks the run as non-interactive, an action that needs approval must fail fast.
+- Fail-fast observations use `APPROVAL_REQUIRED` when the action could be allowed with user approval, and `POLICY_DENIED` when it is categorically denied.
+- The core must never block indefinitely waiting for approval in a one-shot CLI run.
+
 Low-risk examples:
 
 - Read files inside the workspace.
@@ -302,6 +335,7 @@ Risky examples:
 - Modify system paths.
 - Clear directories.
 - Handle content that looks like secrets.
+- Use shell commands that appear to access the network.
 
 Each tool call is logged with action, args, approval result, and observation.
 
@@ -319,8 +353,15 @@ Sandbox checks must use resolved filesystem paths, not string prefix checks. The
 Command categories:
 
 - Allowed by default: built-in read-only commands such as `git status`, `git diff`, `rg`, read-only directory listing, and package-provided known-safe test commands such as `pytest` when arguments stay inside the workspace.
-- Requires confirmation: project-configured test/lint/format commands, dependency installation, package-manager commands, commands that write many files, scripts from the repository, network commands, long-running commands, and commands with shell metacharacters.
+- Requires confirmation: project-configured test/lint/format commands, dependency installation, package-manager commands, commands that write many files, scripts from the repository, long-running commands, and commands with shell metacharacters.
 - Denied by default: recursive delete, disk formatting, permission changes outside the workspace, writing system paths, credential exfiltration patterns, shell pipelines that hide subcommands, and commands that target paths outside the sandbox.
+
+Shell network policy:
+
+- `v0.1` shell network access is disabled by default.
+- Network-like commands such as `curl`, `wget`, `Invoke-WebRequest`, `Invoke-RestMethod`, `ssh`, `scp`, `rsync`, package registry access, and repository cloning are denied or require explicit confirmation according to policy.
+- The DeepSeek HTTP provider in `v0.2` is a separate configured client capability and does not imply shell network permission.
+- Project config cannot silently enable shell network commands.
 
 Project config must not upgrade commands into the allowlist. Every project-configured command is parsed into structured argv and classified by the same policy as model-requested commands. Unknown project-configured commands require confirmation by default.
 
@@ -342,6 +383,8 @@ Before any durable log write, the logging layer must redact secret-like values f
 - `git_diff`
 
 `write_file` and `apply_patch` must pass sandbox and policy checks before modifying anything. For patches, the executor must parse all affected file paths before applying the patch and validate each target. Patch deletion, rename, mode changes, binary patches, absolute paths, parent-directory traversal, and paths resolving outside the workspace are denied by default or require explicit confirmation according to policy. A patch must be applied atomically where practical; partial application after a denied target is not allowed.
+
+Before `write_file` or `apply_patch` changes a file, the executor stores an affected-file snapshot under `.agent/runs/<run-id>/snapshots/`. Existing files are copied or otherwise captured with enough metadata to restore them. Newly created files record a snapshot entry that marks the previous state as non-existent. `summary.md` and `agent runs show <run-id>` must include snapshot locations and restore instructions. `v0.1` does not auto-commit every tool change to git; run snapshots are the default recovery mechanism.
 
 `v0.3` document tools:
 
@@ -382,7 +425,8 @@ Read path:
 
 1. Load `.agent/memory/MEMORY.md` if present.
 2. Select relevant memory files by simple keyword matching and optional model-assisted selection.
-3. Add the selected memory snippets to the context pack.
+3. Apply the run `ContextBudget` to memory item count and snippet length.
+4. Add the selected memory snippets to the context pack.
 
 Write path:
 
@@ -443,6 +487,13 @@ CLI --skill > project config default_skills > automatic task matching > package 
 ```
 
 Skills cannot grant permissions that global policy or sandbox denies. A skill may suggest or narrow allowed tools for the task, but all tool calls still pass through policy. Project skills are untrusted unless explicitly enabled by config or CLI.
+
+Skill loading uses progressive disclosure in `v0.2`:
+
+1. Discovery loads only name, description, path, and declared tool hints.
+2. Selection uses CLI `--skill`, project config, automatic matching, or package defaults according to the priority order above.
+3. The full `SKILL.md` body is loaded only after a skill is selected.
+4. Loaded skill text is subject to `ContextBudget` and cannot override system, developer, current user, policy, sandbox, approval, or redaction rules.
 
 First built-in skills in `v0.2`:
 
@@ -646,8 +697,13 @@ Future:
 - Risky command detection and approval behavior.
 - Project-configured commands require confirmation by default.
 - Dangerous command denial.
+- Shell network command denial or confirmation under default policy.
+- Non-interactive approval failure for actions that require confirmation.
+- `--dry-run` has no file-write or shell-command side effects.
 - Log redaction of secret-like values.
+- Context budget truncation for `AGENTS.md`, file reads, command output, observations, repair loop, and iteration limits.
 - `apply_patch` multi-path sandbox and denied-target handling.
+- Pre-write snapshots and restore guidance for `write_file` and `apply_patch`.
 - Run logging.
 - End-to-end run loop using `FakeLLMClient`.
 
@@ -655,7 +711,9 @@ Future:
 
 - DeepSeek config diagnosis.
 - Skill discovery, priority, and permission boundaries.
+- Skill progressive disclosure and context budget enforcement.
 - Memory index loading.
+- Memory retrieval budget limits.
 - Confirmed memory write.
 - Memory undo through tombstone or revision history.
 - Hooks disabled by default, explicit enablement, and policy checks before execution.
@@ -675,6 +733,7 @@ DeepSeek integration should be covered by `agent doctor` and optional manual tes
 
 - `agent run "<task>"` can execute a simple fake code task through the action loop.
 - `agent doctor` can inspect the local environment.
+- `agent runs show <run-id>` can display run logs, snapshot locations, and restore guidance.
 - `AGENTS.md` is loaded as read-only project instruction context when present.
 - Config merge works across defaults, global config, project config, and CLI overrides.
 - The versioned Action and Observation schemas are enforced.
@@ -683,10 +742,15 @@ DeepSeek integration should be covered by `agent doctor` and optional manual tes
 - Workspace write boundaries are enforced.
 - Symlink and junction escapes are rejected.
 - Risky commands require confirmation under the default policy.
+- Actions that require confirmation fail fast in non-interactive runs.
+- `--dry-run` performs no write-tool or shell-command side effects.
+- Shell network commands are disabled, denied, or confirmation-gated according to policy.
 - Project-configured commands do not bypass approval.
 - Denied commands never execute.
+- Context budget limits are enforced with explicit truncation markers.
 - Durable logs are redacted before write.
 - Patch operations validate every affected path before applying.
+- Write tools create pre-change snapshots with restore guidance.
 - Each run produces durable logs and a summary.
 - Tests cover config, parser, observation schema, policy, sandbox, run logs, and fake end-to-end flow.
 
@@ -717,3 +781,12 @@ DeepSeek integration should be covered by `agent doctor` and optional manual tes
 - Report output in `v0.3`: Markdown is the default report format; Word reports are generated only when requested.
 
 These defaults keep the first implementation deterministic, testable, and safe while leaving clear extension points.
+
+## Explicitly Deferred
+
+The first implementation should learn from leading coding agents without copying features that would make the MVP too wide. These items are intentionally deferred:
+
+- Full permission profiles beyond `sandbox`, `approval`, and command policy presets.
+- Subagents, forked workers, and worktree isolation.
+- MCP servers, browser automation, plugin marketplaces, remote skill installation, HTTP hooks, and prompt hooks.
+- Aider-style automatic git commits after every change. `v0.1` uses run snapshots instead; optional git checkpointing can be considered later.
