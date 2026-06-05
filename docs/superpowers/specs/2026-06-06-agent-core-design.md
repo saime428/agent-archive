@@ -15,6 +15,7 @@ The agent should run from the command line, manage local project context, call t
 - No marketplace or remote skill installation in the first version.
 - No native binary packaging in the first version, though the structure should allow it later.
 - No document tools in `v0.1`; PDF and Office support starts in `v0.3`.
+- No shell execution mode in `v0.1`; `run_command` accepts structured argv only.
 
 ## Selected Approach
 
@@ -43,6 +44,18 @@ The system is split into clear layers:
 - Logging Layer: writes run logs, tool calls, summaries, and, in `v0.2+`, memory candidates.
 
 The LLM never directly touches files or the shell. It emits structured actions. The core parses, validates, authorizes, executes, records, and returns observations.
+
+## Trust Boundaries
+
+User intent and user-controlled configuration are trusted more than project-provided inputs. The trust order is:
+
+```text
+system/developer instructions > current user request > CLI options > user/global config > project config > AGENTS.md > skills > memory > tool observations > command output > git diffs > document contents
+```
+
+Project config, `AGENTS.md`, skill files, memory files, document contents, command outputs, git diffs, and tool observations are treated as untrusted model inputs. They may provide context, conventions, or data, but they must not redefine policy, approval, sandboxing, redaction, protocol schemas, or the current user task.
+
+Project config may narrow or customize behavior, but it must not reduce safety below user/global defaults unless explicitly confirmed by the user or overridden from the CLI. It cannot silently set `sandbox=danger-full-access`, set `approval=never`, enable shell network access, disable redaction, upgrade command allowlists, or allow protected internal directories to be modified.
 
 ## Run Flow
 
@@ -214,6 +227,89 @@ Supported `v0.1` terminal actions:
 - `git_status`
 - `git_diff`
 
+## v0.1 Action Args Schemas
+
+Every action name has a fixed args schema. Extra fields are rejected unless the schema explicitly allows them. Missing optional fields are filled by the core with documented defaults.
+
+Terminal actions:
+
+```json
+{
+  "done": {
+    "final": "string",
+    "changed_files": ["string"],
+    "next_steps": ["string"]
+  },
+  "ask_user": {
+    "question": "string",
+    "options": ["string"],
+    "reason": "string"
+  }
+}
+```
+
+`done.changed_files` and `done.next_steps` may be empty arrays. `ask_user.options` may be empty when the question is free-form.
+
+File and search tools:
+
+```json
+{
+  "read_file": {
+    "path": "string",
+    "start_line": "int | null",
+    "max_lines": "int | null"
+  },
+  "write_file": {
+    "path": "string",
+    "content": "string",
+    "create_parents": "bool"
+  },
+  "apply_patch": {
+    "edits": [
+      {
+        "path": "string",
+        "old": "string",
+        "new": "string",
+        "occurrence": "first | all"
+      }
+    ]
+  },
+  "search_files": {
+    "query": "string",
+    "path": "string | null",
+    "max_matches": "int | null"
+  },
+  "list_dir": {
+    "path": "string",
+    "max_entries": "int | null"
+  }
+}
+```
+
+`apply_patch` in `v0.1` is a structured replacement patch, not a shell patch command and not arbitrary unified diff input. Each edit replaces `old` with `new` in one file. `occurrence` defaults to `first`. If `old` is not found, is ambiguous when `occurrence=first`, or any target fails sandbox or policy checks, the patch fails before modifying files. Deletion, rename, mode changes, binary patches, absolute paths, and parent-directory traversal are not part of the `v0.1` patch format.
+
+Shell and git tools:
+
+```json
+{
+  "run_command": {
+    "argv": ["string"],
+    "cwd": "string | null",
+    "timeout_seconds": "int | null"
+  },
+  "git_status": {
+    "short": "bool"
+  },
+  "git_diff": {
+    "path": "string | null",
+    "cached": "bool",
+    "max_bytes": "int | null"
+  }
+}
+```
+
+`run_command.argv` must be a non-empty list of strings. `shell=true`, raw command strings, `powershell -Command`, `cmd /c`, `bash -lc`, and equivalent shell-wrapper execution are not supported in `v0.1`.
+
 Supported `v0.3` document actions:
 
 - `read_pdf`
@@ -320,7 +416,7 @@ Non-interactive approval behavior:
 Low-risk examples:
 
 - Read files inside the workspace.
-- Search with `rg`.
+- Search inside the workspace with `rg` or the Python fallback.
 - Run `git status` and `git diff`.
 - Run package-provided known-safe test commands.
 - Create normal project files inside the workspace.
@@ -348,13 +444,13 @@ Sandbox checks must use resolved filesystem paths, not string prefix checks. The
 - Reject symlink and junction escapes even when the original input path starts with the workspace path.
 - Treat missing write targets by resolving the nearest existing parent and checking that parent stays inside the workspace.
 
-`run_command` must use structured argv, not a raw shell string, unless a command is explicitly classified as requiring a shell. The policy checks the executable and arguments before execution.
+`run_command` must use structured argv, not a raw shell string. `shell=true` is not part of `v0.1`. The policy checks the executable and arguments before execution.
 
 Command categories:
 
 - Allowed by default: built-in read-only commands such as `git status`, `git diff`, `rg`, read-only directory listing, and package-provided known-safe test commands such as `pytest` when arguments stay inside the workspace.
 - Requires confirmation: project-configured test/lint/format commands, dependency installation, package-manager commands, commands that write many files, scripts from the repository, long-running commands, and commands with shell metacharacters.
-- Denied by default: recursive delete, disk formatting, permission changes outside the workspace, writing system paths, credential exfiltration patterns, shell pipelines that hide subcommands, and commands that target paths outside the sandbox.
+- Denied by default: recursive delete, disk formatting, permission changes outside the workspace, writing system paths, credential exfiltration patterns, shell wrappers such as `powershell -Command`, `cmd /c`, or `bash -lc`, shell pipelines that hide subcommands, and commands that target paths outside the sandbox.
 
 Shell network policy:
 
@@ -382,9 +478,24 @@ Before any durable log write, the logging layer must redact secret-like values f
 - `git_status`
 - `git_diff`
 
+`read_file` must handle file size, binary detection, and encoding predictably:
+
+- Binary files are rejected unless a later dedicated tool explicitly supports them.
+- Text files are decoded as UTF-8 first, then with replacement characters if decoding fails.
+- Large files return a bounded excerpt with path, line range, total line count when available, byte size, and truncation metadata.
+- `start_line` and `max_lines` support narrower reads and are still subject to `ContextBudget`.
+
+`search_files` prefers `rg` when available, but `rg` is not required for `v0.1`. The implementation must provide a Python fallback for file name and text search. `agent doctor` reports whether `rg` is available and which search backend will be used.
+
 `write_file` and `apply_patch` must pass sandbox and policy checks before modifying anything. For patches, the executor must parse all affected file paths before applying the patch and validate each target. Patch deletion, rename, mode changes, binary patches, absolute paths, parent-directory traversal, and paths resolving outside the workspace are denied by default or require explicit confirmation according to policy. A patch must be applied atomically where practical; partial application after a denied target is not allowed.
 
 Before `write_file` or `apply_patch` changes a file, the executor stores an affected-file snapshot under `.agent/runs/<run-id>/snapshots/`. Existing files are copied or otherwise captured with enough metadata to restore them. Newly created files record a snapshot entry that marks the previous state as non-existent. `summary.md` and `agent runs show <run-id>` must include snapshot locations and restore instructions. `v0.1` does not auto-commit every tool change to git; run snapshots are the default recovery mechanism.
+
+## Protected Internal State
+
+The `.agent/runs/` directory contains logs, snapshots, summaries, redaction notes, and restore metadata. It is protected internal state.
+
+Model-requested writes, patches, deletes, renames, or command operations targeting `.agent/runs/` are denied by default. The user may explicitly request inspection or cleanup, but cleanup must still pass sandbox, policy, and approval checks. Tool observations and run summaries should expose enough metadata for review without allowing the model to rewrite or remove its own audit trail.
 
 `v0.3` document tools:
 
@@ -529,6 +640,8 @@ Config precedence:
 ```text
 defaults < ~/.agent/config.toml < .agent/config.toml < CLI options
 ```
+
+Config precedence is not permission precedence. Project config is lower-trust input and cannot reduce safety below defaults or user/global config without explicit CLI override or interactive confirmation.
 
 Important config keys:
 
@@ -686,23 +799,32 @@ Future:
 `v0.1` tests:
 
 - Config merge precedence.
+- Project config cannot lower safety below defaults or user/global config.
 - `AGENTS.md` loading.
 - Action and observation schema validation.
+- Fixed args schema validation for every `v0.1` action.
+- `done` and `ask_user` terminal action schema validation.
 - Core-generated action metadata; model-provided metadata is ignored or overwritten.
 - Standard error codes.
 - Action JSON parsing and bounded repair failures.
 - Unknown tool and invalid argument handling.
 - Workspace sandbox path checks.
 - Symlink or junction escape rejection.
+- Protected `.agent/runs/` write, patch, delete, rename, and command-target denial.
 - Risky command detection and approval behavior.
 - Project-configured commands require confirmation by default.
 - Dangerous command denial.
+- Shell wrapper command denial for `powershell -Command`, `cmd /c`, `bash -lc`, and equivalents.
 - Shell network command denial or confirmation under default policy.
 - Non-interactive approval failure for actions that require confirmation.
 - `--dry-run` has no file-write or shell-command side effects.
 - Log redaction of secret-like values.
 - Context budget truncation for `AGENTS.md`, file reads, command output, observations, repair loop, and iteration limits.
+- `read_file` binary rejection, fallback decoding, large-file excerpts, and line-window reads.
+- `search_files` Python fallback when `rg` is unavailable.
+- `agent doctor` reports `rg` availability and selected search backend.
 - `apply_patch` multi-path sandbox and denied-target handling.
+- `apply_patch` structured replacement behavior, missing `old` failure, ambiguous replacement failure, and no partial application after denied targets.
 - Pre-write snapshots and restore guidance for `write_file` and `apply_patch`.
 - Run logging.
 - End-to-end run loop using `FakeLLMClient`.
@@ -736,20 +858,28 @@ DeepSeek integration should be covered by `agent doctor` and optional manual tes
 - `agent runs show <run-id>` can display run logs, snapshot locations, and restore guidance.
 - `AGENTS.md` is loaded as read-only project instruction context when present.
 - Config merge works across defaults, global config, project config, and CLI overrides.
+- Project config cannot silently reduce safety below defaults or user/global config.
 - The versioned Action and Observation schemas are enforced.
+- Every `v0.1` action validates against a fixed args schema.
 - Action metadata used for logs and observations is generated by the core, not trusted from the model.
 - Standard error codes are emitted for parser, policy, sandbox, and tool failures.
 - Workspace write boundaries are enforced.
 - Symlink and junction escapes are rejected.
+- Protected internal state under `.agent/runs/` cannot be modified by model-requested tools.
 - Risky commands require confirmation under the default policy.
 - Actions that require confirmation fail fast in non-interactive runs.
 - `--dry-run` performs no write-tool or shell-command side effects.
 - Shell network commands are disabled, denied, or confirmation-gated according to policy.
+- Shell-wrapper execution is not supported in `v0.1`.
 - Project-configured commands do not bypass approval.
 - Denied commands never execute.
 - Context budget limits are enforced with explicit truncation markers.
+- File reads handle binary files, decoding fallback, large-file excerpts, and line-window reads.
+- Search works with `rg` when available and a Python fallback when not.
+- `agent doctor` reports `rg` availability and selected search backend.
 - Durable logs are redacted before write.
 - Patch operations validate every affected path before applying.
+- Patch operations use the structured replacement format, not shell patch commands.
 - Write tools create pre-change snapshots with restore guidance.
 - Each run produces durable logs and a summary.
 - Tests cover config, parser, observation schema, policy, sandbox, run logs, and fake end-to-end flow.
