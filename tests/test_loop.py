@@ -196,6 +196,110 @@ def test_run_once_exposes_effective_config(tmp_path) -> None:
     assert "config_dry_run: true" in summary
 
 
+def test_tool_call_log_records_policy_and_config_for_allowed_tool(tmp_path) -> None:
+    result = run_once(
+        "inspect project",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "List.",
+                    "action": {
+                        "name": "list_dir",
+                        "args": {"path": ".", "max_entries": None},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_trace_allowed",
+        max_iterations=1,
+    )
+
+    record = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert record["trace"]["policy_decision"] == "allow"
+    assert record["trace"]["policy_reason"] == "Low-risk action is allowed."
+    assert record["trace"]["config"] == {
+        "mode": "guided",
+        "sandbox": "workspace-write",
+        "approval": "risky-confirm",
+        "dry_run": False,
+    }
+
+
+def test_tool_call_log_records_policy_for_approval_required_action(tmp_path) -> None:
+    result = run_once(
+        "write notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {
+                            "path": "notes.txt",
+                            "content": "hello\n",
+                            "create_parents": False,
+                        },
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_trace_approval",
+    )
+
+    record = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert record["trace"]["policy_decision"] == "approval_required"
+    assert record["trace"]["policy_reason"] == "Action requires approval before execution."
+    assert record["trace"]["terminal"] is True
+
+
+def test_tool_call_log_records_dry_run_policy_for_skipped_action(tmp_path) -> None:
+    result = run_once(
+        "write notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {
+                            "path": "notes.txt",
+                            "content": "hello\n",
+                            "create_parents": False,
+                        },
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_trace_dry_run",
+        config=AgentConfig(dry_run=True),
+        max_iterations=1,
+    )
+
+    record = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert record["trace"]["policy_decision"] == "dry_run_skipped"
+    assert record["trace"]["policy_reason"] == "Dry run skipped action."
+    assert record["trace"]["config"]["dry_run"] is True
+
+
+def test_parse_error_trace_records_config_without_policy_decision(tmp_path) -> None:
+    result = run_once(
+        "repair",
+        RepairLLM(["{bad"]),
+        cwd=tmp_path,
+        run_id="run_trace_parse",
+        budget=ContextBudget(repair_attempts=0),
+    )
+
+    record = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert record["trace"]["phase"] == "parse"
+    assert record["trace"]["policy_decision"] is None
+    assert record["trace"]["policy_reason"] is None
+    assert record["trace"]["config"]["approval"] == "risky-confirm"
+
+
 def test_run_once_uses_budget_for_agents_md_context(tmp_path) -> None:
     (tmp_path / "AGENTS.md").write_text("abcdef", encoding="utf-8")
     llm = SpyLLM()

@@ -51,6 +51,9 @@ class TraceRecord:
     observation_index: int
     repair_attempt: int | None
     terminal: bool
+    policy_decision: str | None
+    policy_reason: str | None
+    config: dict[str, object]
 
 
 SUPPORTED_TOOL_ACTIONS = {
@@ -113,6 +116,7 @@ def run_once(
                 exc,
                 raw_response,
                 context,
+                effective_config,
                 action_index=model_call_index,
                 observation_index=model_call_index,
                 repair_attempt=repair_attempt,
@@ -164,6 +168,7 @@ def run_once(
                 observation_index=model_call_index,
                 repair_attempt=None,
                 terminal=action.action.name == "done" or observation.status == "error",
+                **_trace_policy(action, effective_config),
             )
         )
         if action.action.name == "done" or observation.status == "error":
@@ -207,6 +212,7 @@ def _parse_error_record(
     exc: ActionParseError,
     raw_response: Any,
     context: RunContext,
+    config: AgentConfig,
     *,
     action_index: int,
     observation_index: int,
@@ -243,6 +249,9 @@ def _parse_error_record(
         observation_index=observation_index,
         repair_attempt=repair_attempt,
         terminal=not repairable,
+        policy_decision=None,
+        policy_reason=None,
+        config=_trace_config(config),
     )
     return action, observation, trace
 
@@ -369,6 +378,31 @@ def _policy_details(action: InternalAction, config: AgentConfig) -> dict[str, ob
     }
 
 
+def _trace_policy(action: InternalAction, config: AgentConfig) -> dict[str, object]:
+    if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
+        return {
+            "policy_decision": "dry_run_skipped",
+            "policy_reason": "Dry run skipped action.",
+            "config": _trace_config(config),
+        }
+
+    decision = classify_action(action, config)
+    return {
+        "policy_decision": decision.status,
+        "policy_reason": decision.reason,
+        "config": _trace_config(config),
+    }
+
+
+def _trace_config(config: AgentConfig) -> dict[str, object]:
+    return {
+        "mode": config.mode,
+        "sandbox": config.sandbox,
+        "approval": config.approval,
+        "dry_run": config.dry_run,
+    }
+
+
 def _build_messages(task: str, project_instructions: ProjectInstructions) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     project_message = build_project_instructions_message(project_instructions)
@@ -404,6 +438,9 @@ def _write_run_logs(
                 "observation_index": traces[index].observation_index,
                 "repair_attempt": traces[index].repair_attempt,
                 "terminal": traces[index].terminal,
+                "policy_decision": traces[index].policy_decision,
+                "policy_reason": traces[index].policy_reason,
+                "config": traces[index].config,
             }
         redacted_record = redact_record(record)
         redaction_replacements += redacted_record.replacements
