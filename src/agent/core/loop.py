@@ -14,6 +14,11 @@ from agent.core.actions import (
     parse_model_action,
 )
 from agent.core.context import RunContext
+from agent.core.project_instructions import (
+    ProjectInstructions,
+    build_project_instructions_message,
+    load_project_instructions,
+)
 from agent.llm.base import LLMClient
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
@@ -27,6 +32,7 @@ class RunResult:
     observations: list[Observation]
     summary_path: Path
     tool_calls_path: Path
+    project_instructions: ProjectInstructions
 
 
 def run_once(
@@ -42,11 +48,13 @@ def run_once(
     tool_calls_path = run_dir / "tool_calls.jsonl"
     summary_path = run_dir / "summary.md"
     sandbox = WorkspaceSandbox(context.cwd)
+    project_instructions = load_project_instructions(context.cwd)
+    messages = _build_messages(task, project_instructions)
     actions: list[InternalAction] = []
     observations: list[Observation] = []
 
     for action_index in range(1, max_iterations + 1):
-        raw_response = llm.chat([{"role": "user", "content": task}])
+        raw_response = llm.chat(messages)
         action = parse_model_action(
             raw_response,
             run_id=context.run_id,
@@ -103,6 +111,7 @@ def run_once(
         context=context,
         actions=actions,
         observations=observations,
+        project_instructions=project_instructions,
         tool_calls_path=tool_calls_path,
         summary_path=summary_path,
     )
@@ -113,7 +122,17 @@ def run_once(
         observations=observations,
         summary_path=summary_path,
         tool_calls_path=tool_calls_path,
+        project_instructions=project_instructions,
     )
+
+
+def _build_messages(task: str, project_instructions: ProjectInstructions) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    project_message = build_project_instructions_message(project_instructions)
+    if project_message is not None:
+        messages.append(project_message)
+    messages.append({"role": "user", "content": task})
+    return messages
 
 
 def _write_run_logs(
@@ -121,6 +140,7 @@ def _write_run_logs(
     context: RunContext,
     actions: list[InternalAction],
     observations: list[Observation],
+    project_instructions: ProjectInstructions,
     tool_calls_path: Path,
     summary_path: Path,
 ) -> None:
@@ -141,7 +161,7 @@ def _write_run_logs(
         encoding="utf-8",
     )
     summary_path.write_text(
-        _render_summary(context, actions, observations),
+        _render_summary(context, actions, observations, project_instructions),
         encoding="utf-8",
     )
 
@@ -150,6 +170,7 @@ def _render_summary(
     context: RunContext,
     actions: list[InternalAction],
     observations: list[Observation],
+    project_instructions: ProjectInstructions,
 ) -> str:
     action = actions[-1]
     observation = observations[-1]
@@ -165,11 +186,26 @@ def _render_summary(
         lines.append(f"- final: {final}")
     if observation.error:
         lines.append(f"- error: {observation.error.code}: {observation.error.message}")
+    lines.extend(_project_instruction_lines(project_instructions))
     changed_lines = _changed_file_lines(observations)
     if changed_lines:
         lines.extend(["", "## Changes", *changed_lines])
     lines.append("")
     return "\n".join(lines)
+
+
+def _project_instruction_lines(project_instructions: ProjectInstructions) -> list[str]:
+    lines = [
+        "",
+        "## Project Instructions",
+        f"- project_instructions_path: {project_instructions.path}",
+        f"- project_instructions_loaded: {str(project_instructions.loaded).lower()}",
+        f"- project_instructions_chars: {project_instructions.char_count}",
+        f"- project_instructions_truncated: {str(project_instructions.truncated).lower()}",
+    ]
+    if project_instructions.error:
+        lines.append(f"- project_instructions_error: {project_instructions.error}")
+    return lines
 
 
 def _final_from_observation(observation: Observation) -> str | None:
