@@ -14,6 +14,7 @@ from agent.core.actions import (
     make_observation,
     parse_model_action,
 )
+from agent.core.budget import ContextBudget, truncate_observation
 from agent.core.context import RunContext
 from agent.core.project_instructions import (
     ProjectInstructions,
@@ -66,14 +67,18 @@ def run_once(
     run_id: str | None = None,
     max_iterations: int = 3,
     config: AgentConfig | None = None,
+    budget: ContextBudget | None = None,
 ) -> RunResult:
     effective_config = config or AgentConfig()
-    context = RunContext.create(task=task, cwd=cwd, run_id=run_id)
+    context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
     run_dir = context.cwd / ".agent" / "runs" / context.run_id
     tool_calls_path = run_dir / "tool_calls.jsonl"
     summary_path = run_dir / "summary.md"
     sandbox = WorkspaceSandbox(context.cwd)
-    project_instructions = load_project_instructions(context.cwd)
+    project_instructions = load_project_instructions(
+        context.cwd,
+        max_chars=context.budget.project_instructions_chars,
+    )
     messages = _build_messages(task, project_instructions)
     actions: list[InternalAction] = []
     observations: list[Observation] = []
@@ -112,6 +117,7 @@ def run_once(
                 message="This action is not supported in the current run loop.",
                 details={"requested_action": action.action.name},
             )
+        observation = truncate_observation(observation, context.budget)
         observations.append(observation)
         if action.action.name == "done" or observation.status == "error":
             break
@@ -125,6 +131,7 @@ def run_once(
             message="Run stopped after reaching the iteration limit.",
             details={"max_iterations": max_iterations},
         )
+        observation = truncate_observation(observation, context.budget)
         observations.append(observation)
 
     _write_run_logs(

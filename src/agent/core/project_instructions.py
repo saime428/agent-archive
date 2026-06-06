@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_PROJECT_INSTRUCTIONS_MAX_CHARS = 8_000
-TRUNCATION_MARKER = "\n[truncated]"
+from agent.core.budget import ContextBudget, truncate_text
+
+DEFAULT_PROJECT_INSTRUCTIONS_MAX_CHARS = ContextBudget().project_instructions_chars
 
 
 @dataclass(frozen=True)
@@ -57,14 +58,13 @@ def load_project_instructions(
 
     text = _decode_text(raw)
     char_count = len(text)
-    truncated = char_count > max_chars
-    content = text[:max_chars] + TRUNCATION_MARKER if truncated else text
+    truncated_content = truncate_text(text, max_chars)
     return ProjectInstructions(
         path=resolved_path,
         loaded=True,
-        content=content,
+        content=truncated_content.value,
         char_count=char_count,
-        truncated=truncated,
+        truncated=truncated_content.truncated,
     )
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 
 from agent.core.actions import ErrorCode, parse_model_action
+from agent.core.budget import ContextBudget
 from agent.core.context import RunContext
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.git import execute_git_tool
@@ -184,6 +185,58 @@ def test_git_diff_truncates_stdout(tmp_path) -> None:
     assert observation.data is not None
     assert observation.data["stdout_truncated"] is True
     assert observation.data["stdout"].endswith("\n[truncated]")
+
+
+def test_git_diff_uses_context_budget_when_max_bytes_is_none(tmp_path) -> None:
+    _init_repo(tmp_path)
+    target = tmp_path / "notes.txt"
+    target.write_text("old\n", encoding="utf-8")
+    _commit_all(tmp_path)
+    target.write_text("x" * 500 + "\n", encoding="utf-8")
+    context = RunContext.create(
+        "git",
+        cwd=tmp_path,
+        run_id="run_git",
+        budget=ContextBudget(git_output_chars=80),
+    )
+    action = _parse_git_action(
+        context,
+        "git_diff",
+        {"path": None, "cached": False, "max_bytes": None},
+    )
+
+    observation = execute_git_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert observation.data["stdout_truncated"] is True
+    assert observation.data["stdout"].endswith("\n[truncated]")
+
+
+def test_git_diff_max_bytes_cannot_exceed_context_budget(tmp_path) -> None:
+    _init_repo(tmp_path)
+    target = tmp_path / "notes.txt"
+    target.write_text("old\n", encoding="utf-8")
+    _commit_all(tmp_path)
+    target.write_text("x" * 500 + "\n", encoding="utf-8")
+    context = RunContext.create(
+        "git",
+        cwd=tmp_path,
+        run_id="run_git",
+        budget=ContextBudget(git_output_chars=80),
+    )
+    action = _parse_git_action(
+        context,
+        "git_diff",
+        {"path": None, "cached": False, "max_bytes": 500},
+    )
+
+    observation = execute_git_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert len(observation.data["stdout"]) == len("x" * 80 + "\n[truncated]")
+    assert observation.data["stdout_truncated"] is True
 
 
 def test_git_status_returns_tool_failed_outside_git_repo(tmp_path) -> None:

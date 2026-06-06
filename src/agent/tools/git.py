@@ -9,12 +9,12 @@ from agent.core.actions import (
     make_error_observation,
     make_observation,
 )
+from agent.core.budget import ContextBudget, truncate_text
 from agent.core.context import RunContext
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
-DEFAULT_MAX_CHARS = 20_000
+DEFAULT_MAX_CHARS = ContextBudget().git_output_chars
 DEFAULT_TIMEOUT_SECONDS = 30
-TRUNCATION_MARKER = "\n[truncated]"
 
 
 def execute_git_tool(
@@ -55,8 +55,14 @@ def execute_git_tool(
                 "argv": exc.cmd,
                 "cwd": str(context.cwd),
                 "timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
-                "stdout": _truncate(_decode_output(exc.stdout or b""), _max_chars(action))[0],
-                "stderr": _truncate(_decode_output(exc.stderr or b""), _max_chars(action))[0],
+                "stdout": _truncate(
+                    _decode_output(exc.stdout or b""),
+                    _max_chars(action, context),
+                )[0],
+                "stderr": _truncate(
+                    _decode_output(exc.stderr or b""),
+                    _max_chars(action, context),
+                )[0],
             },
         )
     except OSError as exc:
@@ -69,8 +75,8 @@ def execute_git_tool(
             details={"tool": action.action.name, "cwd": str(context.cwd)},
         )
 
-    stdout, stdout_truncated = _truncate(_decode_output(completed.stdout), _max_chars(action))
-    stderr, stderr_truncated = _truncate(_decode_output(completed.stderr), _max_chars(action))
+    stdout, stdout_truncated = _truncate(_decode_output(completed.stdout), _max_chars(action, context))
+    stderr, stderr_truncated = _truncate(_decode_output(completed.stderr), _max_chars(action, context))
     data = {
         "argv": argv,
         "cwd": str(context.cwd),
@@ -133,11 +139,12 @@ def _git_relative_path(path: str, context: RunContext, sandbox: WorkspaceSandbox
         ) from exc
 
 
-def _max_chars(action: InternalAction) -> int:
+def _max_chars(action: InternalAction, context: RunContext) -> int:
+    budget_limit = context.budget.git_output_chars
     if action.action.name != "git_diff":
-        return DEFAULT_MAX_CHARS
+        return budget_limit
     requested = action.action.args.get("max_bytes")
-    return requested or DEFAULT_MAX_CHARS
+    return min(requested or budget_limit, budget_limit)
 
 
 def _decode_output(raw: bytes | str) -> str:
@@ -154,6 +161,5 @@ def _normalize_newlines(text: str) -> str:
 
 
 def _truncate(text: str, max_chars: int) -> tuple[str, bool]:
-    if len(text) <= max_chars:
-        return text, False
-    return text[:max_chars] + TRUNCATION_MARKER, True
+    result = truncate_text(text, max_chars)
+    return result.value, result.truncated

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from agent.core.actions import ErrorCode, parse_model_action
+from agent.core.budget import ContextBudget
 from agent.core.context import RunContext
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.shell import execute_run_command
@@ -189,3 +190,27 @@ def test_run_command_truncates_large_output(tmp_path) -> None:
     assert observation.data is not None
     assert observation.data["stdout_truncated"] is True
     assert observation.data["stdout"].endswith("\n[truncated]")
+
+
+def test_run_command_uses_context_budget_for_output(tmp_path) -> None:
+    context = RunContext.create(
+        "run",
+        cwd=tmp_path,
+        run_id="run_shell",
+        budget=ContextBudget(command_output_chars=5),
+    )
+    action = _parse_run_command(
+        context,
+        {
+            "argv": [sys.executable, "-c", "print('abcdefghij')"],
+            "cwd": None,
+            "timeout_seconds": 5,
+        },
+    )
+
+    observation = execute_run_command(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert observation.data["stdout"] == "abcde\n[truncated]"
+    assert observation.data["stdout_truncated"] is True

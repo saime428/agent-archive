@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from agent.core.actions import ErrorCode
+from agent.core.budget import ContextBudget
 from agent.core.loop import run_once
 from agent.config import AgentConfig
 from agent.llm.fake import FakeLLMClient
@@ -178,6 +179,87 @@ def test_run_once_exposes_effective_config(tmp_path) -> None:
     assert "config_sandbox: read-only" in summary
     assert "config_approval: always" in summary
     assert "config_dry_run: true" in summary
+
+
+def test_run_once_uses_budget_for_agents_md_context(tmp_path) -> None:
+    (tmp_path / "AGENTS.md").write_text("abcdef", encoding="utf-8")
+    llm = SpyLLM()
+
+    result = run_once(
+        "inspect project",
+        llm,
+        cwd=tmp_path,
+        run_id="run_budget_agents",
+        budget=ContextBudget(project_instructions_chars=3),
+    )
+
+    assert llm.messages is not None
+    assert "abc\n[truncated]" in llm.messages[0]["content"]
+    assert result.project_instructions.truncated is True
+
+
+def test_run_once_truncates_oversized_observation_before_logs(tmp_path) -> None:
+    result = run_once(
+        "large final",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "x" * 200,
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_budget_observation",
+        budget=ContextBudget(observation_summary_chars=20, observation_data_chars=60),
+    )
+
+    assert result.observation.data is not None
+    assert result.observation.data["budget_truncated"] is True
+    assert "data_excerpt" in result.observation.data
+
+    tool_call = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert tool_call["observation"]["data"]["budget_truncated"] is True
+    assert tool_call["observation"]["data"]["data_excerpt"].endswith("\n[truncated]")
+
+
+def test_run_once_redacts_budget_truncated_log_excerpt(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    result = run_once(
+        "large secret final",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": f"{secret} " + ("x" * 200),
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_budget_redaction",
+        budget=ContextBudget(observation_data_chars=120),
+    )
+
+    assert result.observation.data is not None
+    assert result.observation.data["budget_truncated"] is True
+
+    tool_calls_text = result.tool_calls_path.read_text(encoding="utf-8")
+    assert secret not in tool_calls_text
+    assert "[REDACTED]" in tool_calls_text
 
 
 def test_run_once_overwrites_model_metadata(tmp_path) -> None:

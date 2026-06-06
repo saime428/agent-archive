@@ -13,13 +13,14 @@ from agent.core.actions import (
     make_error_observation,
     make_observation,
 )
+from agent.core.budget import ContextBudget, truncate_text
 from agent.core.context import RunContext
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
-DEFAULT_MAX_LINES = 200
-DEFAULT_MAX_CHARS = 20_000
-DEFAULT_MAX_MATCHES = 50
-MAX_EXCERPT_CHARS = 200
+DEFAULT_MAX_LINES = ContextBudget().file_read_max_lines
+DEFAULT_MAX_CHARS = ContextBudget().file_read_max_chars
+DEFAULT_MAX_MATCHES = ContextBudget().search_max_matches
+MAX_EXCERPT_CHARS = ContextBudget().search_excerpt_chars
 SKIP_DIR_NAMES = {".git", "__pycache__", ".pytest_cache"}
 
 
@@ -49,9 +50,9 @@ def execute_tool(
         if action.action.name == "list_dir":
             return _list_dir(action, sandbox, observation_index=observation_index)
         if action.action.name == "read_file":
-            return _read_file(action, sandbox, observation_index=observation_index)
+            return _read_file(action, context, sandbox, observation_index=observation_index)
         if action.action.name == "search_files":
-            return _search_files(action, sandbox, observation_index=observation_index)
+            return _search_files(action, context, sandbox, observation_index=observation_index)
         if action.action.name == "write_file":
             return _write_file(action, context, sandbox, observation_index=observation_index)
         if action.action.name == "apply_patch":
@@ -287,6 +288,7 @@ def _list_dir(
 
 def _read_file(
     action: InternalAction,
+    context: RunContext,
     sandbox: WorkspaceSandbox,
     *,
     observation_index: int,
@@ -311,16 +313,22 @@ def _read_file(
     total_lines = len(lines)
     start_line = action.action.args.get("start_line") or 1
     requested_max_lines = action.action.args.get("max_lines")
-    max_lines = requested_max_lines or DEFAULT_MAX_LINES
+    max_lines = min(
+        requested_max_lines or context.budget.file_read_max_lines,
+        context.budget.file_read_max_lines,
+    )
     start_index = max(start_line - 1, 0)
     selected_lines = lines[start_index : start_index + max_lines]
     content = "\n".join(selected_lines)
     truncated = requested_max_lines is None and start_index + len(selected_lines) < total_lines
-    if len(content) > DEFAULT_MAX_CHARS:
-        content = content[:DEFAULT_MAX_CHARS]
+    if len(content) > context.budget.file_read_max_chars:
+        content = truncate_text(content, context.budget.file_read_max_chars).value
         truncated = True
     if truncated:
-        content = f"{content}\n[truncated]" if content else "[truncated]"
+        if content and not content.endswith("\n[truncated]"):
+            content = f"{content}\n[truncated]"
+        elif not content:
+            content = "[truncated]"
     end_line = start_line + len(selected_lines) - 1 if selected_lines else start_line - 1
 
     data = {
@@ -342,6 +350,7 @@ def _read_file(
 
 def _search_files(
     action: InternalAction,
+    context: RunContext,
     sandbox: WorkspaceSandbox,
     *,
     observation_index: int,
@@ -349,7 +358,11 @@ def _search_files(
     query = str(action.action.args["query"])
     requested_path = action.action.args.get("path") or "."
     root = sandbox.resolve_read_path(str(requested_path))
-    max_matches = action.action.args.get("max_matches") or DEFAULT_MAX_MATCHES
+    requested_max_matches = action.action.args.get("max_matches")
+    max_matches = min(
+        requested_max_matches or context.budget.search_max_matches,
+        context.budget.search_max_matches,
+    )
     glob_mode = _is_glob_query(query)
     matches: list[dict] = []
     total_matches = 0
@@ -364,7 +377,7 @@ def _search_files(
         candidate_matches = (
             _path_matches(relative_path, query)
             if glob_mode
-            else _path_and_text_matches(candidate, relative_path, query)
+            else _path_and_text_matches(candidate, relative_path, query, context.budget)
         )
         for match in candidate_matches:
             total_matches += 1
@@ -397,7 +410,12 @@ def _path_matches(relative_path: str, query: str) -> list[dict]:
     return []
 
 
-def _path_and_text_matches(candidate: Path, relative_path: str, query: str) -> list[dict]:
+def _path_and_text_matches(
+    candidate: Path,
+    relative_path: str,
+    query: str,
+    budget: ContextBudget,
+) -> list[dict]:
     query_lower = query.lower()
     matches: list[dict] = []
     if query_lower in relative_path.lower():
@@ -415,7 +433,7 @@ def _path_and_text_matches(candidate: Path, relative_path: str, query: str) -> l
                     "path": relative_path,
                     "kind": "text",
                     "line": line_number,
-                    "excerpt": _excerpt(line),
+                    "excerpt": _excerpt(line, budget.search_excerpt_chars),
                 }
             )
     return matches
@@ -431,10 +449,10 @@ def _should_skip_path(candidate: Path, workspace_root: Path) -> bool:
     return any(part in SKIP_DIR_NAMES for part in relative_parts)
 
 
-def _excerpt(line: str) -> str:
-    if len(line) <= MAX_EXCERPT_CHARS:
+def _excerpt(line: str, max_chars: int = MAX_EXCERPT_CHARS) -> str:
+    if len(line) <= max_chars:
         return line
-    return line[:MAX_EXCERPT_CHARS]
+    return line[:max_chars]
 
 
 def _looks_binary(raw: bytes) -> bool:

@@ -11,13 +11,13 @@ from agent.core.actions import (
     make_error_observation,
     make_observation,
 )
+from agent.core.budget import ContextBudget, truncate_text
 from agent.core.context import RunContext
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 120
-MAX_OUTPUT_CHARS = 20_000
-TRUNCATION_MARKER = "\n[truncated]"
+MAX_OUTPUT_CHARS = ContextBudget().command_output_chars
 
 SHELL_WRAPPERS = {
     "bash",
@@ -127,8 +127,14 @@ def execute_run_command(
                 "argv": argv,
                 "cwd": str(cwd),
                 "timeout_seconds": timeout_seconds,
-                "stdout": _truncate(_decode_output(exc.stdout or b""))[0],
-                "stderr": _truncate(_decode_output(exc.stderr or b""))[0],
+                "stdout": _truncate(
+                    _decode_output(exc.stdout or b""),
+                    context.budget.command_output_chars,
+                )[0],
+                "stderr": _truncate(
+                    _decode_output(exc.stderr or b""),
+                    context.budget.command_output_chars,
+                )[0],
             },
         )
     except OSError as exc:
@@ -141,8 +147,8 @@ def execute_run_command(
             details={"argv": argv, "cwd": str(cwd)},
         )
 
-    stdout, stdout_truncated = _truncate(_decode_output(completed.stdout))
-    stderr, stderr_truncated = _truncate(_decode_output(completed.stderr))
+    stdout, stdout_truncated = _truncate(_decode_output(completed.stdout), context.budget.command_output_chars)
+    stderr, stderr_truncated = _truncate(_decode_output(completed.stderr), context.budget.command_output_chars)
     data = {
         "argv": argv,
         "cwd": str(cwd),
@@ -252,7 +258,6 @@ def _normalize_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _truncate(text: str) -> tuple[str, bool]:
-    if len(text) <= MAX_OUTPUT_CHARS:
-        return text, False
-    return text[:MAX_OUTPUT_CHARS] + TRUNCATION_MARKER, True
+def _truncate(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> tuple[str, bool]:
+    result = truncate_text(text, max_chars)
+    return result.value, result.truncated

@@ -1,4 +1,5 @@
 from agent.core.actions import ErrorCode, make_error_observation, parse_model_action
+from agent.core.budget import ContextBudget
 from agent.core.context import RunContext
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
@@ -113,6 +114,35 @@ def test_read_file_truncates_large_file(tmp_path) -> None:
     assert "[truncated]" in observation.data["content"]
 
 
+def test_read_file_uses_context_budget_for_lines_and_chars(tmp_path) -> None:
+    (tmp_path / "large.txt").write_text("abcdef\nghijkl\nmnopqr\n", encoding="utf-8")
+    context = RunContext.create(
+        "read",
+        cwd=tmp_path,
+        run_id="run_tools",
+        budget=ContextBudget(file_read_max_lines=2, file_read_max_chars=8),
+    )
+    action = parse_model_action(
+        {
+            "message": "Read.",
+            "action": {
+                "name": "read_file",
+                "args": {"path": "large.txt", "start_line": None, "max_lines": None},
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert observation.data["content"] == "abcdef\ng\n[truncated]"
+    assert observation.data["truncated"] is True
+
+
 def test_execute_tool_returns_sandbox_error_observation(tmp_path) -> None:
     context = RunContext.create("read", cwd=tmp_path, run_id="run_tools")
     action = parse_model_action(
@@ -210,6 +240,38 @@ def test_search_files_truncates_at_max_matches(tmp_path) -> None:
     assert observation.data["total_matches"] == 3
     assert observation.data["truncated"] is True
     assert len(observation.data["matches"]) == 2
+
+
+def test_search_files_uses_context_budget_for_matches_and_excerpt(tmp_path) -> None:
+    for index in range(3):
+        (tmp_path / f"file_{index}.txt").write_text("needle abcdef\n", encoding="utf-8")
+    context = RunContext.create(
+        "search",
+        cwd=tmp_path,
+        run_id="run_tools",
+        budget=ContextBudget(search_max_matches=1, search_excerpt_chars=8),
+    )
+    action = parse_model_action(
+        {
+            "message": "Search.",
+            "action": {
+                "name": "search_files",
+                "args": {"query": "needle", "path": ".", "max_matches": None},
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert observation.data["total_matches"] == 3
+    assert observation.data["truncated"] is True
+    assert len(observation.data["matches"]) == 1
+    assert observation.data["matches"][0]["excerpt"] == "needle a"
 
 
 def test_search_files_does_not_text_scan_binary_file(tmp_path) -> None:
