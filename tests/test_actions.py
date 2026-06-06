@@ -165,6 +165,73 @@ def test_parse_model_action_rejects_extra_search_files_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_write_file_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": "notes.txt",
+                    "content": "hello\n",
+                    "create_parents": False,
+                },
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "write_file"
+    assert action.action.args == {
+        "path": "notes.txt",
+        "content": "hello\n",
+        "create_parents": False,
+    }
+
+
+def test_parse_model_action_requires_write_file_content() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "create_parents": False},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.MISSING_REQUIRED_FIELD
+
+
+def test_parse_model_action_rejects_extra_write_file_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {
+                        "path": "notes.txt",
+                        "content": "hello\n",
+                        "create_parents": False,
+                        "mode": "append",
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_make_observation_matches_action_ids() -> None:
     action = parse_model_action(
         {

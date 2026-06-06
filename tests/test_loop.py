@@ -200,6 +200,52 @@ def test_run_once_executes_search_files_then_done(tmp_path) -> None:
     assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
 
 
+def test_run_once_executes_write_file_then_done(tmp_path) -> None:
+    result = run_once(
+        "write notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {
+                            "path": "notes.txt",
+                            "content": "hello\n",
+                            "create_parents": False,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Wrote notes.",
+                            "changed_files": ["notes.txt"],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_write_loop",
+    )
+
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+    assert result.observations[0].status == "ok"
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["snapshot_path"]
+    assert result.observation.data == {"final": "Wrote notes."}
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "notes.txt" in summary
+    assert "snapshot" in summary
+    assert "restore" in summary
+
+
 def test_run_once_unsupported_action_returns_error(tmp_path) -> None:
     result = run_once(
         "ask",

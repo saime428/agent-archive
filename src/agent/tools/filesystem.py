@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import fnmatch
+import json
+import shutil
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent.core.actions import (
@@ -20,6 +23,13 @@ MAX_EXCERPT_CHARS = 200
 SKIP_DIR_NAMES = {".git", "__pycache__", ".pytest_cache"}
 
 
+@dataclass(frozen=True)
+class SnapshotRecord:
+    snapshot_path: Path
+    previously_existed: bool
+    restore_hint: str
+
+
 def execute_tool(
     action: InternalAction,
     context: RunContext,
@@ -34,6 +44,8 @@ def execute_tool(
             return _read_file(action, sandbox, observation_index=observation_index)
         if action.action.name == "search_files":
             return _search_files(action, sandbox, observation_index=observation_index)
+        if action.action.name == "write_file":
+            return _write_file(action, context, sandbox, observation_index=observation_index)
     except SandboxError as exc:
         return make_error_observation(
             action.action_id,
@@ -60,6 +72,74 @@ def execute_tool(
         code=ErrorCode.POLICY_DENIED,
         message="Unsupported tool.",
         details={"requested_action": action.action.name},
+    )
+
+
+def _write_file(
+    action: InternalAction,
+    context: RunContext,
+    sandbox: WorkspaceSandbox,
+    *,
+    observation_index: int,
+) -> Observation:
+    path = sandbox.resolve_write_path(
+        str(action.action.args["path"]),
+        create_parents=bool(action.action.args["create_parents"]),
+    )
+    content = str(action.action.args["content"])
+    snapshot = create_snapshot(path, context, action_id=action.action_id)
+    if action.action.args["create_parents"]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = content.encode("utf-8")
+    path.write_bytes(encoded)
+
+    data = {
+        "path": str(path),
+        "bytes_written": len(encoded),
+        "snapshot_path": _display_path(snapshot.snapshot_path, context.cwd),
+        "previously_existed": snapshot.previously_existed,
+        "restore_hint": snapshot.restore_hint,
+    }
+    return make_observation(
+        action,
+        observation_index=observation_index,
+        summary=f"Wrote {len(encoded)} bytes to file.",
+        data=data,
+    )
+
+
+def create_snapshot(path: Path, context: RunContext, *, action_id: str) -> SnapshotRecord:
+    snapshot_dir = context.cwd / ".agent" / "runs" / context.run_id / "snapshots" / action_id
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    existed = path.exists()
+    metadata_path = snapshot_dir / "metadata.json"
+    content_snapshot_path = snapshot_dir / "original"
+    metadata = {
+        "path": str(path),
+        "action_id": action_id,
+        "previously_existed": existed,
+    }
+
+    if existed:
+        shutil.copy2(path, content_snapshot_path)
+        metadata["snapshot_file"] = str(content_snapshot_path)
+        metadata["byte_size"] = path.stat().st_size
+        snapshot_path = content_snapshot_path
+        restore_hint = f"Restore by copying {content_snapshot_path} back to {path}."
+    else:
+        metadata["snapshot_file"] = None
+        metadata["byte_size"] = None
+        snapshot_path = metadata_path
+        restore_hint = f"Restore by deleting {path}."
+
+    metadata_path.write_text(
+        json.dumps(metadata, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+    return SnapshotRecord(
+        snapshot_path=snapshot_path,
+        previously_existed=existed,
+        restore_hint=restore_hint,
     )
 
 
@@ -257,3 +337,10 @@ def _decode_text(raw: bytes) -> str:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
         return raw.decode("utf-8", errors="replace")
+
+
+def _display_path(path: Path, workspace_root: Path) -> str:
+    try:
+        return path.relative_to(workspace_root).as_posix()
+    except ValueError:
+        return str(path)

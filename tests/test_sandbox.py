@@ -33,3 +33,45 @@ def test_resolve_read_path_rejects_protected_runs_directory(tmp_path) -> None:
         sandbox.resolve_read_path(".agent/runs/run_1/summary.md")
 
     assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_resolve_write_path_allows_workspace_file(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    assert sandbox.resolve_write_path("notes.txt") == (tmp_path / "notes.txt").resolve()
+
+
+def test_resolve_write_path_rejects_parent_escape(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path("../outside.txt")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_resolve_write_path_rejects_protected_runs_directory(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path(".agent/runs/run_1/summary.md")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_resolve_write_path_rejects_git_directory(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path(".git/config")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_resolve_write_path_rejects_pycache_directory(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path("__pycache__/cache.pyc")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION

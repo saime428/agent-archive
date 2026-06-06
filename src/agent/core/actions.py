@@ -73,12 +73,19 @@ class SearchFilesArgs(StrictModel):
     max_matches: int | None = None
 
 
+class WriteFileArgs(StrictModel):
+    path: str
+    content: str
+    create_parents: bool
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
     "list_dir": ListDirArgs,
     "read_file": ReadFileArgs,
     "search_files": SearchFilesArgs,
+    "write_file": WriteFileArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

@@ -62,7 +62,7 @@ def run_once(
                 summary="Done.",
                 data={"final": str(action.action.args["final"])},
             )
-        elif action.action.name in {"list_dir", "read_file", "search_files"}:
+        elif action.action.name in {"list_dir", "read_file", "search_files", "write_file"}:
             observation = execute_tool(
                 action,
                 context,
@@ -135,16 +135,18 @@ def _write_run_logs(
         encoding="utf-8",
     )
     summary_path.write_text(
-        _render_summary(context, actions[-1], observations[-1]),
+        _render_summary(context, actions, observations),
         encoding="utf-8",
     )
 
 
 def _render_summary(
     context: RunContext,
-    action: InternalAction,
-    observation: Observation,
+    actions: list[InternalAction],
+    observations: list[Observation],
 ) -> str:
+    action = actions[-1]
+    observation = observations[-1]
     lines = [
         f"# Run {context.run_id}",
         "",
@@ -157,6 +159,9 @@ def _render_summary(
         lines.append(f"- final: {final}")
     if observation.error:
         lines.append(f"- error: {observation.error.code}: {observation.error.message}")
+    changed_lines = _changed_file_lines(observations)
+    if changed_lines:
+        lines.extend(["", "## Changes", *changed_lines])
     lines.append("")
     return "\n".join(lines)
 
@@ -169,3 +174,19 @@ def _final_from_observation(observation: Observation) -> str | None:
     if final is None:
         return None
     return str(final)
+
+
+def _changed_file_lines(observations: list[Observation]) -> list[str]:
+    lines: list[str] = []
+    for observation in observations:
+        data = observation.data or {}
+        path = data.get("path")
+        snapshot_path = data.get("snapshot_path")
+        restore_hint = data.get("restore_hint")
+        if not path or not snapshot_path:
+            continue
+        lines.append(f"- changed_file: {path}")
+        lines.append(f"- snapshot: {snapshot_path}")
+        if restore_hint:
+            lines.append(f"- restore: {restore_hint}")
+    return lines

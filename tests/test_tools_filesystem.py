@@ -269,3 +269,170 @@ def test_search_files_returns_sandbox_error_for_path_escape(tmp_path) -> None:
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_write_file_creates_new_file_with_missing_snapshot(tmp_path) -> None:
+    context = RunContext.create("write", cwd=tmp_path, run_id="run_write")
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": "notes.txt",
+                    "content": "hello\n",
+                    "create_parents": False,
+                },
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+    assert observation.data is not None
+    assert observation.data["path"] == str((tmp_path / "notes.txt").resolve())
+    assert observation.data["bytes_written"] == len("hello\n".encode("utf-8"))
+    assert observation.data["previously_existed"] is False
+    assert "delet" in observation.data["restore_hint"].lower()
+    snapshot_path = tmp_path / observation.data["snapshot_path"]
+    assert snapshot_path.exists()
+    assert "previously_existed" in snapshot_path.read_text(encoding="utf-8")
+
+
+def test_write_file_overwrites_existing_file_with_snapshot_content(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("old\n", encoding="utf-8")
+    context = RunContext.create("write", cwd=tmp_path, run_id="run_write")
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": "notes.txt",
+                    "content": "new\n",
+                    "create_parents": False,
+                },
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert observation.data is not None
+    assert observation.data["previously_existed"] is True
+    snapshot_path = tmp_path / observation.data["snapshot_path"]
+    assert snapshot_path.read_text(encoding="utf-8") == "old\n"
+
+
+def test_write_file_parent_missing_without_create_parents_returns_tool_failed(tmp_path) -> None:
+    context = RunContext.create("write", cwd=tmp_path, run_id="run_write")
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": "nested/notes.txt",
+                    "content": "hello\n",
+                    "create_parents": False,
+                },
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.TOOL_FAILED
+
+
+def test_write_file_create_parents_creates_directory(tmp_path) -> None:
+    context = RunContext.create("write", cwd=tmp_path, run_id="run_write")
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": "nested/notes.txt",
+                    "content": "hello\n",
+                    "create_parents": True,
+                },
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert (tmp_path / "nested" / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+
+
+def test_write_file_rejects_escape_path(tmp_path) -> None:
+    context = RunContext.create("write", cwd=tmp_path, run_id="run_write")
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": "../outside.txt",
+                    "content": "hello\n",
+                    "create_parents": False,
+                },
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_write_file_rejects_protected_internal_state(tmp_path) -> None:
+    context = RunContext.create("write", cwd=tmp_path, run_id="run_write")
+    action = parse_model_action(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {
+                    "path": ".agent/runs/run_write/summary.md",
+                    "content": "tamper\n",
+                    "create_parents": True,
+                },
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
