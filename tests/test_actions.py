@@ -446,6 +446,101 @@ def test_parse_model_action_rejects_extra_run_command_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_git_status_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Check status.",
+            "action": {
+                "name": "git_status",
+                "args": {"short": True},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "git_status"
+    assert action.action.args == {"short": True}
+
+
+def test_parse_model_action_rejects_extra_git_status_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Check status.",
+                "action": {
+                    "name": "git_status",
+                    "args": {"short": True, "porcelain": True},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_accepts_git_diff_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Check diff.",
+            "action": {
+                "name": "git_diff",
+                "args": {"path": None, "cached": False, "max_bytes": 1000},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "git_diff"
+    assert action.action.args == {"path": None, "cached": False, "max_bytes": 1000}
+
+
+def test_parse_model_action_rejects_invalid_git_diff_max_bytes() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Check diff.",
+                "action": {
+                    "name": "git_diff",
+                    "args": {"path": None, "cached": False, "max_bytes": 0},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_extra_git_diff_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Check diff.",
+                "action": {
+                    "name": "git_diff",
+                    "args": {
+                        "path": None,
+                        "cached": False,
+                        "max_bytes": None,
+                        "stat": True,
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_make_observation_matches_action_ids() -> None:
     action = parse_model_action(
         {

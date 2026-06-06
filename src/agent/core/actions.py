@@ -126,6 +126,30 @@ class RunCommandArgs(StrictModel):
         return value
 
 
+class GitStatusArgs(StrictModel):
+    short: bool
+
+
+class GitDiffArgs(StrictModel):
+    path: str | None
+    cached: bool
+    max_bytes: int | None
+
+    @field_validator("path")
+    @classmethod
+    def _reject_empty_path(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("path must not be empty.")
+        return value
+
+    @field_validator("max_bytes")
+    @classmethod
+    def _reject_invalid_max_bytes(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_bytes must be positive.")
+        return value
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
@@ -135,6 +159,8 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "write_file": WriteFileArgs,
     "apply_patch": ApplyPatchArgs,
     "run_command": RunCommandArgs,
+    "git_status": GitStatusArgs,
+    "git_diff": GitDiffArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

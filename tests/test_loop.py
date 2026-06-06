@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 
 from agent.core.actions import ErrorCode
@@ -51,6 +52,10 @@ class SpyLLM:
                 },
             },
         }
+
+
+def _git(cwd, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
 def test_run_once_returns_done_action_and_writes_logs(tmp_path) -> None:
@@ -357,6 +362,78 @@ def test_run_once_executes_run_command_then_done(tmp_path) -> None:
     assert result.observations[0].data["stdout"] == "hello\n"
     assert result.observation.data == {"final": "Ran command."}
     assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_run_once_executes_git_status_then_done(tmp_path) -> None:
+    _git(tmp_path, "init")
+    result = run_once(
+        "check git status",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Status.",
+                    "action": {
+                        "name": "git_status",
+                        "args": {"short": True},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Checked status.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_git_status_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["exit_code"] == 0
+    assert result.observation.data == {"final": "Checked status."}
+
+
+def test_run_once_executes_git_diff_then_done(tmp_path) -> None:
+    _git(tmp_path, "init")
+    result = run_once(
+        "check git diff",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Diff.",
+                    "action": {
+                        "name": "git_diff",
+                        "args": {"path": None, "cached": False, "max_bytes": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Checked diff.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_git_diff_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["exit_code"] == 0
+    assert result.observation.data == {"final": "Checked diff."}
 
 
 def test_run_once_unsupported_action_returns_error(tmp_path) -> None:
