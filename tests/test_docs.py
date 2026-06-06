@@ -26,3 +26,4 @@ def test_v01_acceptance_checklist_records_statuses_and_deferrals() -> None:
     assert "Deferred to v0.3" in checklist
     assert "DeepSeek" in checklist
     assert "Documents" in checklist
+    assert "v0.1 freeze status" in checklist

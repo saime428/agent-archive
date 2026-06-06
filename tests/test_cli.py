@@ -15,6 +15,7 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "cwd" in result.output
     assert "agent import: ok" in result.output
     assert "rg available:" in result.output
+    assert "search backend:" in result.output
     assert "config mode:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
@@ -30,6 +31,7 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "cwd" in result.output
     assert "agent import: ok" in result.output
     assert "rg available:" in result.output
+    assert "search backend:" in result.output
     assert "config mode:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output

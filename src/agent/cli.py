@@ -59,7 +59,9 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"Python: {platform.python_version()}")
     console.print(f"cwd: {cwd.resolve()}")
     console.print("agent import: ok")
-    console.print(f"rg available: {str(shutil.which('rg') is not None).lower()}")
+    rg_available = shutil.which("rg") is not None
+    console.print(f"rg available: {str(rg_available).lower()}")
+    console.print(f"search backend: {'rg' if rg_available else 'python'}")
     console.print(f"config mode: {config.mode}")
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
