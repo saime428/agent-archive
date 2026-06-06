@@ -21,6 +21,8 @@ class ContextBudget:
     git_output_chars: int = 20_000
     observation_data_chars: int = 20_000
     observation_summary_chars: int = 1_000
+    repair_attempts: int = 2
+    repair_excerpt_chars: int = 1_000
 
 
 @dataclass(frozen=True)

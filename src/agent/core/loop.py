@@ -7,6 +7,8 @@ from typing import Any
 
 from agent.config import AgentConfig
 from agent.core.actions import (
+    ActionCall,
+    ActionParseError,
     ErrorCode,
     InternalAction,
     Observation,
@@ -14,7 +16,7 @@ from agent.core.actions import (
     make_observation,
     parse_model_action,
 )
-from agent.core.budget import ContextBudget, truncate_observation
+from agent.core.budget import ContextBudget, truncate_observation, truncate_text
 from agent.core.context import RunContext
 from agent.core.project_instructions import (
     ProjectInstructions,
@@ -40,6 +42,15 @@ class RunResult:
     tool_calls_path: Path
     project_instructions: ProjectInstructions
     config: AgentConfig
+
+
+@dataclass(frozen=True)
+class TraceRecord:
+    phase: str
+    action_index: int
+    observation_index: int
+    repair_attempt: int | None
+    terminal: bool
 
 
 SUPPORTED_TOOL_ACTIONS = {
@@ -82,21 +93,48 @@ def run_once(
     messages = _build_messages(task, project_instructions)
     actions: list[InternalAction] = []
     observations: list[Observation] = []
+    traces: list[TraceRecord] = []
+    repair_attempt = 0
+    model_call_index = 0
+    completed_action_iterations = 0
 
-    for action_index in range(1, max_iterations + 1):
+    while completed_action_iterations < max_iterations:
+        model_call_index += 1
         raw_response = llm.chat(messages)
-        action = parse_model_action(
-            raw_response,
-            run_id=context.run_id,
-            action_index=action_index,
-            created_at=context.created_at,
-        )
+        try:
+            action = parse_model_action(
+                raw_response,
+                run_id=context.run_id,
+                action_index=model_call_index,
+                created_at=context.created_at,
+            )
+        except ActionParseError as exc:
+            action, observation, trace = _parse_error_record(
+                exc,
+                raw_response,
+                context,
+                action_index=model_call_index,
+                observation_index=model_call_index,
+                repair_attempt=repair_attempt,
+            )
+            observation = truncate_observation(observation, context.budget)
+            actions.append(action)
+            observations.append(observation)
+            traces.append(trace)
+            if not trace.terminal:
+                messages.append(_build_repair_message(exc, raw_response, context, repair_attempt=repair_attempt))
+                repair_attempt += 1
+                continue
+            break
+
+        repair_attempt = 0
+        completed_action_iterations += 1
         actions.append(action)
 
         if action.action.name == "done":
             observation = make_observation(
                 action,
-                observation_index=action_index,
+                observation_index=model_call_index,
                 summary="Done.",
                 data={"final": str(action.action.args["final"])},
             )
@@ -106,19 +144,28 @@ def run_once(
                 context,
                 sandbox,
                 effective_config,
-                observation_index=action_index,
+                observation_index=model_call_index,
             )
         else:
             observation = make_error_observation(
                 action.action_id,
                 action.run_id,
-                observation_index=action_index,
+                observation_index=model_call_index,
                 code=ErrorCode.POLICY_DENIED,
                 message="This action is not supported in the current run loop.",
                 details={"requested_action": action.action.name},
             )
         observation = truncate_observation(observation, context.budget)
         observations.append(observation)
+        traces.append(
+            TraceRecord(
+                phase="action",
+                action_index=model_call_index,
+                observation_index=model_call_index,
+                repair_attempt=None,
+                terminal=action.action.name == "done" or observation.status == "error",
+            )
+        )
         if action.action.name == "done" or observation.status == "error":
             break
     else:
@@ -126,7 +173,7 @@ def run_once(
         observation = make_error_observation(
             action.action_id,
             context.run_id,
-            observation_index=max_iterations + 1,
+            observation_index=model_call_index + 1,
             code=ErrorCode.TOOL_FAILED,
             message="Run stopped after reaching the iteration limit.",
             details={"max_iterations": max_iterations},
@@ -138,6 +185,7 @@ def run_once(
         context=context,
         actions=actions,
         observations=observations,
+        traces=traces,
         project_instructions=project_instructions,
         config=effective_config,
         tool_calls_path=tool_calls_path,
@@ -153,6 +201,90 @@ def run_once(
         project_instructions=project_instructions,
         config=effective_config,
     )
+
+
+def _parse_error_record(
+    exc: ActionParseError,
+    raw_response: Any,
+    context: RunContext,
+    *,
+    action_index: int,
+    observation_index: int,
+    repair_attempt: int,
+) -> tuple[InternalAction, Observation, TraceRecord]:
+    raw_response_excerpt = _raw_response_excerpt(raw_response, context.budget)
+    repairable = repair_attempt < context.budget.repair_attempts
+    action = InternalAction(
+        run_id=context.run_id,
+        action_id=_format_action_id(action_index),
+        created_at=context.created_at,
+        message="Invalid model response.",
+        action=ActionCall(
+            name="invalid_model_response",
+            args={"raw_response_excerpt": raw_response_excerpt},
+        ),
+    )
+    observation = make_error_observation(
+        action.action_id,
+        context.run_id,
+        observation_index=observation_index,
+        code=exc.code,
+        message=exc.message,
+        details={
+            "repair_attempt": repair_attempt,
+            "max_repair_attempts": context.budget.repair_attempts,
+            "repairable": repairable,
+            "raw_response_excerpt": raw_response_excerpt,
+        },
+    )
+    trace = TraceRecord(
+        phase="parse",
+        action_index=action_index,
+        observation_index=observation_index,
+        repair_attempt=repair_attempt,
+        terminal=not repairable,
+    )
+    return action, observation, trace
+
+
+def _build_repair_message(
+    exc: ActionParseError,
+    raw_response: Any,
+    context: RunContext,
+    *,
+    repair_attempt: int,
+) -> dict[str, str]:
+    raw_response_excerpt = _raw_response_excerpt(raw_response, context.budget)
+    return {
+        "role": "user",
+        "content": (
+            "Your previous response could not be parsed as a valid JSON action.\n"
+            f"Error code: {exc.code}\n"
+            f"Error message: {exc.message}\n"
+            f"Repair attempt: {repair_attempt + 1} of {context.budget.repair_attempts}\n"
+            "Return exactly one valid JSON action object with top-level keys "
+            '"message" and "action". Do not include markdown fences or extra text.\n'
+            f"Previous response excerpt:\n{raw_response_excerpt}"
+        ),
+    }
+
+
+def _raw_response_excerpt(raw_response: Any, budget: ContextBudget) -> str:
+    text = _raw_response_text(raw_response)
+    return truncate_text(text, budget.repair_excerpt_chars).value
+
+
+def _raw_response_text(raw_response: Any) -> str:
+    if isinstance(raw_response, str):
+        return raw_response
+    try:
+        return json.dumps(raw_response, ensure_ascii=True, sort_keys=True, default=str)
+    except TypeError:
+        return str(raw_response)
+
+
+def _format_action_id(action_index: int) -> str:
+    return f"act_{action_index:06d}"
 
 
 def _tool_observation(
@@ -251,6 +383,7 @@ def _write_run_logs(
     context: RunContext,
     actions: list[InternalAction],
     observations: list[Observation],
+    traces: list[TraceRecord],
     project_instructions: ProjectInstructions,
     config: AgentConfig,
     tool_calls_path: Path,
@@ -259,11 +392,19 @@ def _write_run_logs(
     tool_calls_path.parent.mkdir(parents=True, exist_ok=True)
     records = []
     redaction_replacements = 0
-    for action, observation in zip(actions, observations, strict=False):
+    for index, (action, observation) in enumerate(zip(actions, observations, strict=False)):
         record = {
             "action": action.model_dump(mode="json"),
             "observation": observation.model_dump(mode="json"),
         }
+        if index < len(traces):
+            record["trace"] = {
+                "phase": traces[index].phase,
+                "action_index": traces[index].action_index,
+                "observation_index": traces[index].observation_index,
+                "repair_attempt": traces[index].repair_attempt,
+                "terminal": traces[index].terminal,
+            }
         redacted_record = redact_record(record)
         redaction_replacements += redacted_record.replacements
         serialized_record = redacted_record.value

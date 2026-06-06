@@ -17,6 +17,8 @@ def test_context_budget_defaults_match_existing_limits() -> None:
     assert budget.git_output_chars == 20_000
     assert budget.observation_data_chars == 20_000
     assert budget.observation_summary_chars == 1_000
+    assert budget.repair_attempts == 2
+    assert budget.repair_excerpt_chars == 1_000
 
 
 def test_truncate_text_leaves_short_text_unchanged() -> None:

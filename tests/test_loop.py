@@ -56,6 +56,21 @@ class SpyLLM:
         }
 
 
+class RepairLLM:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = responses
+        self.messages_by_call: list[list[dict]] = []
+        self._index = 0
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None):
+        self.messages_by_call.append([dict(message) for message in messages])
+        if self._index >= len(self.responses):
+            raise AssertionError("RepairLLM ran out of responses.")
+        response = self.responses[self._index]
+        self._index += 1
+        return response
+
+
 def _git(cwd, *args: str) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
@@ -272,6 +287,175 @@ def test_run_once_overwrites_model_metadata(tmp_path) -> None:
 
     assert result.action.run_id == "run_core"
     assert result.action.action_id == "act_000001"
+
+
+def test_run_once_repairs_invalid_json_then_executes_done(tmp_path) -> None:
+    llm = RepairLLM(
+        [
+            "{not-json",
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {
+                        "final": "Repaired.",
+                        "changed_files": [],
+                        "next_steps": [],
+                    },
+                },
+            },
+        ]
+    )
+
+    result = run_once("repair", llm, cwd=tmp_path, run_id="run_repair_json")
+
+    assert result.action.action.name == "done"
+    assert [item.status for item in result.observations] == ["error", "ok"]
+    assert result.observations[0].error is not None
+    assert result.observations[0].error.code == ErrorCode.INVALID_JSON
+    assert result.observation.data == {"final": "Repaired."}
+    assert len(llm.messages_by_call) == 2
+    assert "Your previous response could not be parsed" in llm.messages_by_call[1][-1]["content"]
+    assert "valid JSON action" in llm.messages_by_call[1][-1]["content"]
+
+    lines = result.tool_calls_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    first = json.loads(lines[0])
+    second = json.loads(lines[1])
+    assert first["action"]["action"]["name"] == "invalid_model_response"
+    assert first["observation"]["error"]["code"] == "INVALID_JSON"
+    assert first["trace"]["phase"] == "parse"
+    assert first["trace"]["repair_attempt"] == 0
+    assert first["trace"]["terminal"] is False
+    assert second["trace"]["phase"] == "action"
+    assert second["trace"]["terminal"] is True
+
+
+def test_run_once_returns_error_after_repair_attempts_are_exhausted(tmp_path) -> None:
+    result = run_once(
+        "repair",
+        RepairLLM(["{bad-1", "{bad-2"]),
+        cwd=tmp_path,
+        run_id="run_repair_exhausted",
+        budget=ContextBudget(repair_attempts=1),
+    )
+
+    assert result.action.action.name == "invalid_model_response"
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.INVALID_JSON
+    assert result.observation.error.details is not None
+    assert result.observation.error.details["repair_attempt"] == 1
+    assert result.observation.error.details["max_repair_attempts"] == 1
+    assert result.observation.error.details["repairable"] is False
+    assert result.summary_path.exists()
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_run_once_repairs_invalid_action_args_then_executes_done(tmp_path) -> None:
+    result = run_once(
+        "repair args",
+        RepairLLM(
+            [
+                {
+                    "message": "Run command.",
+                    "action": {
+                        "name": "run_command",
+                        "args": {"argv": [], "cwd": None, "timeout_seconds": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Args repaired.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_repair_args",
+    )
+
+    assert [item.status for item in result.observations] == ["error", "ok"]
+    assert result.observations[0].error is not None
+    assert result.observations[0].error.code == ErrorCode.INVALID_ARGUMENT
+    assert result.observation.data == {"final": "Args repaired."}
+
+
+def test_run_once_limits_repair_prompt_raw_response_excerpt(tmp_path) -> None:
+    long_raw = "x" * 200
+    llm = RepairLLM(
+        [
+            long_raw,
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {
+                        "final": "Repaired.",
+                        "changed_files": [],
+                        "next_steps": [],
+                    },
+                },
+            },
+        ]
+    )
+
+    result = run_once(
+        "repair prompt",
+        llm,
+        cwd=tmp_path,
+        run_id="run_repair_prompt",
+        budget=ContextBudget(repair_excerpt_chars=12),
+    )
+
+    repair_prompt = llm.messages_by_call[1][-1]["content"]
+    assert "xxxxxxxxxxxx\n[truncated]" in repair_prompt
+    assert "x" * 20 not in repair_prompt
+    assert result.observation.status == "ok"
+
+
+def test_run_once_does_not_execute_partial_action_from_invalid_response(tmp_path) -> None:
+    marker = tmp_path / "marker.txt"
+    invalid = (
+        '{"message":"Run","action":{"name":"run_command","args":'
+        f'{{"argv":["{sys.executable}","-c","from pathlib import Path; Path({str(marker)!r}).write_text('
+        "'ran')\"],\"cwd\":null,\"timeout_seconds\":5}}}"
+    )
+
+    result = run_once(
+        "do not infer",
+        RepairLLM([invalid]),
+        cwd=tmp_path,
+        run_id="run_no_partial",
+        budget=ContextBudget(repair_attempts=0),
+    )
+
+    assert result.observation.status == "error"
+    assert not marker.exists()
+
+
+def test_run_once_redacts_secret_from_invalid_response_logs(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    result = run_once(
+        "repair secret",
+        RepairLLM([f"not json {secret}"]),
+        cwd=tmp_path,
+        run_id="run_repair_redact",
+        budget=ContextBudget(repair_attempts=0),
+    )
+
+    assert result.observation.status == "error"
+    tool_calls_text = result.tool_calls_path.read_text(encoding="utf-8")
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert secret not in tool_calls_text
+    assert secret not in summary
+    assert "[REDACTED]" in tool_calls_text
 
 
 def test_run_once_reports_error_when_iteration_limit_is_reached(tmp_path) -> None:
