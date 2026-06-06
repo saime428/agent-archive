@@ -22,6 +22,7 @@ from agent.core.project_instructions import (
 from agent.llm.base import LLMClient
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
+from agent.tools.shell import execute_run_command
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,13 @@ def run_once(
             "apply_patch",
         }:
             observation = execute_tool(
+                action,
+                context,
+                sandbox,
+                observation_index=action_index,
+            )
+        elif action.action.name == "run_command":
+            observation = execute_run_command(
                 action,
                 context,
                 sandbox,

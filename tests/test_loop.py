@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 
 from agent.core.actions import ErrorCode
 from agent.core.loop import run_once
@@ -316,6 +317,46 @@ def test_run_once_executes_apply_patch_then_done(tmp_path) -> None:
     assert "notes.txt" in summary
     assert "snapshot" in summary
     assert "restore" in summary
+
+
+def test_run_once_executes_run_command_then_done(tmp_path) -> None:
+    result = run_once(
+        "run command",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Run command.",
+                    "action": {
+                        "name": "run_command",
+                        "args": {
+                            "argv": [sys.executable, "-c", "print('hello')"],
+                            "cwd": None,
+                            "timeout_seconds": 5,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Ran command.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_command_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["stdout"] == "hello\n"
+    assert result.observation.data == {"final": "Ran command."}
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_run_once_unsupported_action_returns_error(tmp_path) -> None:

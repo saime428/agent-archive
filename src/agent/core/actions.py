@@ -104,6 +104,28 @@ class ApplyPatchArgs(StrictModel):
         return value
 
 
+class RunCommandArgs(StrictModel):
+    argv: list[str]
+    cwd: str | None = None
+    timeout_seconds: int | None = None
+
+    @field_validator("argv")
+    @classmethod
+    def _reject_empty_argv(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("argv must not be empty.")
+        if any(not item.strip() for item in value):
+            raise ValueError("argv items must not be empty.")
+        return value
+
+    @field_validator("timeout_seconds")
+    @classmethod
+    def _reject_invalid_timeout(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("timeout_seconds must be positive.")
+        return value
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
@@ -112,6 +134,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "search_files": SearchFilesArgs,
     "write_file": WriteFileArgs,
     "apply_patch": ApplyPatchArgs,
+    "run_command": RunCommandArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

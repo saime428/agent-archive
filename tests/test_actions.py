@@ -84,7 +84,7 @@ def test_parse_model_action_rejects_unknown_tool() -> None:
         parse_model_action(
             {
                 "message": "Use a future tool.",
-                "action": {"name": "run_command", "args": {}},
+                "action": {"name": "future_tool", "args": {}},
             },
             run_id="run_123",
             action_index=1,
@@ -368,6 +368,73 @@ def test_parse_model_action_rejects_invalid_apply_patch_occurrence() -> None:
                                 "occurrence": "last",
                             }
                         ]
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_accepts_run_command_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Run tests.",
+            "action": {
+                "name": "run_command",
+                "args": {
+                    "argv": ["pytest", "-q"],
+                    "cwd": ".",
+                    "timeout_seconds": 10,
+                },
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "run_command"
+    assert action.action.args == {
+        "argv": ["pytest", "-q"],
+        "cwd": ".",
+        "timeout_seconds": 10,
+    }
+
+
+def test_parse_model_action_rejects_empty_run_command_argv() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Run nothing.",
+                "action": {
+                    "name": "run_command",
+                    "args": {"argv": [], "cwd": None, "timeout_seconds": None},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_extra_run_command_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Run tests.",
+                "action": {
+                    "name": "run_command",
+                    "args": {
+                        "argv": ["pytest"],
+                        "cwd": None,
+                        "timeout_seconds": None,
+                        "shell": True,
                     },
                 },
             },
