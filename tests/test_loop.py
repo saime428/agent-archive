@@ -245,7 +245,7 @@ def test_run_once_executes_search_files_then_done(tmp_path) -> None:
     assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
 
 
-def test_run_once_executes_write_file_then_done(tmp_path) -> None:
+def test_run_once_blocks_write_file_without_approval(tmp_path) -> None:
     result = run_once(
         "write notes",
         FakeLLMClient(
@@ -278,20 +278,23 @@ def test_run_once_executes_write_file_then_done(tmp_path) -> None:
         run_id="run_write_loop",
     )
 
-    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "hello\n"
-    assert result.observations[0].status == "ok"
-    assert result.observations[0].data is not None
-    assert result.observations[0].data["snapshot_path"]
-    assert result.observation.data == {"final": "Wrote notes."}
-    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+    assert not (tmp_path / "notes.txt").exists()
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
+    assert result.observation.error.details == {
+        "requested_action": "write_file",
+        "approval": "risky-confirm",
+        "dry_run": False,
+    }
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 1
 
     summary = result.summary_path.read_text(encoding="utf-8")
-    assert "notes.txt" in summary
-    assert "snapshot" in summary
-    assert "restore" in summary
+    assert "APPROVAL_REQUIRED" in summary
+    assert not (tmp_path / ".agent" / "runs" / "run_write_loop" / "snapshots").exists()
 
 
-def test_run_once_executes_apply_patch_then_done(tmp_path) -> None:
+def test_run_once_blocks_apply_patch_without_approval(tmp_path) -> None:
     target = tmp_path / "notes.txt"
     target.write_text("hello world\n", encoding="utf-8")
     result = run_once(
@@ -331,20 +334,23 @@ def test_run_once_executes_apply_patch_then_done(tmp_path) -> None:
         run_id="run_patch_loop",
     )
 
-    assert target.read_text(encoding="utf-8") == "hi world\n"
-    assert result.observations[0].status == "ok"
-    assert result.observations[0].data is not None
-    assert result.observations[0].data["changed_files"] == [str(target.resolve())]
-    assert result.observation.data == {"final": "Patched notes."}
-    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+    assert target.read_text(encoding="utf-8") == "hello world\n"
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
+    assert result.observation.error.details == {
+        "requested_action": "apply_patch",
+        "approval": "risky-confirm",
+        "dry_run": False,
+    }
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 1
 
     summary = result.summary_path.read_text(encoding="utf-8")
-    assert "notes.txt" in summary
-    assert "snapshot" in summary
-    assert "restore" in summary
+    assert "APPROVAL_REQUIRED" in summary
+    assert not (tmp_path / ".agent" / "runs" / "run_patch_loop" / "snapshots").exists()
 
 
-def test_run_once_executes_run_command_then_done(tmp_path) -> None:
+def test_run_once_blocks_run_command_without_approval(tmp_path) -> None:
     result = run_once(
         "run command",
         FakeLLMClient(
@@ -377,11 +383,229 @@ def test_run_once_executes_run_command_then_done(tmp_path) -> None:
         run_id="run_command_loop",
     )
 
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
+    assert result.observation.error.details == {
+        "requested_action": "run_command",
+        "approval": "risky-confirm",
+        "dry_run": False,
+    }
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_run_once_dry_run_skips_write_file_and_continues_to_done(tmp_path) -> None:
+    result = run_once(
+        "write notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {
+                            "path": "notes.txt",
+                            "content": "hello\n",
+                            "create_parents": False,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Dry-run complete.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_write_dry",
+        config=AgentConfig(dry_run=True),
+    )
+
+    assert not (tmp_path / "notes.txt").exists()
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].summary == "Dry run skipped action."
+    assert result.observations[0].data == {
+        "requested_action": "write_file",
+        "approval": "risky-confirm",
+        "dry_run": True,
+    }
+    assert result.observation.data == {"final": "Dry-run complete."}
+    assert not (tmp_path / ".agent" / "runs" / "run_write_dry" / "snapshots").exists()
+
+
+def test_run_once_dry_run_skips_apply_patch(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("hello world\n", encoding="utf-8")
+    result = run_once(
+        "patch notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Patch.",
+                    "action": {
+                        "name": "apply_patch",
+                        "args": {
+                            "edits": [
+                                {
+                                    "path": "notes.txt",
+                                    "old": "hello",
+                                    "new": "hi",
+                                    "occurrence": "first",
+                                }
+                            ]
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Dry-run patch complete.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_patch_dry",
+        config=AgentConfig(dry_run=True),
+    )
+
+    assert target.read_text(encoding="utf-8") == "hello world\n"
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].summary == "Dry run skipped action."
+
+
+def test_run_once_dry_run_skips_run_command(tmp_path) -> None:
+    marker = tmp_path / "marker.txt"
+    result = run_once(
+        "run command",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Run command.",
+                    "action": {
+                        "name": "run_command",
+                        "args": {
+                            "argv": [sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')"],
+                            "cwd": None,
+                            "timeout_seconds": 5,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Dry-run command complete.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_command_dry",
+        config=AgentConfig(dry_run=True),
+    )
+
+    assert not marker.exists()
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].summary == "Dry run skipped action."
+
+
+def test_run_once_dry_run_still_executes_read_file(tmp_path) -> None:
+    (tmp_path / "notes.txt").write_text("hello\n", encoding="utf-8")
+    result = run_once(
+        "read notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Read.",
+                    "action": {
+                        "name": "read_file",
+                        "args": {"path": "notes.txt", "start_line": None, "max_lines": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Read in dry-run.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_read_dry",
+        config=AgentConfig(dry_run=True),
+    )
+
     assert [item.status for item in result.observations] == ["ok", "ok"]
     assert result.observations[0].data is not None
-    assert result.observations[0].data["stdout"] == "hello\n"
-    assert result.observation.data == {"final": "Ran command."}
-    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+    assert result.observations[0].data["content"] == "hello"
+    assert result.observation.data == {"final": "Read in dry-run."}
+
+
+def test_run_once_approval_never_blocks_write_without_side_effect(tmp_path) -> None:
+    result = run_once(
+        "write notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {
+                            "path": "notes.txt",
+                            "content": "hello\n",
+                            "create_parents": False,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Should not happen.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_write_never",
+        config=AgentConfig(approval="never"),
+    )
+
+    assert not (tmp_path / "notes.txt").exists()
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
+    assert result.observation.error.details == {
+        "requested_action": "write_file",
+        "approval": "never",
+        "dry_run": False,
+    }
 
 
 def test_run_once_executes_git_status_then_done(tmp_path) -> None:

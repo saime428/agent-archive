@@ -21,6 +21,7 @@ from agent.core.project_instructions import (
     load_project_instructions,
 )
 from agent.llm.base import LLMClient
+from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
 from agent.tools.git import execute_git_tool
@@ -37,6 +38,23 @@ class RunResult:
     tool_calls_path: Path
     project_instructions: ProjectInstructions
     config: AgentConfig
+
+
+SUPPORTED_TOOL_ACTIONS = {
+    "list_dir",
+    "read_file",
+    "search_files",
+    "write_file",
+    "apply_patch",
+    "run_command",
+    "git_status",
+    "git_diff",
+}
+DRY_RUN_SKIPPED_ACTIONS = {
+    "write_file",
+    "apply_patch",
+    "run_command",
+}
 
 
 def run_once(
@@ -76,31 +94,12 @@ def run_once(
                 summary="Done.",
                 data={"final": str(action.action.args["final"])},
             )
-        elif action.action.name in {
-            "list_dir",
-            "read_file",
-            "search_files",
-            "write_file",
-            "apply_patch",
-        }:
-            observation = execute_tool(
+        elif action.action.name in SUPPORTED_TOOL_ACTIONS:
+            observation = _tool_observation(
                 action,
                 context,
                 sandbox,
-                observation_index=action_index,
-            )
-        elif action.action.name == "run_command":
-            observation = execute_run_command(
-                action,
-                context,
-                sandbox,
-                observation_index=action_index,
-            )
-        elif action.action.name in {"git_status", "git_diff"}:
-            observation = execute_git_tool(
-                action,
-                context,
-                sandbox,
+                effective_config,
                 observation_index=action_index,
             )
         else:
@@ -146,6 +145,88 @@ def run_once(
         project_instructions=project_instructions,
         config=effective_config,
     )
+
+
+def _tool_observation(
+    action: InternalAction,
+    context: RunContext,
+    sandbox: WorkspaceSandbox,
+    config: AgentConfig,
+    *,
+    observation_index: int,
+) -> Observation:
+    if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
+        return make_observation(
+            action,
+            observation_index=observation_index,
+            summary="Dry run skipped action.",
+            data=_policy_details(action, config),
+        )
+
+    decision = classify_action(action, config)
+    if decision.status == "approval_required":
+        return make_error_observation(
+            action.action_id,
+            action.run_id,
+            observation_index=observation_index,
+            code=ErrorCode.APPROVAL_REQUIRED,
+            message=decision.reason,
+            details=_policy_details(action, config),
+        )
+    if decision.status == "deny":
+        return make_error_observation(
+            action.action_id,
+            action.run_id,
+            observation_index=observation_index,
+            code=ErrorCode.POLICY_DENIED,
+            message=decision.reason,
+            details=_policy_details(action, config),
+        )
+
+    if action.action.name in {
+        "list_dir",
+        "read_file",
+        "search_files",
+        "write_file",
+        "apply_patch",
+    }:
+        return execute_tool(
+            action,
+            context,
+            sandbox,
+            observation_index=observation_index,
+        )
+    if action.action.name == "run_command":
+        return execute_run_command(
+            action,
+            context,
+            sandbox,
+            observation_index=observation_index,
+        )
+    if action.action.name in {"git_status", "git_diff"}:
+        return execute_git_tool(
+            action,
+            context,
+            sandbox,
+            observation_index=observation_index,
+        )
+
+    return make_error_observation(
+        action.action_id,
+        action.run_id,
+        observation_index=observation_index,
+        code=ErrorCode.POLICY_DENIED,
+        message="This action is not supported in the current run loop.",
+        details={"requested_action": action.action.name},
+    )
+
+
+def _policy_details(action: InternalAction, config: AgentConfig) -> dict[str, object]:
+    return {
+        "requested_action": action.action.name,
+        "approval": config.approval,
+        "dry_run": config.dry_run,
+    }
 
 
 def _build_messages(task: str, project_instructions: ProjectInstructions) -> list[dict[str, str]]:

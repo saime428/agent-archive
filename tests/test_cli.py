@@ -71,6 +71,10 @@ def test_run_accepts_config_cli_options(tmp_path) -> None:
     assert "sandbox: workspace-write" in result.output
     assert "approval: risky-confirm" in result.output
     assert "dry_run: true" in result.output
+    summary_paths = list((workspace / ".agent" / "runs").glob("*/summary.md"))
+    assert len(summary_paths) == 1
+    summary = summary_paths[0].read_text(encoding="utf-8")
+    assert "config_dry_run: true" in summary
 
 
 def test_run_no_dry_run_overrides_file_config(tmp_path) -> None:
@@ -84,6 +88,21 @@ def test_run_no_dry_run_overrides_file_config(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "dry_run: false" in result.output
+
+
+def test_run_approval_never_is_recorded_in_summary(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "--approval", "never", "inspect project"])
+
+    assert result.exit_code == 0
+    assert "approval: never" in result.output
+    summary_paths = list((workspace / ".agent" / "runs").glob("*/summary.md"))
+    assert len(summary_paths) == 1
+    summary = summary_paths[0].read_text(encoding="utf-8")
+    assert "config_approval: never" in summary
 
 
 def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
