@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import platform
+import shutil
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
+from agent.config import ConfigError, ConfigOverrides, load_config
 from agent.core.loop import run_once
 from agent.core.run_store import RunStore, RunStoreError
 from agent.llm.fake import FakeLLMClient
@@ -24,19 +26,62 @@ def _root() -> None:
 @app.command()
 def doctor() -> None:
     """Report the minimal local environment status."""
+    try:
+        config, diagnostics = load_config(Path.cwd())
+    except ConfigError as exc:
+        console.print(f"config error: {exc}")
+        raise typer.Exit(code=1) from exc
+
     console.print(f"Python: {platform.python_version()}")
     console.print(f"cwd: {Path.cwd()}")
     console.print("agent import: ok")
+    console.print(f"rg available: {str(shutil.which('rg') is not None).lower()}")
+    console.print(f"config mode: {config.mode}")
+    console.print(f"config sandbox: {config.sandbox}")
+    console.print(f"config approval: {config.approval}")
+    console.print(f"config dry_run: {str(config.dry_run).lower()}")
+    console.print(f"config global: {diagnostics.global_config_path}")
+    console.print(f"config project: {diagnostics.project_config_path}")
+    for warning in diagnostics.warnings:
+        console.print(f"config warning: {warning}")
 
 
 @app.command()
-def run(task: str) -> None:
+def run(
+    task: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the run."),
+    mode: str | None = typer.Option(None, "--mode", help="Run mode."),
+    sandbox: str | None = typer.Option(None, "--sandbox", help="Sandbox mode."),
+    approval: str | None = typer.Option(None, "--approval", help="Approval mode."),
+    dry_run: bool | None = typer.Option(None, "--dry-run/--no-dry-run", help="Record dry-run intent in config."),
+) -> None:
     """Run an agent task."""
-    result = run_once(task, FakeLLMClient())
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        config, diagnostics = load_config(
+            workspace,
+            overrides=ConfigOverrides(
+                mode=mode,
+                sandbox=sandbox,
+                approval=approval,
+                dry_run=dry_run,
+            ),
+        )
+    except ConfigError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    result = run_once(task, FakeLLMClient(), cwd=workspace, config=config)
     final = (result.observation.data or {}).get("final", "")
     console.print(f"run_id: {result.context.run_id}")
+    console.print(f"mode: {config.mode}")
+    console.print(f"sandbox: {config.sandbox}")
+    console.print(f"approval: {config.approval}")
+    console.print(f"dry_run: {str(config.dry_run).lower()}")
+    for warning in diagnostics.warnings:
+        console.print(f"config warning: {warning}")
     console.print(f"final: {final}")
-    console.print(f"summary: {result.summary_path}")
+    console.print(f"summary: {result.summary_path}", soft_wrap=True)
 
 
 @runs_app.command("list")

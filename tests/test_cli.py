@@ -13,6 +13,11 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert result.exit_code == 0
     assert "Python" in result.output
     assert "cwd" in result.output
+    assert "agent import: ok" in result.output
+    assert "rg available:" in result.output
+    assert "config mode:" in result.output
+    assert "config sandbox:" in result.output
+    assert "config approval:" in result.output
 
 
 def test_run_reports_fake_llm_result() -> None:
@@ -25,6 +30,73 @@ def test_run_reports_fake_llm_result() -> None:
     assert "run_id:" in result.output
     assert "final:" in result.output
     assert "summary:" in result.output
+
+
+def test_run_cwd_writes_run_under_requested_directory(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 0
+    assert f"summary: {workspace}" in result.output
+    assert (workspace / ".agent" / "runs").exists()
+
+
+def test_run_accepts_config_cli_options(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--cwd",
+            str(workspace),
+            "--mode",
+            "auto",
+            "--sandbox",
+            "workspace-write",
+            "--approval",
+            "risky-confirm",
+            "--dry-run",
+            "inspect project",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "mode: auto" in result.output
+    assert "sandbox: workspace-write" in result.output
+    assert "approval: risky-confirm" in result.output
+    assert "dry_run: true" in result.output
+
+
+def test_run_no_dry_run_overrides_file_config(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("dry_run = true\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "--no-dry-run", "inspect project"])
+
+    assert result.exit_code == 0
+    assert "dry_run: false" in result.output
+
+
+def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('mode = "turbo"\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "Invalid value for mode" in result.output
 
 
 def test_runs_list_reports_no_runs(tmp_path) -> None:

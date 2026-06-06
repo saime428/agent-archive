@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent.config import AgentConfig
 from agent.core.actions import (
     ErrorCode,
     InternalAction,
@@ -35,6 +36,7 @@ class RunResult:
     summary_path: Path
     tool_calls_path: Path
     project_instructions: ProjectInstructions
+    config: AgentConfig
 
 
 def run_once(
@@ -44,7 +46,9 @@ def run_once(
     cwd: Path | None = None,
     run_id: str | None = None,
     max_iterations: int = 3,
+    config: AgentConfig | None = None,
 ) -> RunResult:
+    effective_config = config or AgentConfig()
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id)
     run_dir = context.cwd / ".agent" / "runs" / context.run_id
     tool_calls_path = run_dir / "tool_calls.jsonl"
@@ -128,6 +132,7 @@ def run_once(
         actions=actions,
         observations=observations,
         project_instructions=project_instructions,
+        config=effective_config,
         tool_calls_path=tool_calls_path,
         summary_path=summary_path,
     )
@@ -139,6 +144,7 @@ def run_once(
         summary_path=summary_path,
         tool_calls_path=tool_calls_path,
         project_instructions=project_instructions,
+        config=effective_config,
     )
 
 
@@ -157,6 +163,7 @@ def _write_run_logs(
     actions: list[InternalAction],
     observations: list[Observation],
     project_instructions: ProjectInstructions,
+    config: AgentConfig,
     tool_calls_path: Path,
     summary_path: Path,
 ) -> None:
@@ -177,7 +184,7 @@ def _write_run_logs(
         encoding="utf-8",
     )
     summary_path.write_text(
-        _render_summary(context, actions, observations, project_instructions),
+        _render_summary(context, actions, observations, project_instructions, config),
         encoding="utf-8",
     )
 
@@ -187,6 +194,7 @@ def _render_summary(
     actions: list[InternalAction],
     observations: list[Observation],
     project_instructions: ProjectInstructions,
+    config: AgentConfig,
 ) -> str:
     action = actions[-1]
     observation = observations[-1]
@@ -203,6 +211,7 @@ def _render_summary(
     if observation.error:
         lines.append(f"- error: {observation.error.code}: {observation.error.message}")
     lines.extend(_project_instruction_lines(project_instructions))
+    lines.extend(_config_lines(config))
     changed_lines = _changed_file_lines(observations)
     if changed_lines:
         lines.extend(["", "## Changes", *changed_lines])
@@ -222,6 +231,17 @@ def _project_instruction_lines(project_instructions: ProjectInstructions) -> lis
     if project_instructions.error:
         lines.append(f"- project_instructions_error: {project_instructions.error}")
     return lines
+
+
+def _config_lines(config: AgentConfig) -> list[str]:
+    return [
+        "",
+        "## Config",
+        f"- config_mode: {config.mode}",
+        f"- config_sandbox: {config.sandbox}",
+        f"- config_approval: {config.approval}",
+        f"- config_dry_run: {str(config.dry_run).lower()}",
+    ]
 
 
 def _final_from_observation(observation: Observation) -> str | None:

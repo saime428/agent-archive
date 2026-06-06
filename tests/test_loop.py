@@ -6,6 +6,7 @@ import sys
 
 from agent.core.actions import ErrorCode
 from agent.core.loop import run_once
+from agent.config import AgentConfig
 from agent.llm.fake import FakeLLMClient
 
 
@@ -86,6 +87,25 @@ def test_run_once_returns_done_action_and_writes_logs(tmp_path) -> None:
     assert "run_test" in summary
     assert "inspect project" in summary
     assert "FakeLLM received task: inspect project" in summary
+
+
+def test_run_once_exposes_effective_config(tmp_path) -> None:
+    config = AgentConfig(mode="auto", sandbox="read-only", approval="always", dry_run=True)
+
+    result = run_once(
+        "inspect project",
+        FakeLLMClient(),
+        cwd=tmp_path,
+        run_id="run_config",
+        config=config,
+    )
+
+    assert result.config == config
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "config_mode: auto" in summary
+    assert "config_sandbox: read-only" in summary
+    assert "config_approval: always" in summary
+    assert "config_dry_run: true" in summary
 
 
 def test_run_once_overwrites_model_metadata(tmp_path) -> None:
