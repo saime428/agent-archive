@@ -89,6 +89,78 @@ def test_run_once_returns_done_action_and_writes_logs(tmp_path) -> None:
     assert "FakeLLM received task: inspect project" in summary
 
 
+def test_run_once_redacts_secret_like_values_from_durable_logs(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    result = run_once(
+        "record secret",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": f"Done with {secret}.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": f"Token is {secret}.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_redacted_done",
+    )
+
+    assert result.observation.data == {"final": f"Token is {secret}."}
+
+    tool_calls_text = result.tool_calls_path.read_text(encoding="utf-8")
+    assert secret not in tool_calls_text
+    assert "[REDACTED]" in tool_calls_text
+    tool_call = json.loads(tool_calls_text)
+    assert tool_call["redaction"] == {"applied": True, "replacements": 3}
+    assert tool_call["action"]["message"] == "Done with [REDACTED]."
+    assert tool_call["action"]["action"]["args"]["final"] == "Token is [REDACTED]."
+    assert tool_call["observation"]["data"]["final"] == "Token is [REDACTED]."
+
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert secret not in summary
+    assert "- final: Token is [REDACTED]." in summary
+    assert "- redaction_applied: true" in summary
+
+
+def test_run_once_redacts_action_args_without_mutating_runtime_result(tmp_path) -> None:
+    secret = "Bearer abc.def.ghi"
+    (tmp_path / "notes.txt").write_text("plain\n", encoding="utf-8")
+
+    result = run_once(
+        "search secret",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Search.",
+                    "action": {
+                        "name": "search_files",
+                        "args": {"query": secret, "path": ".", "max_matches": None},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_redacted_args",
+        max_iterations=1,
+    )
+
+    assert result.action.action.args["query"] == secret
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.details == {"max_iterations": 1}
+
+    tool_call = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert tool_call["action"]["action"]["args"]["query"] == "[REDACTED]"
+    assert tool_call["redaction"]["applied"] is True
+
+
 def test_run_once_exposes_effective_config(tmp_path) -> None:
     config = AgentConfig(mode="auto", sandbox="read-only", approval="always", dry_run=True)
 

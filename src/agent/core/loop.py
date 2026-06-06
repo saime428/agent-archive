@@ -20,6 +20,7 @@ from agent.core.project_instructions import (
     build_project_instructions_message,
     load_project_instructions,
 )
+from agent.core.redaction import redact_record, redact_value
 from agent.llm.base import LLMClient
 from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
@@ -250,13 +251,23 @@ def _write_run_logs(
 ) -> None:
     tool_calls_path.parent.mkdir(parents=True, exist_ok=True)
     records = []
+    redaction_replacements = 0
     for action, observation in zip(actions, observations, strict=False):
+        record = {
+            "action": action.model_dump(mode="json"),
+            "observation": observation.model_dump(mode="json"),
+        }
+        redacted_record = redact_record(record)
+        redaction_replacements += redacted_record.replacements
+        serialized_record = redacted_record.value
+        if redacted_record.applied:
+            serialized_record["redaction"] = {
+                "applied": True,
+                "replacements": redacted_record.replacements,
+            }
         records.append(
             json.dumps(
-                {
-                    "action": action.model_dump(mode="json"),
-                    "observation": observation.model_dump(mode="json"),
-                },
+                serialized_record,
                 ensure_ascii=True,
             )
         )
@@ -264,10 +275,13 @@ def _write_run_logs(
         "\n".join(records) + "\n",
         encoding="utf-8",
     )
-    summary_path.write_text(
-        _render_summary(context, actions, observations, project_instructions, config),
-        encoding="utf-8",
-    )
+    summary = _render_summary(context, actions, observations, project_instructions, config)
+    redacted_summary = redact_value(summary)
+    redaction_replacements += redacted_summary.replacements
+    summary_text = redacted_summary.value
+    if redaction_replacements:
+        summary_text = summary_text.rstrip("\n") + "\n- redaction_applied: true\n"
+    summary_path.write_text(summary_text, encoding="utf-8")
 
 
 def _render_summary(

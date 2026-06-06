@@ -87,6 +87,43 @@ def test_show_run_reads_summary_and_tool_calls(tmp_path) -> None:
     ]
 
 
+def test_show_run_accepts_redaction_metadata_and_redacted_content(tmp_path) -> None:
+    _write_run(
+        tmp_path,
+        "run_redacted",
+        summary="# Run run_redacted\n\n- final: Token is [REDACTED].\n- redaction_applied: true\n",
+        records=[
+            {
+                "action": {"action": {"name": "write_file"}},
+                "observation": {
+                    "status": "ok",
+                    "data": {
+                        "path": "notes.txt",
+                        "snapshot_path": ".agent/runs/run_redacted/snapshots/act_000001/original",
+                        "restore_hint": "Restore by copying original back.",
+                        "content": "[REDACTED]",
+                    },
+                },
+                "redaction": {"applied": True, "replacements": 1},
+            }
+        ],
+    )
+
+    detail = RunStore(tmp_path).show_run("run_redacted")
+
+    assert "Token is [REDACTED]." in detail.summary
+    assert "redaction_applied: true" in detail.summary
+    assert detail.tool_calls[0].valid is True
+    assert detail.tool_calls[0].data["redaction"] == {"applied": True, "replacements": 1}
+    assert detail.snapshots == [
+        {
+            "path": "notes.txt",
+            "snapshot_path": ".agent/runs/run_redacted/snapshots/act_000001/original",
+            "restore_hint": "Restore by copying original back.",
+        }
+    ]
+
+
 @pytest.mark.parametrize("run_id", ["../escape", "nested/run", "nested\\run", "..", ""])
 def test_show_run_rejects_invalid_run_ids(tmp_path, run_id: str) -> None:
     store = RunStore(tmp_path)
