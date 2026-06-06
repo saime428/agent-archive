@@ -118,6 +118,76 @@ def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
     assert "Invalid value for mode" in result.output
 
 
+def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["tools", "list"])
+
+    assert result.exit_code == 0
+    for tool_name in [
+        "done",
+        "list_dir",
+        "read_file",
+        "search_files",
+        "write_file",
+        "apply_patch",
+        "run_command",
+        "git_status",
+        "git_diff",
+    ]:
+        assert tool_name in result.output
+    assert "read_file\tlow-risk" in result.output
+    assert "git_diff\tlow-risk" in result.output
+    assert "write_file\tconfirmation-required" in result.output
+    assert "run_command\tconfirmation-required" in result.output
+    assert "done\tterminal" in result.output
+    assert "dry-run: skipped" in result.output
+
+
+def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "mode: guided" in result.output
+    assert "sandbox: workspace-write" in result.output
+    assert "approval: risky-confirm" in result.output
+    assert "dry_run: false" in result.output
+    assert f"cwd: {workspace.resolve()}" in result.output
+    assert "loaded files: none" in result.output
+
+
+def test_config_show_outputs_project_config_and_warning(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('mode = "auto"\nsurprise = true\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "mode: auto" in result.output
+    assert f"loaded file: {config_path.resolve()}" in result.output
+    assert "config warning: Ignoring unknown config key surprise" in result.output
+
+
+def test_config_show_invalid_config_returns_nonzero(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('mode = "turbo"\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "Invalid value for mode" in result.output
+
+
 def test_runs_list_reports_no_runs(tmp_path) -> None:
     runner = CliRunner()
 
