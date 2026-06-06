@@ -6,6 +6,9 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from agent.core.loop import run_once
+from agent.llm.fake import FakeLLMClient
+
 app = typer.Typer(help="Minimal Python CLI agent.")
 console = Console()
 
@@ -26,8 +29,11 @@ def doctor() -> None:
 @app.command()
 def run(task: str) -> None:
     """Run an agent task."""
-    console.print(f"task: {task}")
-    console.print("status: not implemented")
+    result = run_once(task, FakeLLMClient())
+    final = (result.observation.data or {}).get("final", "")
+    console.print(f"run_id: {result.context.run_id}")
+    console.print(f"final: {final}")
+    console.print(f"summary: {result.summary_path}")
 
 
 def main() -> None:
