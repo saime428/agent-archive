@@ -67,11 +67,18 @@ class ReadFileArgs(StrictModel):
     max_lines: int | None = None
 
 
+class SearchFilesArgs(StrictModel):
+    query: str
+    path: str | None = None
+    max_matches: int | None = None
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
     "list_dir": ListDirArgs,
     "read_file": ReadFileArgs,
+    "search_files": SearchFilesArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

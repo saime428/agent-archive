@@ -62,7 +62,7 @@ def run_once(
                 summary="Done.",
                 data={"final": str(action.action.args["final"])},
             )
-        elif action.action.name in {"list_dir", "read_file"}:
+        elif action.action.name in {"list_dir", "read_file", "search_files"}:
             observation = execute_tool(
                 action,
                 context,

@@ -129,6 +129,42 @@ def test_parse_model_action_rejects_extra_fields() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_search_files_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Search.",
+            "action": {
+                "name": "search_files",
+                "args": {"query": "*.py", "path": ".", "max_matches": 10},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "search_files"
+    assert action.action.args == {"query": "*.py", "path": ".", "max_matches": 10}
+
+
+def test_parse_model_action_rejects_extra_search_files_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Search.",
+                "action": {
+                    "name": "search_files",
+                    "args": {"query": "*.py", "unexpected": True},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_make_observation_matches_action_ids() -> None:
     action = parse_model_action(
         {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 from agent.core.actions import (
@@ -14,6 +15,9 @@ from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
 DEFAULT_MAX_LINES = 200
 DEFAULT_MAX_CHARS = 20_000
+DEFAULT_MAX_MATCHES = 50
+MAX_EXCERPT_CHARS = 200
+SKIP_DIR_NAMES = {".git", "__pycache__", ".pytest_cache"}
 
 
 def execute_tool(
@@ -28,6 +32,8 @@ def execute_tool(
             return _list_dir(action, sandbox, observation_index=observation_index)
         if action.action.name == "read_file":
             return _read_file(action, sandbox, observation_index=observation_index)
+        if action.action.name == "search_files":
+            return _search_files(action, sandbox, observation_index=observation_index)
     except SandboxError as exc:
         return make_error_observation(
             action.action_id,
@@ -143,6 +149,103 @@ def _read_file(
         summary=f"Read {len(selected_lines)} lines from file.",
         data=data,
     )
+
+
+def _search_files(
+    action: InternalAction,
+    sandbox: WorkspaceSandbox,
+    *,
+    observation_index: int,
+) -> Observation:
+    query = str(action.action.args["query"])
+    requested_path = action.action.args.get("path") or "."
+    root = sandbox.resolve_read_path(str(requested_path))
+    max_matches = action.action.args.get("max_matches") or DEFAULT_MAX_MATCHES
+    glob_mode = _is_glob_query(query)
+    matches: list[dict] = []
+    total_matches = 0
+
+    paths = [root] if root.is_file() else sorted(root.rglob("*"), key=lambda item: str(item).lower())
+    for candidate in paths:
+        if _should_skip_path(candidate, sandbox.root):
+            continue
+        if candidate.is_dir():
+            continue
+        relative_path = candidate.relative_to(sandbox.root).as_posix()
+        candidate_matches = (
+            _path_matches(relative_path, query)
+            if glob_mode
+            else _path_and_text_matches(candidate, relative_path, query)
+        )
+        for match in candidate_matches:
+            total_matches += 1
+            if len(matches) < max_matches:
+                matches.append(match)
+
+    data = {
+        "query": query,
+        "path": str(root),
+        "matches": matches,
+        "total_matches": total_matches,
+        "truncated": total_matches > len(matches),
+    }
+    return make_observation(
+        action,
+        observation_index=observation_index,
+        summary=f"Found {len(matches)} of {total_matches} matches.",
+        data=data,
+    )
+
+
+def _is_glob_query(query: str) -> bool:
+    return any(char in query for char in "*?[]")
+
+
+def _path_matches(relative_path: str, query: str) -> list[dict]:
+    name = Path(relative_path).name
+    if fnmatch.fnmatchcase(relative_path, query) or fnmatch.fnmatchcase(name, query):
+        return [{"path": relative_path, "kind": "path", "line": None, "excerpt": None}]
+    return []
+
+
+def _path_and_text_matches(candidate: Path, relative_path: str, query: str) -> list[dict]:
+    query_lower = query.lower()
+    matches: list[dict] = []
+    if query_lower in relative_path.lower():
+        matches.append({"path": relative_path, "kind": "path", "line": None, "excerpt": None})
+
+    raw = candidate.read_bytes()
+    if _looks_binary(raw):
+        return matches
+
+    text = _decode_text(raw)
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if query_lower in line.lower():
+            matches.append(
+                {
+                    "path": relative_path,
+                    "kind": "text",
+                    "line": line_number,
+                    "excerpt": _excerpt(line),
+                }
+            )
+    return matches
+
+
+def _should_skip_path(candidate: Path, workspace_root: Path) -> bool:
+    try:
+        relative_parts = candidate.relative_to(workspace_root).parts
+    except ValueError:
+        return True
+    if len(relative_parts) >= 2 and relative_parts[0] == ".agent" and relative_parts[1] == "runs":
+        return True
+    return any(part in SKIP_DIR_NAMES for part in relative_parts)
+
+
+def _excerpt(line: str) -> str:
+    if len(line) <= MAX_EXCERPT_CHARS:
+        return line
+    return line[:MAX_EXCERPT_CHARS]
 
 
 def _looks_binary(raw: bytes) -> bool:

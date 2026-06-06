@@ -164,6 +164,42 @@ def test_run_once_executes_read_file_then_done(tmp_path) -> None:
     assert result.observation.data == {"final": "Read notes."}
 
 
+def test_run_once_executes_search_files_then_done(tmp_path) -> None:
+    (tmp_path / "app.py").write_text("needle\n", encoding="utf-8")
+    result = run_once(
+        "search files",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Search.",
+                    "action": {
+                        "name": "search_files",
+                        "args": {"query": "needle", "path": ".", "max_matches": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Searched files.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_search",
+    )
+
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["matches"][0]["path"] == "app.py"
+    assert result.observation.data == {"final": "Searched files."}
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+
 def test_run_once_unsupported_action_returns_error(tmp_path) -> None:
     result = run_once(
         "ask",
