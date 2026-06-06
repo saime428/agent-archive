@@ -142,6 +142,17 @@ def run_once(
                 summary="Done.",
                 data={"final": str(action.action.args["final"])},
             )
+        elif action.action.name == "ask_user":
+            observation = make_observation(
+                action,
+                observation_index=model_call_index,
+                summary="User input requested.",
+                data={
+                    "question": str(action.action.args["question"]),
+                    "options": list(action.action.args["options"]),
+                    "reason": str(action.action.args["reason"]),
+                },
+            )
         elif action.action.name in SUPPORTED_TOOL_ACTIONS:
             observation = _tool_observation(
                 action,
@@ -167,11 +178,11 @@ def run_once(
                 action_index=model_call_index,
                 observation_index=model_call_index,
                 repair_attempt=None,
-                terminal=action.action.name == "done" or observation.status == "error",
+                terminal=action.action.name in {"done", "ask_user"} or observation.status == "error",
                 **_trace_policy(action, effective_config),
             )
         )
-        if action.action.name == "done" or observation.status == "error":
+        if action.action.name in {"done", "ask_user"} or observation.status == "error":
             break
     else:
         action = actions[-1]
@@ -490,6 +501,8 @@ def _render_summary(
         lines.append(f"- final: {final}")
     if observation.error:
         lines.append(f"- error: {observation.error.code}: {observation.error.message}")
+    if action.action.name == "ask_user":
+        lines.extend(_ask_user_lines(observation))
     lines.extend(_project_instruction_lines(project_instructions))
     lines.extend(_config_lines(config))
     changed_lines = _changed_file_lines(observations)
@@ -522,6 +535,18 @@ def _config_lines(config: AgentConfig) -> list[str]:
         f"- config_approval: {config.approval}",
         f"- config_dry_run: {str(config.dry_run).lower()}",
     ]
+
+
+def _ask_user_lines(observation: Observation) -> list[str]:
+    data = observation.data or {}
+    lines = ["", "## User Input Request"]
+    if data.get("question") is not None:
+        lines.append(f"- question: {data['question']}")
+    if data.get("options") is not None:
+        lines.append(f"- options: {data['options']}")
+    if data.get("reason") is not None:
+        lines.append(f"- reason: {data['reason']}")
+    return lines
 
 
 def _final_from_observation(observation: Observation) -> str | None:

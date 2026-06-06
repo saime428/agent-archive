@@ -33,6 +33,8 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
     action_name = action.action.name
     if action_name == "done":
         return PolicyDecision("allow", "Done actions are always allowed.")
+    if action_name == "ask_user":
+        return PolicyDecision("allow", "Ask-user terminal actions are always allowed.")
 
     if config.approval == "always":
         return PolicyDecision("approval_required", "Action requires approval before execution.")

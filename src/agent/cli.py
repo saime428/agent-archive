@@ -25,6 +25,7 @@ console = Console(highlight=False)
 
 TOOL_DESCRIPTIONS = {
     "done": "Finish the run with a final response.",
+    "ask_user": "Stop and return a structured user question.",
     "list_dir": "List workspace directory entries.",
     "read_file": "Read a workspace text file.",
     "search_files": "Search workspace paths and text.",
@@ -45,14 +46,18 @@ def _root() -> None:
 @app.command()
 def doctor() -> None:
     """Report the minimal local environment status."""
+    _print_doctor(Path.cwd())
+
+
+def _print_doctor(cwd: Path) -> None:
     try:
-        config, diagnostics = load_config(Path.cwd())
+        config, diagnostics = load_config(cwd)
     except ConfigError as exc:
         console.print(f"config error: {exc}")
         raise typer.Exit(code=1) from exc
 
     console.print(f"Python: {platform.python_version()}")
-    console.print(f"cwd: {Path.cwd()}")
+    console.print(f"cwd: {cwd.resolve()}")
     console.print("agent import: ok")
     console.print(f"rg available: {str(shutil.which('rg') is not None).lower()}")
     console.print(f"config mode: {config.mode}")
@@ -138,8 +143,16 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
         console.print(f"config warning: {warning}")
 
 
+@config_app.command("doctor")
+def config_doctor(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config."),
+) -> None:
+    """Report configuration and local environment diagnostics."""
+    _print_doctor((cwd or Path.cwd()).resolve())
+
+
 def _tool_category(tool_name: str) -> str:
-    if tool_name == "done":
+    if tool_name in {"done", "ask_user"}:
         return "terminal"
     if tool_name in LOW_RISK_ACTIONS:
         return "low-risk"

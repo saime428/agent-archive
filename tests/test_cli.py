@@ -20,6 +20,21 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "config approval:" in result.output
 
 
+def test_config_doctor_reports_same_core_diagnostics() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "doctor"])
+
+    assert result.exit_code == 0
+    assert "Python" in result.output
+    assert "cwd" in result.output
+    assert "agent import: ok" in result.output
+    assert "rg available:" in result.output
+    assert "config mode:" in result.output
+    assert "config sandbox:" in result.output
+    assert "config approval:" in result.output
+
+
 def test_run_reports_fake_llm_result() -> None:
     runner = CliRunner()
 
@@ -126,6 +141,7 @@ def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
     assert result.exit_code == 0
     for tool_name in [
         "done",
+        "ask_user",
         "list_dir",
         "read_file",
         "search_files",
@@ -141,6 +157,7 @@ def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
     assert "write_file\tconfirmation-required" in result.output
     assert "run_command\tconfirmation-required" in result.output
     assert "done\tterminal" in result.output
+    assert "ask_user\tterminal" in result.output
     assert "dry-run: skipped" in result.output
 
 

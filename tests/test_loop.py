@@ -22,21 +22,6 @@ class ListDirLLM:
         }
 
 
-class UnsupportedLLM:
-    def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
-        return {
-            "message": "Ask.",
-            "action": {
-                "name": "ask_user",
-                "args": {
-                    "question": "Continue?",
-                    "options": [],
-                    "reason": "Testing unsupported action.",
-                },
-            },
-        }
-
-
 class SpyLLM:
     def __init__(self) -> None:
         self.messages: list[dict] | None = None
@@ -1122,18 +1107,55 @@ def test_run_once_executes_git_diff_then_done(tmp_path) -> None:
     assert result.observation.data == {"final": "Checked diff."}
 
 
-def test_run_once_unsupported_action_returns_error(tmp_path) -> None:
+def test_run_once_ask_user_returns_terminal_observation(tmp_path) -> None:
     result = run_once(
         "ask",
-        UnsupportedLLM(),
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Ask.",
+                    "action": {
+                        "name": "ask_user",
+                        "args": {
+                            "question": "Continue?",
+                            "options": ["yes", "no"],
+                            "reason": "Need user choice.",
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Should not run.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
         cwd=tmp_path,
-        run_id="run_unsupported",
+        run_id="run_ask_user",
     )
 
-    assert result.observation.status == "error"
-    assert result.observation.error is not None
-    assert result.observation.error.code == ErrorCode.POLICY_DENIED
-    assert result.observation.error.details == {"requested_action": "ask_user"}
+    assert result.action.action.name == "ask_user"
+    assert result.observation.status == "ok"
+    assert result.observation.summary == "User input requested."
+    assert result.observation.data == {
+        "question": "Continue?",
+        "options": ["yes", "no"],
+        "reason": "Need user choice.",
+    }
+    lines = result.tool_calls_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    tool_call = json.loads(lines[0])
+    assert tool_call["trace"]["terminal"] is True
+    assert tool_call["trace"]["policy_decision"] == "allow"
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "Continue?" in summary
+    assert "Need user choice." in summary
 
 
 def test_run_once_stops_at_max_iterations(tmp_path) -> None:
