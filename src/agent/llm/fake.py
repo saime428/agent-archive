@@ -4,8 +4,15 @@ from typing import Any
 
 
 class FakeLLMClient:
-    def __init__(self, *, include_fake_metadata: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        actions: list[dict[str, Any]] | None = None,
+        include_fake_metadata: bool = False,
+    ) -> None:
+        self.actions = actions or []
         self.include_fake_metadata = include_fake_metadata
+        self._index = 0
 
     def chat(
         self,
@@ -13,6 +20,11 @@ class FakeLLMClient:
         *,
         temperature: float | None = None,
     ) -> dict[str, Any]:
+        if self._index < len(self.actions):
+            action = self.actions[self._index]
+            self._index += 1
+            return action
+
         task = _extract_task(messages)
         response: dict[str, Any] = {
             "message": "Task completed by FakeLLM.",

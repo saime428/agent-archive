@@ -15,6 +15,8 @@ from agent.core.actions import (
 )
 from agent.core.context import RunContext
 from agent.llm.base import LLMClient
+from agent.policy.sandbox import WorkspaceSandbox
+from agent.tools.filesystem import execute_tool
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class RunResult:
     context: RunContext
     action: InternalAction
     observation: Observation
+    observations: list[Observation]
     summary_path: Path
     tool_calls_path: Path
 
@@ -32,47 +35,76 @@ def run_once(
     *,
     cwd: Path | None = None,
     run_id: str | None = None,
+    max_iterations: int = 3,
 ) -> RunResult:
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id)
-    raw_response = llm.chat([{"role": "user", "content": task}])
-    action = parse_model_action(
-        raw_response,
-        run_id=context.run_id,
-        action_index=1,
-        created_at=context.created_at,
-    )
-
-    if action.action.name == "done":
-        observation = make_observation(
-            action,
-            observation_index=1,
-            summary="Done.",
-            data={"final": str(action.action.args["final"])},
-        )
-    else:
-        observation = make_error_observation(
-            action.action_id,
-            action.run_id,
-            observation_index=1,
-            code=ErrorCode.POLICY_DENIED,
-            message="Only done actions are supported in the current run loop.",
-            details={"requested_action": action.action.name},
-        )
-
     run_dir = context.cwd / ".agent" / "runs" / context.run_id
     tool_calls_path = run_dir / "tool_calls.jsonl"
     summary_path = run_dir / "summary.md"
+    sandbox = WorkspaceSandbox(context.cwd)
+    actions: list[InternalAction] = []
+    observations: list[Observation] = []
+
+    for action_index in range(1, max_iterations + 1):
+        raw_response = llm.chat([{"role": "user", "content": task}])
+        action = parse_model_action(
+            raw_response,
+            run_id=context.run_id,
+            action_index=action_index,
+            created_at=context.created_at,
+        )
+        actions.append(action)
+
+        if action.action.name == "done":
+            observation = make_observation(
+                action,
+                observation_index=action_index,
+                summary="Done.",
+                data={"final": str(action.action.args["final"])},
+            )
+        elif action.action.name in {"list_dir", "read_file"}:
+            observation = execute_tool(
+                action,
+                context,
+                sandbox,
+                observation_index=action_index,
+            )
+        else:
+            observation = make_error_observation(
+                action.action_id,
+                action.run_id,
+                observation_index=action_index,
+                code=ErrorCode.POLICY_DENIED,
+                message="This action is not supported in the current run loop.",
+                details={"requested_action": action.action.name},
+            )
+        observations.append(observation)
+        if action.action.name == "done" or observation.status == "error":
+            break
+    else:
+        action = actions[-1]
+        observation = make_error_observation(
+            action.action_id,
+            context.run_id,
+            observation_index=max_iterations + 1,
+            code=ErrorCode.TOOL_FAILED,
+            message="Run stopped after reaching the iteration limit.",
+            details={"max_iterations": max_iterations},
+        )
+        observations.append(observation)
+
     _write_run_logs(
         context=context,
-        action=action,
-        observation=observation,
+        actions=actions,
+        observations=observations,
         tool_calls_path=tool_calls_path,
         summary_path=summary_path,
     )
     return RunResult(
         context=context,
-        action=action,
-        observation=observation,
+        action=actions[-1],
+        observation=observations[-1],
+        observations=observations,
         summary_path=summary_path,
         tool_calls_path=tool_calls_path,
     )
@@ -81,21 +113,31 @@ def run_once(
 def _write_run_logs(
     *,
     context: RunContext,
-    action: InternalAction,
-    observation: Observation,
+    actions: list[InternalAction],
+    observations: list[Observation],
     tool_calls_path: Path,
     summary_path: Path,
 ) -> None:
     tool_calls_path.parent.mkdir(parents=True, exist_ok=True)
-    record = {
-        "action": action.model_dump(mode="json"),
-        "observation": observation.model_dump(mode="json"),
-    }
+    records = []
+    for action, observation in zip(actions, observations, strict=False):
+        records.append(
+            json.dumps(
+                {
+                    "action": action.model_dump(mode="json"),
+                    "observation": observation.model_dump(mode="json"),
+                },
+                ensure_ascii=True,
+            )
+        )
     tool_calls_path.write_text(
-        json.dumps(record, ensure_ascii=True) + "\n",
+        "\n".join(records) + "\n",
         encoding="utf-8",
     )
-    summary_path.write_text(_render_summary(context, action, observation), encoding="utf-8")
+    summary_path.write_text(
+        _render_summary(context, actions[-1], observations[-1]),
+        encoding="utf-8",
+    )
 
 
 def _render_summary(
