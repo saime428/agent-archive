@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 
 ACTION_PROTOCOL_VERSION = "agent-action-v1"
@@ -79,6 +79,31 @@ class WriteFileArgs(StrictModel):
     create_parents: bool
 
 
+class PatchEditArgs(StrictModel):
+    path: str
+    old: str
+    new: str
+    occurrence: Literal["first", "all"] = "first"
+
+    @field_validator("path", "old")
+    @classmethod
+    def _reject_empty_strings(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Value must not be empty.")
+        return value
+
+
+class ApplyPatchArgs(StrictModel):
+    edits: list[PatchEditArgs]
+
+    @field_validator("edits")
+    @classmethod
+    def _reject_empty_edits(cls, value: list[PatchEditArgs]) -> list[PatchEditArgs]:
+        if not value:
+            raise ValueError("At least one edit is required.")
+        return value
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
@@ -86,6 +111,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "read_file": ReadFileArgs,
     "search_files": SearchFilesArgs,
     "write_file": WriteFileArgs,
+    "apply_patch": ApplyPatchArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

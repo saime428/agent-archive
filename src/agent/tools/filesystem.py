@@ -30,6 +30,14 @@ class SnapshotRecord:
     restore_hint: str
 
 
+@dataclass(frozen=True)
+class PatchFilePlan:
+    path: Path
+    original_text: str
+    patched_text: str
+    replacements: int
+
+
 def execute_tool(
     action: InternalAction,
     context: RunContext,
@@ -46,6 +54,8 @@ def execute_tool(
             return _search_files(action, sandbox, observation_index=observation_index)
         if action.action.name == "write_file":
             return _write_file(action, context, sandbox, observation_index=observation_index)
+        if action.action.name == "apply_patch":
+            return _apply_patch(action, context, sandbox, observation_index=observation_index)
     except SandboxError as exc:
         return make_error_observation(
             action.action_id,
@@ -73,6 +83,97 @@ def execute_tool(
         message="Unsupported tool.",
         details={"requested_action": action.action.name},
     )
+
+
+def _apply_patch(
+    action: InternalAction,
+    context: RunContext,
+    sandbox: WorkspaceSandbox,
+    *,
+    observation_index: int,
+) -> Observation:
+    plans = _plan_patch_files(action, sandbox)
+    snapshots: list[dict] = []
+    restore_hints: list[dict] = []
+
+    for index, plan in enumerate(plans, start=1):
+        snapshot = create_snapshot(
+            plan.path,
+            context,
+            action_id=action.action_id,
+            snapshot_name=f"file_{index:06d}",
+        )
+        snapshots.append(
+            {
+                "path": str(plan.path),
+                "snapshot_path": _display_path(snapshot.snapshot_path, context.cwd),
+                "previously_existed": snapshot.previously_existed,
+            }
+        )
+        restore_hints.append({"path": str(plan.path), "hint": snapshot.restore_hint})
+
+    for plan in plans:
+        plan.path.write_bytes(plan.patched_text.encode("utf-8"))
+
+    replacements = [{"path": str(plan.path), "count": plan.replacements} for plan in plans]
+    changed_files = [str(plan.path) for plan in plans]
+    total_replacements = sum(plan.replacements for plan in plans)
+    data = {
+        "changed_files": changed_files,
+        "snapshots": snapshots,
+        "replacements": replacements,
+        "restore_hints": restore_hints,
+    }
+    return make_observation(
+        action,
+        observation_index=observation_index,
+        summary=f"Applied patch to {len(plans)} files with {total_replacements} replacements.",
+        data=data,
+    )
+
+
+def _plan_patch_files(action: InternalAction, sandbox: WorkspaceSandbox) -> list[PatchFilePlan]:
+    plans_by_path: dict[Path, PatchFilePlan] = {}
+    ordered_paths: list[Path] = []
+
+    for edit in action.action.args["edits"]:
+        path = sandbox.resolve_write_path(str(edit["path"]), create_parents=False)
+        if not path.is_file():
+            raise OSError(f"Not a file: {path}")
+
+        if path in plans_by_path:
+            plan = plans_by_path[path]
+            current_text = plan.patched_text
+            original_text = plan.original_text
+            replacement_total = plan.replacements
+        else:
+            raw = path.read_bytes()
+            if _looks_binary(raw):
+                raise OSError("Binary files are not supported by apply_patch.")
+            current_text = _decode_text(raw)
+            original_text = current_text
+            replacement_total = 0
+            ordered_paths.append(path)
+
+        old = str(edit["old"])
+        new = str(edit["new"])
+        occurrence = str(edit["occurrence"])
+        match_count = current_text.count(old)
+        if match_count == 0:
+            raise OSError(f"Patch text not found in file: {path}")
+        if occurrence == "first" and match_count != 1:
+            raise OSError(f"Patch text is ambiguous in file: {path}")
+
+        replacement_count = 1 if occurrence == "first" else match_count
+        patched_text = current_text.replace(old, new, replacement_count)
+        plans_by_path[path] = PatchFilePlan(
+            path=path,
+            original_text=original_text,
+            patched_text=patched_text,
+            replacements=replacement_total + replacement_count,
+        )
+
+    return [plans_by_path[path] for path in ordered_paths]
 
 
 def _write_file(
@@ -108,8 +209,16 @@ def _write_file(
     )
 
 
-def create_snapshot(path: Path, context: RunContext, *, action_id: str) -> SnapshotRecord:
+def create_snapshot(
+    path: Path,
+    context: RunContext,
+    *,
+    action_id: str,
+    snapshot_name: str | None = None,
+) -> SnapshotRecord:
     snapshot_dir = context.cwd / ".agent" / "runs" / context.run_id / "snapshots" / action_id
+    if snapshot_name is not None:
+        snapshot_dir = snapshot_dir / snapshot_name
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     existed = path.exists()
     metadata_path = snapshot_dir / "metadata.json"

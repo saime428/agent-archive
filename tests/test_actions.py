@@ -232,6 +232,153 @@ def test_parse_model_action_rejects_extra_write_file_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_apply_patch_args_with_default_occurrence() -> None:
+    action = parse_model_action(
+        {
+            "message": "Patch.",
+            "action": {
+                "name": "apply_patch",
+                "args": {
+                    "edits": [
+                        {
+                            "path": "notes.txt",
+                            "old": "hello",
+                            "new": "hi",
+                        }
+                    ]
+                },
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "apply_patch"
+    assert action.action.args == {
+        "edits": [
+            {
+                "path": "notes.txt",
+                "old": "hello",
+                "new": "hi",
+                "occurrence": "first",
+            }
+        ]
+    }
+
+
+def test_parse_model_action_requires_apply_patch_edits() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Patch.",
+                "action": {"name": "apply_patch", "args": {}},
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.MISSING_REQUIRED_FIELD
+
+
+def test_parse_model_action_rejects_empty_apply_patch_edits() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Patch.",
+                "action": {"name": "apply_patch", "args": {"edits": []}},
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_empty_apply_patch_path_and_old() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Patch.",
+                "action": {
+                    "name": "apply_patch",
+                    "args": {
+                        "edits": [
+                            {
+                                "path": "",
+                                "old": "",
+                                "new": "hi",
+                                "occurrence": "first",
+                            }
+                        ]
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_extra_apply_patch_edit_fields() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Patch.",
+                "action": {
+                    "name": "apply_patch",
+                    "args": {
+                        "edits": [
+                            {
+                                "path": "notes.txt",
+                                "old": "hello",
+                                "new": "hi",
+                                "occurrence": "first",
+                                "mode": "append",
+                            }
+                        ]
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_invalid_apply_patch_occurrence() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Patch.",
+                "action": {
+                    "name": "apply_patch",
+                    "args": {
+                        "edits": [
+                            {
+                                "path": "notes.txt",
+                                "old": "hello",
+                                "new": "hi",
+                                "occurrence": "last",
+                            }
+                        ]
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_make_observation_matches_action_ids() -> None:
     action = parse_model_action(
         {

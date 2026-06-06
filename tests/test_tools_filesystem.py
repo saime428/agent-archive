@@ -4,6 +4,18 @@ from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
 
 
+def _parse_action(context: RunContext, name: str, args: dict, *, action_index: int = 1):
+    return parse_model_action(
+        {
+            "message": f"Run {name}.",
+            "action": {"name": name, "args": args},
+        },
+        run_id=context.run_id,
+        action_index=action_index,
+        created_at=context.created_at,
+    )
+
+
 def test_list_dir_returns_entries_and_truncation(tmp_path) -> None:
     (tmp_path / "b.txt").write_text("b", encoding="utf-8")
     (tmp_path / "a").mkdir()
@@ -436,3 +448,191 @@ def test_write_file_rejects_protected_internal_state(tmp_path) -> None:
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_apply_patch_replaces_single_first_match_and_snapshots(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("hello world\n", encoding="utf-8")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {"edits": [{"path": "notes.txt", "old": "hello", "new": "hi"}]},
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert target.read_text(encoding="utf-8") == "hi world\n"
+    assert observation.data is not None
+    assert observation.data["changed_files"] == [str(target.resolve())]
+    assert observation.data["replacements"] == [{"path": str(target.resolve()), "count": 1}]
+    assert len(observation.data["snapshots"]) == 1
+    snapshot = observation.data["snapshots"][0]
+    assert snapshot["path"] == str(target.resolve())
+    assert snapshot["previously_existed"] is True
+    assert (tmp_path / snapshot["snapshot_path"]).read_text(encoding="utf-8") == "hello world\n"
+    assert observation.data["restore_hints"][0]["path"] == str(target.resolve())
+
+
+def test_apply_patch_replaces_all_matches(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("one fish, one dish\n", encoding="utf-8")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {
+            "edits": [
+                {
+                    "path": "notes.txt",
+                    "old": "one",
+                    "new": "two",
+                    "occurrence": "all",
+                }
+            ]
+        },
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert target.read_text(encoding="utf-8") == "two fish, two dish\n"
+    assert observation.data is not None
+    assert observation.data["replacements"] == [{"path": str(target.resolve()), "count": 2}]
+
+
+def test_apply_patch_changes_multiple_files_with_distinct_snapshots(tmp_path) -> None:
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("alpha\n", encoding="utf-8")
+    second.write_text("beta\n", encoding="utf-8")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {
+            "edits": [
+                {"path": "first.txt", "old": "alpha", "new": "ALPHA"},
+                {"path": "second.txt", "old": "beta", "new": "BETA"},
+            ]
+        },
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert first.read_text(encoding="utf-8") == "ALPHA\n"
+    assert second.read_text(encoding="utf-8") == "BETA\n"
+    assert observation.data is not None
+    assert observation.data["changed_files"] == [str(first.resolve()), str(second.resolve())]
+    snapshot_paths = [item["snapshot_path"] for item in observation.data["snapshots"]]
+    assert len(snapshot_paths) == 2
+    assert snapshot_paths[0] != snapshot_paths[1]
+    assert (tmp_path / snapshot_paths[0]).read_text(encoding="utf-8") == "alpha\n"
+    assert (tmp_path / snapshot_paths[1]).read_text(encoding="utf-8") == "beta\n"
+
+
+def test_apply_patch_missing_old_returns_tool_failed_without_snapshot(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("hello world\n", encoding="utf-8")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {"edits": [{"path": "notes.txt", "old": "missing", "new": "hi"}]},
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert target.read_text(encoding="utf-8") == "hello world\n"
+    assert not (tmp_path / ".agent" / "runs" / "run_patch" / "snapshots").exists()
+
+
+def test_apply_patch_first_rejects_ambiguous_match_without_change(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("same same\n", encoding="utf-8")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {"edits": [{"path": "notes.txt", "old": "same", "new": "once"}]},
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert target.read_text(encoding="utf-8") == "same same\n"
+
+
+def test_apply_patch_rejects_binary_file_without_change(tmp_path) -> None:
+    target = tmp_path / "image.bin"
+    target.write_bytes(b"\x00old\x00")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {"edits": [{"path": "image.bin", "old": "old", "new": "new"}]},
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert target.read_bytes() == b"\x00old\x00"
+
+
+def test_apply_patch_rejects_protected_and_escape_paths(tmp_path) -> None:
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    protected_cases = [
+        ".agent/runs/run_patch/summary.md",
+        ".git/config",
+        "__pycache__/cache.pyc",
+        "../outside.txt",
+    ]
+    for index, path in enumerate(protected_cases, start=1):
+        action = _parse_action(
+            context,
+            "apply_patch",
+            {"edits": [{"path": path, "old": "old", "new": "new"}]},
+            action_index=index,
+        )
+
+        observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=index)
+
+        assert observation.status == "error"
+        assert observation.error is not None
+        assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_apply_patch_does_not_partially_write_when_later_edit_fails(tmp_path) -> None:
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("alpha\n", encoding="utf-8")
+    second.write_text("beta\n", encoding="utf-8")
+    context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
+    action = _parse_action(
+        context,
+        "apply_patch",
+        {
+            "edits": [
+                {"path": "first.txt", "old": "alpha", "new": "ALPHA"},
+                {"path": "second.txt", "old": "missing", "new": "BETA"},
+            ]
+        },
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert first.read_text(encoding="utf-8") == "alpha\n"
+    assert second.read_text(encoding="utf-8") == "beta\n"
+    assert not (tmp_path / ".agent" / "runs" / "run_patch" / "snapshots").exists()

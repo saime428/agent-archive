@@ -246,6 +246,59 @@ def test_run_once_executes_write_file_then_done(tmp_path) -> None:
     assert "restore" in summary
 
 
+def test_run_once_executes_apply_patch_then_done(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+    target.write_text("hello world\n", encoding="utf-8")
+    result = run_once(
+        "patch notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Patch.",
+                    "action": {
+                        "name": "apply_patch",
+                        "args": {
+                            "edits": [
+                                {
+                                    "path": "notes.txt",
+                                    "old": "hello",
+                                    "new": "hi",
+                                    "occurrence": "first",
+                                }
+                            ]
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Patched notes.",
+                            "changed_files": ["notes.txt"],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_patch_loop",
+    )
+
+    assert target.read_text(encoding="utf-8") == "hi world\n"
+    assert result.observations[0].status == "ok"
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["changed_files"] == [str(target.resolve())]
+    assert result.observation.data == {"final": "Patched notes."}
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
+
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "notes.txt" in summary
+    assert "snapshot" in summary
+    assert "restore" in summary
+
+
 def test_run_once_unsupported_action_returns_error(tmp_path) -> None:
     result = run_once(
         "ask",

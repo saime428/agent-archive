@@ -62,7 +62,13 @@ def run_once(
                 summary="Done.",
                 data={"final": str(action.action.args["final"])},
             )
-        elif action.action.name in {"list_dir", "read_file", "search_files", "write_file"}:
+        elif action.action.name in {
+            "list_dir",
+            "read_file",
+            "search_files",
+            "write_file",
+            "apply_patch",
+        }:
             observation = execute_tool(
                 action,
                 context,
@@ -180,6 +186,23 @@ def _changed_file_lines(observations: list[Observation]) -> list[str]:
     lines: list[str] = []
     for observation in observations:
         data = observation.data or {}
+        snapshot_records = data.get("snapshots")
+        if isinstance(snapshot_records, list):
+            restore_hints = _restore_hints_by_path(data.get("restore_hints"))
+            for snapshot in snapshot_records:
+                if not isinstance(snapshot, dict):
+                    continue
+                path = snapshot.get("path")
+                snapshot_path = snapshot.get("snapshot_path")
+                if not path or not snapshot_path:
+                    continue
+                lines.append(f"- changed_file: {path}")
+                lines.append(f"- snapshot: {snapshot_path}")
+                restore_hint = restore_hints.get(str(path))
+                if restore_hint:
+                    lines.append(f"- restore: {restore_hint}")
+            continue
+
         path = data.get("path")
         snapshot_path = data.get("snapshot_path")
         restore_hint = data.get("restore_hint")
@@ -190,3 +213,17 @@ def _changed_file_lines(observations: list[Observation]) -> list[str]:
         if restore_hint:
             lines.append(f"- restore: {restore_hint}")
     return lines
+
+
+def _restore_hints_by_path(raw_restore_hints: Any) -> dict[str, str]:
+    if not isinstance(raw_restore_hints, list):
+        return {}
+    result: dict[str, str] = {}
+    for item in raw_restore_hints:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        hint = item.get("hint")
+        if path and hint:
+            result[str(path)] = str(hint)
+    return result
