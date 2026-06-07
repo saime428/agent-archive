@@ -140,7 +140,7 @@ def _apply_file_config(
 
 def _read_config_file(path: Path) -> dict[str, Any]:
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"Could not parse config file {path}: {exc}") from exc
     except OSError as exc:
