@@ -17,6 +17,10 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "rg available:" in result.output
     assert "search backend:" in result.output
     assert "config mode:" in result.output
+    assert "config provider:" in result.output
+    assert "config model:" in result.output
+    assert "deepseek api key env:" in result.output
+    assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
 
@@ -33,6 +37,10 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "rg available:" in result.output
     assert "search backend:" in result.output
     assert "config mode:" in result.output
+    assert "config provider:" in result.output
+    assert "config model:" in result.output
+    assert "deepseek api key env:" in result.output
+    assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
 
@@ -79,6 +87,10 @@ def test_run_accepts_config_cli_options(tmp_path) -> None:
             "--approval",
             "risky-confirm",
             "--dry-run",
+            "--provider",
+            "fake",
+            "--model",
+            "deepseek-v4-pro",
             "inspect project",
         ],
     )
@@ -88,10 +100,14 @@ def test_run_accepts_config_cli_options(tmp_path) -> None:
     assert "sandbox: workspace-write" in result.output
     assert "approval: risky-confirm" in result.output
     assert "dry_run: true" in result.output
+    assert "provider: fake" in result.output
+    assert "model: deepseek-v4-pro" in result.output
     summary_paths = list((workspace / ".agent" / "runs").glob("*/summary.md"))
     assert len(summary_paths) == 1
     summary = summary_paths[0].read_text(encoding="utf-8")
     assert "config_dry_run: true" in summary
+    assert "config_provider: fake" in summary
+    assert "config_model: deepseek-v4-pro" in summary
 
 
 def test_run_no_dry_run_overrides_file_config(tmp_path) -> None:
@@ -163,6 +179,56 @@ def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
     assert "dry-run: skipped" in result.output
 
 
+def test_skills_list_and_show_builtin_skill(tmp_path) -> None:
+    runner = CliRunner()
+
+    list_result = runner.invoke(app, ["skills", "list", "--cwd", str(tmp_path)])
+    show_result = runner.invoke(app, ["skills", "show", "code-dev", "--cwd", str(tmp_path)])
+
+    assert list_result.exit_code == 0
+    assert "code-dev" in list_result.output
+    assert "builtin" in list_result.output
+    assert show_result.exit_code == 0
+    assert "name: code-dev" in show_result.output
+    assert "allowed_tools:" in show_result.output
+
+
+def test_skills_show_unknown_skill_returns_nonzero(tmp_path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["skills", "show", "missing", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Unknown skill: missing" in result.output
+
+
+def test_memory_review_accept_list_and_undo(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    run_result = runner.invoke(app, ["run", "--cwd", str(workspace), "remember parser tests"])
+    assert run_result.exit_code == 0
+
+    review_result = runner.invoke(app, ["memory", "review", "--cwd", str(workspace)])
+    assert review_result.exit_code == 0
+    assert "cand_" in review_result.output
+    candidate_id = next(part for part in review_result.output.split() if part.startswith("cand_"))
+
+    accept_result = runner.invoke(app, ["memory", "accept", candidate_id, "--cwd", str(workspace)])
+    assert accept_result.exit_code == 0
+    assert "accepted:" in accept_result.output
+    entry_id = accept_result.output.split("accepted:", 1)[1].strip().split()[0]
+
+    list_result = runner.invoke(app, ["memory", "list", "--cwd", str(workspace)])
+    assert list_result.exit_code == 0
+    assert entry_id in list_result.output
+
+    undo_result = runner.invoke(app, ["memory", "undo", entry_id, "--cwd", str(workspace)])
+    assert undo_result.exit_code == 0
+    assert "undone:" in undo_result.output
+
+
 def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
@@ -175,6 +241,9 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "sandbox: workspace-write" in result.output
     assert "approval: risky-confirm" in result.output
     assert "dry_run: false" in result.output
+    assert "provider: fake" in result.output
+    assert "model: deepseek-v4-flash" in result.output
+    assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output
     assert f"cwd: {workspace.resolve()}" in result.output
     assert "loaded files: none" in result.output
 

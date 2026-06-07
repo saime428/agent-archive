@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 from pathlib import Path
@@ -9,7 +10,10 @@ from rich.console import Console
 
 from agent.config import ConfigError, ConfigOverrides, load_config
 from agent.core.loop import run_once
+from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
+from agent.core.skills import SkillError, discover_skills, load_selected_skills
+from agent.llm.deepseek import DeepSeekClient, DeepSeekError
 from agent.llm.fake import FakeLLMClient
 from agent.policy.approvals import CONFIRMATION_REQUIRED_ACTIONS, LOW_RISK_ACTIONS
 
@@ -17,9 +21,13 @@ app = typer.Typer(help="Minimal Python CLI agent.")
 runs_app = typer.Typer(help="Inspect agent run logs.")
 tools_app = typer.Typer(help="Inspect available agent tools.")
 config_app = typer.Typer(help="Inspect agent configuration.")
+skills_app = typer.Typer(help="Inspect and load agent skills.")
+memory_app = typer.Typer(help="Review and manage agent memory.")
 app.add_typer(runs_app, name="runs")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
+app.add_typer(skills_app, name="skills")
+app.add_typer(memory_app, name="memory")
 console = Console(highlight=False)
 
 
@@ -63,6 +71,11 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"rg available: {str(rg_available).lower()}")
     console.print(f"search backend: {'rg' if rg_available else 'python'}")
     console.print(f"config mode: {config.mode}")
+    console.print(f"config provider: {config.provider}")
+    console.print(f"config model: {config.model}")
+    console.print(f"config default_skills: {list(config.default_skills)}")
+    console.print(f"deepseek api key env: {config.deepseek_api_key_env}")
+    console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
     console.print(f"config dry_run: {str(config.dry_run).lower()}")
@@ -80,6 +93,9 @@ def run(
     sandbox: str | None = typer.Option(None, "--sandbox", help="Sandbox mode."),
     approval: str | None = typer.Option(None, "--approval", help="Approval mode."),
     dry_run: bool | None = typer.Option(None, "--dry-run/--no-dry-run", help="Record dry-run intent in config."),
+    provider: str | None = typer.Option(None, "--provider", help="LLM provider."),
+    model: str | None = typer.Option(None, "--model", help="LLM model."),
+    skill: list[str] | None = typer.Option(None, "--skill", help="Skill to load for this run."),
 ) -> None:
     """Run an agent task."""
     workspace = (cwd or Path.cwd()).resolve()
@@ -91,19 +107,31 @@ def run(
                 sandbox=sandbox,
                 approval=approval,
                 dry_run=dry_run,
+                provider=provider,
+                model=model,
             ),
         )
     except ConfigError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
-    result = run_once(task, FakeLLMClient(), cwd=workspace, config=config)
+    try:
+        llm = _make_llm(config)
+    except DeepSeekError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    selected_skills = skill if skill else None
+    result = run_once(task, llm, cwd=workspace, config=config, selected_skills=selected_skills)
     final = (result.observation.data or {}).get("final", "")
     console.print(f"run_id: {result.context.run_id}")
     console.print(f"mode: {config.mode}")
     console.print(f"sandbox: {config.sandbox}")
     console.print(f"approval: {config.approval}")
     console.print(f"dry_run: {str(config.dry_run).lower()}")
+    console.print(f"provider: {config.provider}")
+    console.print(f"model: {config.model}")
+    console.print(f"skills: {[item.name for item in result.skills]}")
     for warning in diagnostics.warnings:
         console.print(f"config warning: {warning}")
     console.print(f"final: {final}")
@@ -131,6 +159,12 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
 
     console.print(f"cwd: {workspace}", soft_wrap=True)
     console.print(f"mode: {config.mode}")
+    console.print(f"provider: {config.provider}")
+    console.print(f"model: {config.model}")
+    console.print(f"deepseek_api_key_env: {config.deepseek_api_key_env}")
+    console.print(f"default_skills: {list(config.default_skills)}")
+    console.print(f"memory_auto_write: {str(config.memory_auto_write).lower()}")
+    console.print(f"memory_max_items: {config.memory_max_items}")
     console.print(f"sandbox: {config.sandbox}")
     console.print(f"approval: {config.approval}")
     console.print(f"dry_run: {str(config.dry_run).lower()}")
@@ -153,6 +187,90 @@ def config_doctor(
     _print_doctor((cwd or Path.cwd()).resolve())
 
 
+@skills_app.command("list")
+def skills_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills.")) -> None:
+    """List available skill metadata without loading skill bodies."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        catalog = discover_skills(workspace)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for skill in catalog.values():
+        tools = ",".join(skill.allowed_tools)
+        console.file.write(f"{skill.name}\t{skill.source}\ttools: {tools}\t{skill.description}\n")
+
+
+@skills_app.command("show")
+def skills_show(
+    name: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Show one skill, including its body."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        skills = load_selected_skills(workspace, [name], max_chars=20_000)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    skill = skills[0]
+    console.print(f"name: {skill.name}")
+    console.print(f"description: {skill.description}")
+    console.print(f"source: {skill.source}")
+    console.print("allowed_tools:")
+    for tool_name in skill.allowed_tools:
+        console.print(f"- {tool_name}")
+    console.print("")
+    console.print(skill.body or "")
+
+
+@memory_app.command("review")
+def memory_review(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory.")) -> None:
+    """List pending memory candidates."""
+    store = MemoryStore((cwd or Path.cwd()).resolve())
+    candidates = store.list_candidates()
+    for candidate in candidates:
+        console.print(
+            f"{candidate.candidate_id}\tstatus: {candidate.status}\tsource: {candidate.source_run_id}\t{candidate.source_excerpt}"
+        )
+
+
+@memory_app.command("list")
+def memory_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory.")) -> None:
+    """List accepted active memory entries."""
+    store = MemoryStore((cwd or Path.cwd()).resolve())
+    for entry in store.list_entries():
+        console.print(f"{entry.entry_id}\tstatus: {entry.status}\tsource: {entry.source_run_id}\t{entry.source_excerpt}")
+
+
+@memory_app.command("accept")
+def memory_accept(
+    candidate_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory."),
+) -> None:
+    """Accept a pending memory candidate."""
+    try:
+        entry = MemoryStore((cwd or Path.cwd()).resolve()).accept_candidate(candidate_id)
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"accepted: {entry.entry_id}")
+
+
+@memory_app.command("undo")
+def memory_undo(
+    entry_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory."),
+) -> None:
+    """Undo a memory entry by writing a tombstone."""
+    try:
+        tombstone = MemoryStore((cwd or Path.cwd()).resolve()).undo_entry(entry_id)
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"undone: {tombstone.supersedes}")
+
+
 def _tool_category(tool_name: str) -> str:
     if tool_name in {"done", "ask_user"}:
         return "terminal"
@@ -161,6 +279,13 @@ def _tool_category(tool_name: str) -> str:
     if tool_name in CONFIRMATION_REQUIRED_ACTIONS:
         return "confirmation-required"
     return "unknown"
+
+
+def _make_llm(config):
+    if config.provider == "fake":
+        return FakeLLMClient()
+    api_key = os.environ.get(config.deepseek_api_key_env, "")
+    return DeepSeekClient(api_key=api_key, model=config.model)
 
 
 @runs_app.command("list")

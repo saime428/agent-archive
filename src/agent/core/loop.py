@@ -18,12 +18,15 @@ from agent.core.actions import (
 )
 from agent.core.budget import ContextBudget, truncate_observation, truncate_text
 from agent.core.context import RunContext
+from agent.core.hooks import run_hooks
+from agent.core.memory import MemoryEntry, MemoryStore, build_memory_message
 from agent.core.project_instructions import (
     ProjectInstructions,
     build_project_instructions_message,
     load_project_instructions,
 )
 from agent.core.redaction import redact_record, redact_value
+from agent.core.skills import SkillError, SkillMetadata, build_skills_message, load_selected_skills
 from agent.llm.base import LLMClient
 from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
@@ -41,6 +44,8 @@ class RunResult:
     summary_path: Path
     tool_calls_path: Path
     project_instructions: ProjectInstructions
+    skills: list[SkillMetadata]
+    memory_entries: list[MemoryEntry]
     config: AgentConfig
 
 
@@ -82,18 +87,34 @@ def run_once(
     max_iterations: int = 3,
     config: AgentConfig | None = None,
     budget: ContextBudget | None = None,
+    selected_skills: list[str] | tuple[str, ...] | None = None,
 ) -> RunResult:
     effective_config = config or AgentConfig()
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
     run_dir = context.cwd / ".agent" / "runs" / context.run_id
     tool_calls_path = run_dir / "tool_calls.jsonl"
     summary_path = run_dir / "summary.md"
+    hooks_path = run_dir / "hooks.jsonl"
     sandbox = WorkspaceSandbox(context.cwd)
     project_instructions = load_project_instructions(
         context.cwd,
         max_chars=context.budget.project_instructions_chars,
     )
-    messages = _build_messages(task, project_instructions)
+    try:
+        skills = load_selected_skills(
+            context.cwd,
+            selected_skills if selected_skills is not None else effective_config.default_skills,
+            max_chars=context.budget.skill_body_chars,
+        )
+    except SkillError:
+        skills = []
+    memory_entries = MemoryStore(context.cwd).retrieve(
+        task,
+        max_items=effective_config.memory_max_items,
+        max_chars=context.budget.memory_context_chars,
+    )
+    messages = _build_messages(task, project_instructions, skills, memory_entries)
+    _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
     actions: list[InternalAction] = []
     observations: list[Observation] = []
     traces: list[TraceRecord] = []
@@ -135,6 +156,35 @@ def run_once(
         completed_action_iterations += 1
         actions.append(action)
 
+        before_tool_hooks = _run_hook_event(
+            "before_tool",
+            effective_config,
+            hooks_path,
+            {"run_id": context.run_id, "action": action.action.name},
+        )
+        if before_tool_hooks.blocking_error is not None:
+            observation = make_error_observation(
+                action.action_id,
+                action.run_id,
+                observation_index=model_call_index,
+                code=ErrorCode.INTERNAL_ERROR,
+                message=before_tool_hooks.blocking_error,
+                details={"hook_event": "before_tool", "requested_action": action.action.name},
+            )
+            observation = truncate_observation(observation, context.budget)
+            observations.append(observation)
+            traces.append(
+                TraceRecord(
+                    phase="action",
+                    action_index=model_call_index,
+                    observation_index=model_call_index,
+                    repair_attempt=None,
+                    terminal=True,
+                    **_trace_policy(action, effective_config),
+                )
+            )
+            break
+
         if action.action.name == "done":
             observation = make_observation(
                 action,
@@ -172,6 +222,12 @@ def run_once(
             )
         observation = truncate_observation(observation, context.budget)
         observations.append(observation)
+        _run_hook_event(
+            "after_tool",
+            effective_config,
+            hooks_path,
+            {"run_id": context.run_id, "action": action.action.name, "status": observation.status},
+        )
         traces.append(
             TraceRecord(
                 phase="action",
@@ -197,12 +253,21 @@ def run_once(
         observation = truncate_observation(observation, context.budget)
         observations.append(observation)
 
+    _write_memory_candidate(context, observations)
+    _run_hook_event(
+        "after_run",
+        effective_config,
+        hooks_path,
+        {"run_id": context.run_id, "status": observations[-1].status if observations else "unknown"},
+    )
     _write_run_logs(
         context=context,
         actions=actions,
         observations=observations,
         traces=traces,
         project_instructions=project_instructions,
+        skills=skills,
+        memory_entries=memory_entries,
         config=effective_config,
         tool_calls_path=tool_calls_path,
         summary_path=summary_path,
@@ -215,7 +280,19 @@ def run_once(
         summary_path=summary_path,
         tool_calls_path=tool_calls_path,
         project_instructions=project_instructions,
+        skills=skills,
+        memory_entries=memory_entries,
         config=effective_config,
+    )
+
+
+def _run_hook_event(event: str, config: AgentConfig, hooks_path: Path, payload: dict[str, Any]):
+    return run_hooks(
+        event=event,
+        enabled_hooks=config.enabled_hooks,
+        blocking_hooks=config.blocking_hooks,
+        payload=payload,
+        log_path=hooks_path,
     )
 
 
@@ -407,6 +484,13 @@ def _trace_policy(action: InternalAction, config: AgentConfig) -> dict[str, obje
 
 def _trace_config(config: AgentConfig) -> dict[str, object]:
     return {
+        "provider": config.provider,
+        "model": config.model,
+        "default_skills": list(config.default_skills),
+        "memory_auto_write": config.memory_auto_write,
+        "memory_max_items": config.memory_max_items,
+        "enabled_hooks": list(config.enabled_hooks),
+        "blocking_hooks": list(config.blocking_hooks),
         "mode": config.mode,
         "sandbox": config.sandbox,
         "approval": config.approval,
@@ -414,13 +498,36 @@ def _trace_config(config: AgentConfig) -> dict[str, object]:
     }
 
 
-def _build_messages(task: str, project_instructions: ProjectInstructions) -> list[dict[str, str]]:
+def _build_messages(
+    task: str,
+    project_instructions: ProjectInstructions,
+    skills: list[SkillMetadata],
+    memory_entries: list[MemoryEntry],
+) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     project_message = build_project_instructions_message(project_instructions)
     if project_message is not None:
         messages.append(project_message)
+    skill_message = build_skills_message(skills)
+    if skill_message is not None:
+        messages.append(skill_message)
+    memory_message = build_memory_message(memory_entries)
+    if memory_message is not None:
+        messages.append(memory_message)
     messages.append({"role": "user", "content": task})
     return messages
+
+
+def _write_memory_candidate(context: RunContext, observations: list[Observation]) -> None:
+    if not observations:
+        return
+    observation = observations[-1]
+    if observation.status != "ok":
+        return
+    final = _final_from_observation(observation)
+    if not final:
+        return
+    MemoryStore(context.cwd).add_candidate(source_run_id=context.run_id, source_excerpt=final)
 
 
 def _write_run_logs(
@@ -430,6 +537,8 @@ def _write_run_logs(
     observations: list[Observation],
     traces: list[TraceRecord],
     project_instructions: ProjectInstructions,
+    skills: list[SkillMetadata],
+    memory_entries: list[MemoryEntry],
     config: AgentConfig,
     tool_calls_path: Path,
     summary_path: Path,
@@ -471,7 +580,7 @@ def _write_run_logs(
         "\n".join(records) + "\n",
         encoding="utf-8",
     )
-    summary = _render_summary(context, actions, observations, project_instructions, config)
+    summary = _render_summary(context, actions, observations, project_instructions, skills, memory_entries, config)
     redacted_summary = redact_value(summary)
     redaction_replacements += redacted_summary.replacements
     summary_text = redacted_summary.value
@@ -485,6 +594,8 @@ def _render_summary(
     actions: list[InternalAction],
     observations: list[Observation],
     project_instructions: ProjectInstructions,
+    skills: list[SkillMetadata],
+    memory_entries: list[MemoryEntry],
     config: AgentConfig,
 ) -> str:
     action = actions[-1]
@@ -504,6 +615,8 @@ def _render_summary(
     if action.action.name == "ask_user":
         lines.extend(_ask_user_lines(observation))
     lines.extend(_project_instruction_lines(project_instructions))
+    lines.extend(_skill_lines(skills))
+    lines.extend(_memory_lines(memory_entries))
     lines.extend(_config_lines(config))
     changed_lines = _changed_file_lines(observations)
     if changed_lines:
@@ -526,10 +639,35 @@ def _project_instruction_lines(project_instructions: ProjectInstructions) -> lis
     return lines
 
 
+def _skill_lines(skills: list[SkillMetadata]) -> list[str]:
+    lines = ["", "## Skills", f"- skills_loaded: {len(skills)}"]
+    for skill in skills:
+        lines.append(f"- skill: {skill.name}")
+        lines.append(f"  source: {skill.source}")
+        lines.append(f"  truncated: {str(skill.truncated).lower()}")
+    return lines
+
+
+def _memory_lines(memory_entries: list[MemoryEntry]) -> list[str]:
+    lines = ["", "## Memory", f"- memory_loaded: {len(memory_entries)}"]
+    for entry in memory_entries:
+        lines.append(f"- memory_entry: {entry.entry_id}")
+        lines.append(f"  source_run_id: {entry.source_run_id}")
+    return lines
+
+
 def _config_lines(config: AgentConfig) -> list[str]:
     return [
         "",
         "## Config",
+        f"- config_provider: {config.provider}",
+        f"- config_model: {config.model}",
+        f"- config_deepseek_api_key_env: {config.deepseek_api_key_env}",
+        f"- config_default_skills: {list(config.default_skills)}",
+        f"- config_memory_auto_write: {str(config.memory_auto_write).lower()}",
+        f"- config_memory_max_items: {config.memory_max_items}",
+        f"- config_enabled_hooks: {list(config.enabled_hooks)}",
+        f"- config_blocking_hooks: {list(config.blocking_hooks)}",
         f"- config_mode: {config.mode}",
         f"- config_sandbox: {config.sandbox}",
         f"- config_approval: {config.approval}",

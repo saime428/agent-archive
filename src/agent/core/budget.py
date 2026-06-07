@@ -23,6 +23,8 @@ class ContextBudget:
     observation_summary_chars: int = 1_000
     repair_attempts: int = 2
     repair_excerpt_chars: int = 1_000
+    skill_body_chars: int = 8_000
+    memory_context_chars: int = 8_000
 
 
 @dataclass(frozen=True)

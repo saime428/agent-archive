@@ -66,5 +66,42 @@ python -m pytest -q
 git diff --check
 ```
 
-v0.1 intentionally uses `FakeLLMClient`. Real provider support, skills, memory,
-hooks, and document tools are staged for later releases.
+## v0.2 Commands
+
+v0.2 keeps `fake` as the default provider. To use DeepSeek, set an API key and
+select the provider explicitly:
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+agent run --provider deepseek --model deepseek-v4-flash "inspect project"
+```
+
+Provider diagnostics never make a network request:
+
+```powershell
+agent doctor
+agent config doctor
+```
+
+Inspect skills:
+
+```powershell
+agent skills list
+agent skills show code-dev
+agent run --skill code-dev "fix failing tests"
+```
+
+Review and manage memory:
+
+```powershell
+agent memory review
+agent memory accept <candidate-id>
+agent memory list
+agent memory undo <entry-id>
+```
+
+Hooks are disabled by default. When explicitly enabled in config, in-process
+hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.
+
+v0.2 still excludes document tools. PDF, Office, Markdown report generation, and
+document prompt-injection isolation are staged for v0.3.
