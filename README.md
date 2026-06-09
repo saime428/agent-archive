@@ -103,5 +103,28 @@ agent memory undo <entry-id>
 Hooks are disabled by default. When explicitly enabled in config, in-process
 hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.
 
-v0.2 still excludes document tools. PDF, Office, Markdown report generation, and
-document prompt-injection isolation are staged for v0.3.
+## v0.3 Document Slice
+
+v0.3 has started with a minimal PDF reading tool in the internal action
+protocol:
+
+```json
+{
+  "message": "Read the local PDF.",
+  "action": {
+    "name": "read_pdf",
+    "args": {
+      "path": "docs/main.pdf",
+      "max_chars": 4000
+    }
+  }
+}
+```
+
+`read_pdf` extracts text with `pypdf`, applies the workspace sandbox, budgets the
+returned text, and wraps extracted content with `UNTRUSTED DOCUMENT SOURCE MATERIAL`
+so document text cannot override instructions, policy, approval, sandbox, or tool
+schemas.
+
+Word, Excel, PowerPoint, Markdown report generation, and Word report generation
+remain staged for later v0.3 slices.

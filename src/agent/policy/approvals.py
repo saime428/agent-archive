@@ -12,6 +12,7 @@ LOW_RISK_ACTIONS = {
     "done",
     "list_dir",
     "read_file",
+    "read_pdf",
     "search_files",
     "git_status",
     "git_diff",

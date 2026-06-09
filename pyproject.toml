@@ -5,6 +5,7 @@ description = "A minimal Python CLI agent core."
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0",
+    "pypdf>=4.0",
     "rich>=13.0",
     "typer>=0.12",
 ]

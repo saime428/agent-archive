@@ -31,6 +31,7 @@ from agent.llm.base import LLMClient
 from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
+from agent.tools.documents import execute_document_tool
 from agent.tools.git import execute_git_tool
 from agent.tools.shell import execute_run_command
 
@@ -70,6 +71,7 @@ SUPPORTED_TOOL_ACTIONS = {
     "run_command",
     "git_status",
     "git_diff",
+    "read_pdf",
 }
 DRY_RUN_SKIPPED_ACTIONS = {
     "write_file",
@@ -442,6 +444,13 @@ def _tool_observation(
         )
     if action.action.name in {"git_status", "git_diff"}:
         return execute_git_tool(
+            action,
+            context,
+            sandbox,
+            observation_index=observation_index,
+        )
+    if action.action.name == "read_pdf":
+        return execute_document_tool(
             action,
             context,
             sandbox,

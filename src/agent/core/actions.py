@@ -150,6 +150,25 @@ class GitDiffArgs(StrictModel):
         return value
 
 
+class ReadPdfArgs(StrictModel):
+    path: str
+    max_chars: int | None = None
+
+    @field_validator("path")
+    @classmethod
+    def _reject_empty_path(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("path must not be empty.")
+        return value
+
+    @field_validator("max_chars")
+    @classmethod
+    def _reject_invalid_max_chars(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_chars must be positive.")
+        return value
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
@@ -161,6 +180,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "run_command": RunCommandArgs,
     "git_status": GitStatusArgs,
     "git_diff": GitDiffArgs,
+    "read_pdf": ReadPdfArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

@@ -47,3 +47,20 @@ def test_readme_documents_v02_commands() -> None:
     assert "agent memory review" in readme
     assert "--provider deepseek" in readme
     assert "DEEPSEEK_API_KEY" in readme
+
+
+def test_v03_acceptance_checklist_records_pdf_slice_and_deferrals() -> None:
+    checklist = (ROOT / "docs" / "v0.3-acceptance.md").read_text(encoding="utf-8")
+
+    assert "v0.3 Acceptance Checklist" in checklist
+    assert "read_pdf" in checklist
+    assert "Implemented / Tested" in checklist
+    assert "Deferred" in checklist
+    assert "prompt-injection" in checklist
+
+
+def test_readme_documents_v03_pdf_command() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "read_pdf" in readme
+    assert "UNTRUSTED DOCUMENT SOURCE MATERIAL" in readme

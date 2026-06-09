@@ -1108,6 +1108,57 @@ def test_run_once_executes_git_diff_then_done(tmp_path) -> None:
     assert result.observation.data == {"final": "Checked diff."}
 
 
+def test_run_once_executes_read_pdf_then_done(tmp_path, monkeypatch) -> None:
+    import sys
+    import types
+
+    class FakePage:
+        def extract_text(self) -> str:
+            return "PDF text"
+
+    class FakeReader:
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.pages = [FakePage()]
+
+    monkeypatch.setitem(sys.modules, "pypdf", types.SimpleNamespace(PdfReader=FakeReader))
+    (tmp_path / "main.pdf").write_bytes(b"%PDF fake")
+
+    result = run_once(
+        "read pdf",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Read PDF.",
+                    "action": {
+                        "name": "read_pdf",
+                        "args": {"path": "main.pdf", "max_chars": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Read PDF.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_pdf_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["untrusted"] is True
+    assert "PDF text" in result.observations[0].data["content"]
+    assert result.observation.data == {"final": "Read PDF."}
+
+
 def test_run_once_ask_user_returns_terminal_observation(tmp_path) -> None:
     result = run_once(
         "ask",
