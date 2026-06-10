@@ -1159,6 +1159,56 @@ def test_run_once_executes_read_pdf_then_done(tmp_path, monkeypatch) -> None:
     assert result.observation.data == {"final": "Read PDF."}
 
 
+def test_run_once_executes_read_docx_then_done(tmp_path, monkeypatch) -> None:
+    import sys
+    import types
+
+    class FakeParagraph:
+        text = "DOCX text"
+
+    class FakeDocument:
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.paragraphs = [FakeParagraph()]
+
+    monkeypatch.setitem(sys.modules, "docx", types.SimpleNamespace(Document=FakeDocument))
+    (tmp_path / "main.docx").write_bytes(b"PK fake")
+
+    result = run_once(
+        "read docx",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Read DOCX.",
+                    "action": {
+                        "name": "read_docx",
+                        "args": {"path": "main.docx", "max_chars": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Read DOCX.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_docx_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["untrusted"] is True
+    assert "DOCX text" in result.observations[0].data["content"]
+    assert result.observation.data == {"final": "Read DOCX."}
+
+
 def test_run_once_ask_user_returns_terminal_observation(tmp_path) -> None:
     result = run_once(
         "ask",

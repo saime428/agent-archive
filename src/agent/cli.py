@@ -37,6 +37,7 @@ TOOL_DESCRIPTIONS = {
     "list_dir": "List workspace directory entries.",
     "read_file": "Read a workspace text file.",
     "read_pdf": "Extract text from a workspace PDF as untrusted source material.",
+    "read_docx": "Extract text from a workspace DOCX as untrusted source material.",
     "search_files": "Search workspace paths and text.",
     "write_file": "Write a workspace text file with snapshot protection.",
     "apply_patch": "Apply structured text replacements with snapshots.",

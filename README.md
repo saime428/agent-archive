@@ -105,8 +105,8 @@ hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.
 
 ## v0.3 Document Slice
 
-v0.3 has started with a minimal PDF reading tool in the internal action
-protocol:
+v0.3 has started with minimal document reading tools in the internal action
+protocol. PDF files can be read with `read_pdf`:
 
 ```json
 {
@@ -121,10 +121,26 @@ protocol:
 }
 ```
 
-`read_pdf` extracts text with `pypdf`, applies the workspace sandbox, budgets the
-returned text, and wraps extracted content with `UNTRUSTED DOCUMENT SOURCE MATERIAL`
+Word `.docx` files can be read with `read_docx`:
+
+```json
+{
+  "message": "Read the local DOCX.",
+  "action": {
+    "name": "read_docx",
+    "args": {
+      "path": "docs/interview.docx",
+      "max_chars": 4000
+    }
+  }
+}
+```
+
+`read_pdf` extracts text with `pypdf`, and `read_docx` extracts paragraph text
+with optional `python-docx`. Both tools apply the workspace sandbox, budget the
+returned text, and wrap extracted content with `UNTRUSTED DOCUMENT SOURCE MATERIAL`
 so document text cannot override instructions, policy, approval, sandbox, or tool
 schemas.
 
-Word, Excel, PowerPoint, Markdown report generation, and Word report generation
-remain staged for later v0.3 slices.
+Excel, PowerPoint, Markdown report generation, and Word report generation remain
+staged for later v0.3 slices.

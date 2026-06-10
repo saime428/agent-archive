@@ -25,6 +25,8 @@ def execute_document_tool(
     try:
         if action.action.name == "read_pdf":
             return _read_pdf(action, context, sandbox, observation_index=observation_index)
+        if action.action.name == "read_docx":
+            return _read_docx(action, context, sandbox, observation_index=observation_index)
     except SandboxError as exc:
         return make_error_observation(
             action.action_id,
@@ -106,4 +108,59 @@ def _render_pdf_source_material(path: Path, pages: list[str]) -> str:
     chunks = [UNTRUSTED_DOCUMENT_HEADER, f"Source: {path}\n", "Tool: read_pdf\n"]
     for page_number, text in enumerate(pages, start=1):
         chunks.append(f"\n[page {page_number}]\n{text}")
+    return "".join(chunks)
+
+
+def _read_docx(
+    action: InternalAction,
+    context: RunContext,
+    sandbox: WorkspaceSandbox,
+    *,
+    observation_index: int,
+) -> Observation:
+    path = sandbox.resolve_read_path(str(action.action.args["path"]))
+    if not path.is_file():
+        raise OSError(f"Not a file: {path}")
+
+    paragraphs = _extract_docx_paragraphs(path)
+    raw_content = _render_docx_source_material(path, paragraphs)
+    requested_max_chars = action.action.args.get("max_chars")
+    max_chars = min(
+        requested_max_chars or context.budget.file_read_max_chars,
+        context.budget.file_read_max_chars,
+    )
+    truncated = truncate_text(raw_content, max_chars)
+    data: dict[str, Any] = {
+        "path": str(path),
+        "content": truncated.value,
+        "paragraph_count": len(paragraphs),
+        "byte_size": path.stat().st_size,
+        "truncated": truncated.truncated,
+        "untrusted": True,
+    }
+    return make_observation(
+        action,
+        observation_index=observation_index,
+        summary=f"Read {len(paragraphs)} paragraphs from DOCX.",
+        data=data,
+    )
+
+
+def _extract_docx_paragraphs(path: Path) -> list[str]:
+    try:
+        from docx import Document
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise OSError("DOCX support requires the python-docx package.") from exc
+
+    try:
+        document = Document(str(path))
+        return [paragraph.text or "" for paragraph in document.paragraphs]
+    except Exception as exc:  # pragma: no cover - depends on python-docx parser internals
+        raise OSError(f"Could not read DOCX: {exc}") from exc
+
+
+def _render_docx_source_material(path: Path, paragraphs: list[str]) -> str:
+    chunks = [UNTRUSTED_DOCUMENT_HEADER, "Tool: read_docx\n", f"Source: {path}\n"]
+    for paragraph_number, text in enumerate(paragraphs, start=1):
+        chunks.append(f"\n[paragraph {paragraph_number}]\n{text}")
     return "".join(chunks)

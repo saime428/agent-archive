@@ -536,6 +536,78 @@ def test_parse_model_action_rejects_invalid_read_pdf_max_chars() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_read_docx_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Read DOCX.",
+            "action": {
+                "name": "read_docx",
+                "args": {"path": "docs/interview.docx", "max_chars": 4000},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "read_docx"
+    assert action.action.args == {"path": "docs/interview.docx", "max_chars": 4000}
+
+
+def test_parse_model_action_rejects_empty_read_docx_path() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Read DOCX.",
+                "action": {
+                    "name": "read_docx",
+                    "args": {"path": "  ", "max_chars": None},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_invalid_read_docx_max_chars() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Read DOCX.",
+                "action": {
+                    "name": "read_docx",
+                    "args": {"path": "docs/interview.docx", "max_chars": 0},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_extra_read_docx_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Read DOCX.",
+                "action": {
+                    "name": "read_docx",
+                    "args": {"path": "docs/interview.docx", "max_chars": None, "comments": True},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_parse_model_action_rejects_invalid_git_diff_max_bytes() -> None:
     with pytest.raises(ActionParseError) as exc_info:
         parse_model_action(
