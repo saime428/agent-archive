@@ -136,11 +136,27 @@ Word `.docx` files can be read with `read_docx`:
 }
 ```
 
-`read_pdf` extracts text with `pypdf`, and `read_docx` extracts paragraph text
-with optional `python-docx`. Both tools apply the workspace sandbox, budget the
-returned text, and wrap extracted content with `UNTRUSTED DOCUMENT SOURCE MATERIAL`
-so document text cannot override instructions, policy, approval, sandbox, or tool
-schemas.
+Excel `.xlsx` files can be read with `read_xlsx`:
 
-Excel, PowerPoint, Markdown report generation, and Word report generation remain
-staged for later v0.3 slices.
+```json
+{
+  "message": "Read the local XLSX.",
+  "action": {
+    "name": "read_xlsx",
+    "args": {
+      "path": "docs/data.xlsx",
+      "max_chars": 4000
+    }
+  }
+}
+```
+
+`read_pdf` extracts text with `pypdf`, `read_docx` extracts paragraph text with
+optional `python-docx`, and `read_xlsx` extracts sheet names, shape, headers,
+and sample rows with optional `openpyxl`. These tools apply the workspace
+sandbox, budget the returned text, and wrap extracted content with
+`UNTRUSTED DOCUMENT SOURCE MATERIAL` so document text cannot override
+instructions, policy, approval, sandbox, or tool schemas.
+
+PowerPoint, Markdown report generation, and Word report generation remain staged
+for later v0.3 slices.

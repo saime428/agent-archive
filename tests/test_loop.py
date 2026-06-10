@@ -1209,6 +1209,70 @@ def test_run_once_executes_read_docx_then_done(tmp_path, monkeypatch) -> None:
     assert result.observation.data == {"final": "Read DOCX."}
 
 
+def test_run_once_executes_read_xlsx_then_done(tmp_path, monkeypatch) -> None:
+    import sys
+    import types
+
+    class FakeWorksheet:
+        max_row = 2
+        max_column = 2
+
+        def iter_rows(self, values_only: bool = False):
+            assert values_only is True
+            return iter([["Name", "Score"], ["Ada", 10]])
+
+    class FakeWorkbook:
+        sheetnames = ["People"]
+
+        def __getitem__(self, name: str):
+            assert name == "People"
+            return FakeWorksheet()
+
+    def fake_load_workbook(path: str, *, read_only: bool, data_only: bool):
+        assert path
+        assert read_only is True
+        assert data_only is True
+        return FakeWorkbook()
+
+    monkeypatch.setitem(sys.modules, "openpyxl", types.SimpleNamespace(load_workbook=fake_load_workbook))
+    (tmp_path / "data.xlsx").write_bytes(b"PK fake")
+
+    result = run_once(
+        "read xlsx",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Read XLSX.",
+                    "action": {
+                        "name": "read_xlsx",
+                        "args": {"path": "data.xlsx", "max_chars": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Read spreadsheet.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_xlsx_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["untrusted"] is True
+    assert "Tool: read_xlsx" in result.observations[0].data["content"]
+    assert "Ada | 10" in result.observations[0].data["content"]
+    assert result.observation.data == {"final": "Read spreadsheet."}
+
+
 def test_run_once_ask_user_returns_terminal_observation(tmp_path) -> None:
     result = run_once(
         "ask",
