@@ -172,6 +172,7 @@ def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
         "read_file",
         "search_files",
         "write_file",
+        "write_markdown_report",
         "apply_patch",
         "run_command",
         "git_status",
@@ -188,6 +189,8 @@ def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
     assert "read_xlsx\tlow-risk" in result.output
     assert "read_pptx\tlow-risk" in result.output
     assert "write_file\tconfirmation-required" in result.output
+    assert "write_markdown_report\tconfirmation-required" in result.output
+    assert "write_markdown_report\tconfirmation-required\tdry-run: skipped" in result.output
     assert "run_command\tconfirmation-required" in result.output
     assert "done\tterminal" in result.output
     assert "ask_user\tterminal" in result.output

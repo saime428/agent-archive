@@ -1036,6 +1036,91 @@ def test_run_once_approval_never_blocks_write_without_side_effect(tmp_path) -> N
     }
 
 
+def test_run_once_blocks_write_markdown_report_without_approval(tmp_path) -> None:
+    result = run_once(
+        "write report",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write report.",
+                    "action": {
+                        "name": "write_markdown_report",
+                        "args": {
+                            "path": "reports/summary.md",
+                            "title": "Research Summary",
+                            "body": "Findings.",
+                            "sources": ["docs/main.pdf"],
+                            "create_parents": True,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {"final": "Should not run.", "changed_files": [], "next_steps": []},
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_report_blocked",
+    )
+
+    assert not (tmp_path / "reports" / "summary.md").exists()
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
+    assert result.observation.error.details == {
+        "requested_action": "write_markdown_report",
+        "approval": "risky-confirm",
+        "dry_run": False,
+    }
+
+
+def test_run_once_dry_run_skips_write_markdown_report_and_continues(tmp_path) -> None:
+    result = run_once(
+        "write report",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write report.",
+                    "action": {
+                        "name": "write_markdown_report",
+                        "args": {
+                            "path": "reports/summary.md",
+                            "title": "Research Summary",
+                            "body": "Findings.",
+                            "sources": ["docs/main.pdf"],
+                            "create_parents": True,
+                        },
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {"final": "Dry-run report complete.", "changed_files": [], "next_steps": []},
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_report_dry",
+        config=AgentConfig(dry_run=True),
+    )
+
+    assert not (tmp_path / "reports" / "summary.md").exists()
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].summary == "Dry run skipped action."
+    assert result.observations[0].data == {
+        "requested_action": "write_markdown_report",
+        "approval": "risky-confirm",
+        "dry_run": True,
+    }
+    assert result.observation.data == {"final": "Dry-run report complete."}
+
+
 def test_run_once_executes_git_status_then_done(tmp_path) -> None:
     _git(tmp_path, "init")
     result = run_once(

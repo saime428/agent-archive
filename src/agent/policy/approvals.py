@@ -24,6 +24,7 @@ CONFIRMATION_REQUIRED_ACTIONS = {
     "write_file",
     "apply_patch",
     "run_command",
+    "write_markdown_report",
 }
 
 

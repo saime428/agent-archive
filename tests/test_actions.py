@@ -752,6 +752,109 @@ def test_parse_model_action_rejects_extra_read_pptx_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_write_markdown_report_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Write report.",
+            "action": {
+                "name": "write_markdown_report",
+                "args": {
+                    "path": "reports/summary.md",
+                    "title": "Research Summary",
+                    "body": "Findings from the source material.",
+                    "sources": ["docs/main.pdf"],
+                    "create_parents": True,
+                },
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "write_markdown_report"
+    assert action.action.args == {
+        "path": "reports/summary.md",
+        "title": "Research Summary",
+        "body": "Findings from the source material.",
+        "sources": ["docs/main.pdf"],
+        "create_parents": True,
+    }
+
+
+def test_parse_model_action_rejects_empty_write_markdown_report_fields() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Write report.",
+                "action": {
+                    "name": "write_markdown_report",
+                    "args": {
+                        "path": " ",
+                        "title": "Research Summary",
+                        "body": "Findings.",
+                        "sources": ["docs/main.pdf"],
+                        "create_parents": False,
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_empty_write_markdown_report_sources() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Write report.",
+                "action": {
+                    "name": "write_markdown_report",
+                    "args": {
+                        "path": "reports/summary.md",
+                        "title": "Research Summary",
+                        "body": "Findings.",
+                        "sources": [],
+                        "create_parents": False,
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_extra_write_markdown_report_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Write report.",
+                "action": {
+                    "name": "write_markdown_report",
+                    "args": {
+                        "path": "reports/summary.md",
+                        "title": "Research Summary",
+                        "body": "Findings.",
+                        "sources": ["docs/main.pdf"],
+                        "create_parents": False,
+                        "format": "pdf",
+                    },
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_parse_model_action_rejects_invalid_git_diff_max_bytes() -> None:
     with pytest.raises(ActionParseError) as exc_info:
         parse_model_action(

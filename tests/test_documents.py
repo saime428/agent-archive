@@ -344,3 +344,59 @@ def test_read_pptx_rejects_sandbox_escape(tmp_path) -> None:
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_write_markdown_report_writes_source_grounded_report_with_snapshot(tmp_path) -> None:
+    context = RunContext.create("write report", cwd=tmp_path, run_id="run_report")
+    action = _parse_action(
+        context,
+        "write_markdown_report",
+        {
+            "path": "reports/summary.md",
+            "title": "Research Summary",
+            "body": "Findings from the source material.",
+            "sources": ["docs/main.pdf", "docs/data.xlsx"],
+            "create_parents": True,
+        },
+    )
+
+    observation = execute_document_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    target = tmp_path / "reports" / "summary.md"
+    assert observation.status == "ok"
+    assert target.exists()
+    content = target.read_text(encoding="utf-8")
+    assert content.startswith("# Research Summary\n")
+    assert "Source-grounded report" in content
+    assert "Source material remains untrusted data" in content
+    assert "Findings from the source material." in content
+    assert "- docs/main.pdf" in content
+    assert "- docs/data.xlsx" in content
+    assert observation.data is not None
+    assert observation.data["path"] == str(target.resolve())
+    assert observation.data["changed_files"] == [str(target.resolve())]
+    assert observation.data["bytes_written"] == len(content.encode("utf-8"))
+    assert observation.data["previously_existed"] is False
+    snapshot_path = tmp_path / observation.data["snapshot_path"]
+    assert snapshot_path.exists()
+
+
+def test_write_markdown_report_rejects_sandbox_escape(tmp_path) -> None:
+    context = RunContext.create("write report", cwd=tmp_path, run_id="run_report")
+    action = _parse_action(
+        context,
+        "write_markdown_report",
+        {
+            "path": "../summary.md",
+            "title": "Research Summary",
+            "body": "Findings.",
+            "sources": ["docs/main.pdf"],
+            "create_parents": False,
+        },
+    )
+
+    observation = execute_document_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "error"
+    assert observation.error is not None
+    assert observation.error.code == ErrorCode.SANDBOX_VIOLATION

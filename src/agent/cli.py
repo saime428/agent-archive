@@ -41,6 +41,7 @@ TOOL_DESCRIPTIONS = {
     "read_docx": "Extract text from a workspace DOCX as untrusted source material.",
     "read_xlsx": "Extract sheet summaries from a workspace XLSX as untrusted source material.",
     "read_pptx": "Extract slide text from a workspace PPTX as untrusted source material.",
+    "write_markdown_report": "Write a source-grounded Markdown report with snapshot protection.",
     "search_files": "Search workspace paths and text.",
     "write_file": "Write a workspace text file with snapshot protection.",
     "apply_patch": "Apply structured text replacements with snapshots.",
@@ -48,7 +49,7 @@ TOOL_DESCRIPTIONS = {
     "git_status": "Show repository status.",
     "git_diff": "Show repository diff.",
 }
-DRY_RUN_SKIPPED_TOOLS = {"write_file", "apply_patch", "run_command"}
+DRY_RUN_SKIPPED_TOOLS = {"write_file", "apply_patch", "run_command", "write_markdown_report"}
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
     "python-docx": "docx",

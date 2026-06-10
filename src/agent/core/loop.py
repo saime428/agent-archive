@@ -75,11 +75,13 @@ SUPPORTED_TOOL_ACTIONS = {
     "read_docx",
     "read_xlsx",
     "read_pptx",
+    "write_markdown_report",
 }
 DRY_RUN_SKIPPED_ACTIONS = {
     "write_file",
     "apply_patch",
     "run_command",
+    "write_markdown_report",
 }
 
 
@@ -452,7 +454,7 @@ def _tool_observation(
             sandbox,
             observation_index=observation_index,
         )
-    if action.action.name in {"read_pdf", "read_docx", "read_xlsx", "read_pptx"}:
+    if action.action.name in {"read_pdf", "read_docx", "read_xlsx", "read_pptx", "write_markdown_report"}:
         return execute_document_tool(
             action,
             context,

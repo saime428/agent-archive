@@ -226,6 +226,30 @@ class ReadPptxArgs(StrictModel):
         return value
 
 
+class WriteMarkdownReportArgs(StrictModel):
+    path: str
+    title: str
+    body: str
+    sources: list[str]
+    create_parents: bool
+
+    @field_validator("path", "title", "body")
+    @classmethod
+    def _reject_empty_strings(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("value must not be empty.")
+        return value
+
+    @field_validator("sources")
+    @classmethod
+    def _reject_empty_sources(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("at least one source is required.")
+        if any(not item.strip() for item in value):
+            raise ValueError("sources must not contain empty strings.")
+        return value
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
@@ -241,6 +265,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "read_docx": ReadDocxArgs,
     "read_xlsx": ReadXlsxArgs,
     "read_pptx": ReadPptxArgs,
+    "write_markdown_report": WriteMarkdownReportArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

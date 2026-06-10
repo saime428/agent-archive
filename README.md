@@ -166,6 +166,24 @@ PowerPoint `.pptx` files can be read with `read_pptx`:
 }
 ```
 
+Source-grounded Markdown reports can be written with `write_markdown_report`:
+
+```json
+{
+  "message": "Write the report.",
+  "action": {
+    "name": "write_markdown_report",
+    "args": {
+      "path": "reports/summary.md",
+      "title": "Research Summary",
+      "body": "Findings grounded in the cited source material.",
+      "sources": ["docs/main.pdf"],
+      "create_parents": true
+    }
+  }
+}
+```
+
 `read_pdf` extracts text with `pypdf`, `read_docx` extracts paragraph text with
 optional `python-docx`, and `read_xlsx` extracts sheet names, shape, headers,
 and sample rows with optional `openpyxl`. `read_pptx` extracts slide titles and
@@ -173,6 +191,10 @@ text with optional `python-pptx`. These tools apply the workspace sandbox,
 budget the returned text, and wrap extracted content with
 `UNTRUSTED DOCUMENT SOURCE MATERIAL` so document text cannot override
 instructions, policy, approval, sandbox, or tool schemas.
+
+`write_markdown_report` requires approval in the non-interactive CLI, creates a
+snapshot before writing, and inserts a source-grounding notice plus a Sources
+section into the report.
 
 document dependency diagnostics are visible through doctor commands:
 
@@ -185,5 +207,4 @@ The diagnostics report whether `pypdf`, `python-docx`, `openpyxl`, and
 `python-pptx` are present. Missing optional document dependencies make only the
 matching document tool return a diagnostic `TOOL_FAILED` observation.
 
-Markdown report generation and Word report generation remain staged for later
-v0.3 slices.
+Word report generation remains staged for later v0.3 slices.

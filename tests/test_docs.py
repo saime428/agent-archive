@@ -70,6 +70,7 @@ def test_readme_documents_v03_document_commands() -> None:
     assert "read_docx" in readme
     assert "read_xlsx" in readme
     assert "read_pptx" in readme
+    assert "write_markdown_report" in readme
     assert "document dependency" in readme
     assert "python -m agent.cli doctor" in readme
     assert "UNTRUSTED DOCUMENT SOURCE MATERIAL" in readme
