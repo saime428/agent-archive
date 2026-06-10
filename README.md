@@ -151,12 +151,28 @@ Excel `.xlsx` files can be read with `read_xlsx`:
 }
 ```
 
+PowerPoint `.pptx` files can be read with `read_pptx`:
+
+```json
+{
+  "message": "Read the local PPTX.",
+  "action": {
+    "name": "read_pptx",
+    "args": {
+      "path": "docs/slides.pptx",
+      "max_chars": 4000
+    }
+  }
+}
+```
+
 `read_pdf` extracts text with `pypdf`, `read_docx` extracts paragraph text with
 optional `python-docx`, and `read_xlsx` extracts sheet names, shape, headers,
-and sample rows with optional `openpyxl`. These tools apply the workspace
-sandbox, budget the returned text, and wrap extracted content with
+and sample rows with optional `openpyxl`. `read_pptx` extracts slide titles and
+text with optional `python-pptx`. These tools apply the workspace sandbox,
+budget the returned text, and wrap extracted content with
 `UNTRUSTED DOCUMENT SOURCE MATERIAL` so document text cannot override
 instructions, policy, approval, sandbox, or tool schemas.
 
-PowerPoint, Markdown report generation, and Word report generation remain staged
-for later v0.3 slices.
+Markdown report generation and Word report generation remain staged for later
+v0.3 slices.

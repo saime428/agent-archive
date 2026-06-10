@@ -30,6 +30,8 @@ def execute_document_tool(
             return _read_docx(action, context, sandbox, observation_index=observation_index)
         if action.action.name == "read_xlsx":
             return _read_xlsx(action, context, sandbox, observation_index=observation_index)
+        if action.action.name == "read_pptx":
+            return _read_pptx(action, context, sandbox, observation_index=observation_index)
     except SandboxError as exc:
         return make_error_observation(
             action.action_id,
@@ -261,3 +263,92 @@ def _format_cell(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _read_pptx(
+    action: InternalAction,
+    context: RunContext,
+    sandbox: WorkspaceSandbox,
+    *,
+    observation_index: int,
+) -> Observation:
+    path = sandbox.resolve_read_path(str(action.action.args["path"]))
+    if not path.is_file():
+        raise OSError(f"Not a file: {path}")
+
+    slides = _extract_pptx_slides(path)
+    raw_content = _render_pptx_source_material(path, slides)
+    requested_max_chars = action.action.args.get("max_chars")
+    max_chars = min(
+        requested_max_chars or context.budget.file_read_max_chars,
+        context.budget.file_read_max_chars,
+    )
+    truncated = truncate_text(raw_content, max_chars)
+    data: dict[str, Any] = {
+        "path": str(path),
+        "content": truncated.value,
+        "slide_count": len(slides),
+        "slides": slides,
+        "byte_size": path.stat().st_size,
+        "truncated": truncated.truncated,
+        "untrusted": True,
+    }
+    return make_observation(
+        action,
+        observation_index=observation_index,
+        summary=f"Read {len(slides)} slides from PPTX.",
+        data=data,
+    )
+
+
+def _extract_pptx_slides(path: Path) -> list[dict[str, Any]]:
+    try:
+        from pptx import Presentation
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise OSError("PPTX support requires the python-pptx package.") from exc
+
+    try:
+        presentation = Presentation(str(path))
+        slides: list[dict[str, Any]] = []
+        for slide_number, slide in enumerate(presentation.slides, start=1):
+            title = _pptx_slide_title(slide)
+            texts = _pptx_slide_texts(slide)
+            slides.append(
+                {
+                    "slide_number": slide_number,
+                    "title": title,
+                    "texts": texts,
+                }
+            )
+        return slides
+    except Exception as exc:  # pragma: no cover - depends on python-pptx parser internals
+        raise OSError(f"Could not read PPTX: {exc}") from exc
+
+
+def _pptx_slide_title(slide: Any) -> str:
+    title_shape = getattr(getattr(slide, "shapes", None), "title", None)
+    if title_shape is None:
+        return ""
+    return _format_cell(getattr(title_shape, "text", ""))
+
+
+def _pptx_slide_texts(slide: Any) -> list[str]:
+    texts: list[str] = []
+    for shape in getattr(slide, "shapes", []):
+        if not getattr(shape, "has_text_frame", False):
+            continue
+        text = _format_cell(getattr(shape, "text", "")).strip()
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _render_pptx_source_material(path: Path, slides: list[dict[str, Any]]) -> str:
+    chunks = [UNTRUSTED_DOCUMENT_HEADER, "Tool: read_pptx\n", f"Source: {path}\n"]
+    for slide in slides:
+        chunks.append(f"\n[slide {slide['slide_number']}]\n")
+        chunks.append(f"Title: {slide['title']}\n")
+        chunks.append("Text:\n")
+        for text in slide["texts"]:
+            chunks.append(f"- {text}\n")
+    return "".join(chunks)

@@ -207,6 +207,25 @@ class ReadXlsxArgs(StrictModel):
         return value
 
 
+class ReadPptxArgs(StrictModel):
+    path: str
+    max_chars: int | None = None
+
+    @field_validator("path")
+    @classmethod
+    def _reject_empty_path(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("path must not be empty.")
+        return value
+
+    @field_validator("max_chars")
+    @classmethod
+    def _reject_invalid_max_chars(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_chars must be positive.")
+        return value
+
+
 ARGS_MODELS: dict[str, type[StrictModel]] = {
     "done": DoneArgs,
     "ask_user": AskUserArgs,
@@ -221,6 +240,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "read_pdf": ReadPdfArgs,
     "read_docx": ReadDocxArgs,
     "read_xlsx": ReadXlsxArgs,
+    "read_pptx": ReadPptxArgs,
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}

@@ -39,6 +39,7 @@ TOOL_DESCRIPTIONS = {
     "read_pdf": "Extract text from a workspace PDF as untrusted source material.",
     "read_docx": "Extract text from a workspace DOCX as untrusted source material.",
     "read_xlsx": "Extract sheet summaries from a workspace XLSX as untrusted source material.",
+    "read_pptx": "Extract slide text from a workspace PPTX as untrusted source material.",
     "search_files": "Search workspace paths and text.",
     "write_file": "Write a workspace text file with snapshot protection.",
     "apply_patch": "Apply structured text replacements with snapshots.",

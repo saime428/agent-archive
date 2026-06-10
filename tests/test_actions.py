@@ -680,6 +680,78 @@ def test_parse_model_action_rejects_extra_read_xlsx_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_read_pptx_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Read PPTX.",
+            "action": {
+                "name": "read_pptx",
+                "args": {"path": "docs/slides.pptx", "max_chars": 4000},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "read_pptx"
+    assert action.action.args == {"path": "docs/slides.pptx", "max_chars": 4000}
+
+
+def test_parse_model_action_rejects_empty_read_pptx_path() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Read PPTX.",
+                "action": {
+                    "name": "read_pptx",
+                    "args": {"path": "  ", "max_chars": None},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_invalid_read_pptx_max_chars() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Read PPTX.",
+                "action": {
+                    "name": "read_pptx",
+                    "args": {"path": "docs/slides.pptx", "max_chars": 0},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_parse_model_action_rejects_extra_read_pptx_args() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Read PPTX.",
+                "action": {
+                    "name": "read_pptx",
+                    "args": {"path": "docs/slides.pptx", "max_chars": None, "notes": True},
+                },
+            },
+            run_id="run_123",
+            action_index=1,
+            created_at=CREATED_AT,
+        )
+
+    assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 def test_parse_model_action_rejects_invalid_git_diff_max_bytes() -> None:
     with pytest.raises(ActionParseError) as exc_info:
         parse_model_action(

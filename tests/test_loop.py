@@ -1273,6 +1273,72 @@ def test_run_once_executes_read_xlsx_then_done(tmp_path, monkeypatch) -> None:
     assert result.observation.data == {"final": "Read spreadsheet."}
 
 
+def test_run_once_executes_read_pptx_then_done(tmp_path, monkeypatch) -> None:
+    import sys
+    import types
+
+    class FakeTitle:
+        text = "Roadmap"
+
+    class FakeShape:
+        has_text_frame = True
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class FakeShapes:
+        title = FakeTitle()
+
+        def __iter__(self):
+            return iter([FakeShape("Roadmap"), FakeShape("Slide text")])
+
+    class FakeSlide:
+        shapes = FakeShapes()
+
+    class FakePresentation:
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.slides = [FakeSlide()]
+
+    monkeypatch.setitem(sys.modules, "pptx", types.SimpleNamespace(Presentation=FakePresentation))
+    (tmp_path / "deck.pptx").write_bytes(b"PK fake")
+
+    result = run_once(
+        "read pptx",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Read PPTX.",
+                    "action": {
+                        "name": "read_pptx",
+                        "args": {"path": "deck.pptx", "max_chars": None},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": "Read slides.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_pptx_loop",
+    )
+
+    assert [item.status for item in result.observations] == ["ok", "ok"]
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["untrusted"] is True
+    assert "Tool: read_pptx" in result.observations[0].data["content"]
+    assert "Slide text" in result.observations[0].data["content"]
+    assert result.observation.data == {"final": "Read slides."}
+
+
 def test_run_once_ask_user_returns_terminal_observation(tmp_path) -> None:
     result = run_once(
         "ask",

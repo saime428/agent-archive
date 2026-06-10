@@ -56,6 +56,7 @@ def test_v03_acceptance_checklist_records_document_slice_and_deferrals() -> None
     assert "read_pdf" in checklist
     assert "read_docx" in checklist
     assert "read_xlsx" in checklist
+    assert "read_pptx" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist
     assert "prompt-injection" in checklist
@@ -67,4 +68,5 @@ def test_readme_documents_v03_document_commands() -> None:
     assert "read_pdf" in readme
     assert "read_docx" in readme
     assert "read_xlsx" in readme
+    assert "read_pptx" in readme
     assert "UNTRUSTED DOCUMENT SOURCE MATERIAL" in readme
