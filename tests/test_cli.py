@@ -23,6 +23,10 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
+    assert "document dependency pypdf:" in result.output
+    assert "document dependency python-docx:" in result.output
+    assert "document dependency openpyxl:" in result.output
+    assert "document dependency python-pptx:" in result.output
 
 
 def test_config_doctor_reports_same_core_diagnostics() -> None:
@@ -43,6 +47,10 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
+    assert "document dependency pypdf:" in result.output
+    assert "document dependency python-docx:" in result.output
+    assert "document dependency openpyxl:" in result.output
+    assert "document dependency python-pptx:" in result.output
 
 
 def test_run_reports_fake_llm_result() -> None:

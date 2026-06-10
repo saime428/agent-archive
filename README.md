@@ -174,5 +174,16 @@ budget the returned text, and wrap extracted content with
 `UNTRUSTED DOCUMENT SOURCE MATERIAL` so document text cannot override
 instructions, policy, approval, sandbox, or tool schemas.
 
+document dependency diagnostics are visible through doctor commands:
+
+```powershell
+python -m agent.cli doctor
+python -m agent.cli config doctor --cwd F:\agent
+```
+
+The diagnostics report whether `pypdf`, `python-docx`, `openpyxl`, and
+`python-pptx` are present. Missing optional document dependencies make only the
+matching document tool return a diagnostic `TOOL_FAILED` observation.
+
 Markdown report generation and Word report generation remain staged for later
 v0.3 slices.

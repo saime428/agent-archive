@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import platform
 import shutil
@@ -48,6 +49,12 @@ TOOL_DESCRIPTIONS = {
     "git_diff": "Show repository diff.",
 }
 DRY_RUN_SKIPPED_TOOLS = {"write_file", "apply_patch", "run_command"}
+DOCUMENT_DEPENDENCIES = {
+    "pypdf": "pypdf",
+    "python-docx": "docx",
+    "openpyxl": "openpyxl",
+    "python-pptx": "pptx",
+}
 
 
 @app.callback()
@@ -83,6 +90,9 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
     console.print(f"config dry_run: {str(config.dry_run).lower()}")
+    for package_name, import_name in DOCUMENT_DEPENDENCIES.items():
+        present = importlib.util.find_spec(import_name) is not None
+        console.print(f"document dependency {package_name}: {'present' if present else 'missing'}")
     console.print(f"config global: {diagnostics.global_config_path}")
     console.print(f"config project: {diagnostics.project_config_path}")
     for warning in diagnostics.warnings:
