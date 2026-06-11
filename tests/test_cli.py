@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from agent.cli import app
+from agent.llm.deepseek import DeepSeekError
 
 
 def test_doctor_reports_python_and_cwd() -> None:
@@ -158,6 +159,25 @@ def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
 
     assert result.exit_code == 1
     assert "Invalid value for mode" in result.output
+
+
+def test_run_provider_error_returns_nonzero_without_traceback(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: object())
+
+    def fake_run_once(*args, **kwargs):
+        raise DeepSeekError("DeepSeek model content was not a valid JSON action.")
+
+    monkeypatch.setattr("agent.cli.run_once", fake_run_once)
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "--provider", "deepseek", "inspect project"])
+
+    assert result.exit_code == 1
+    assert "DeepSeek model content was not a valid JSON action." in result.output
+    assert "Traceback" not in result.output
 
 
 def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:

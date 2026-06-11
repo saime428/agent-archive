@@ -63,16 +63,15 @@ def test_deepseek_client_rejects_missing_api_key() -> None:
     assert "API key is required" in str(exc_info.value)
 
 
-def test_deepseek_client_reports_invalid_model_content() -> None:
+def test_deepseek_client_returns_non_json_model_content_for_repair_loop() -> None:
     def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
         return json.dumps({"choices": [{"message": {"content": "not json"}}]}).encode("utf-8")
 
     client = DeepSeekClient(api_key="secret", transport=transport)
 
-    with pytest.raises(DeepSeekError) as exc_info:
-        client.chat([{"role": "user", "content": "finish"}])
+    response = client.chat([{"role": "user", "content": "finish"}])
 
-    assert "valid JSON action" in str(exc_info.value)
+    assert response == "not json"
 
 
 def test_deepseek_client_reports_http_errors() -> None:

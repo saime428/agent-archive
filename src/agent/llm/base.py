@@ -9,5 +9,5 @@ class LLMClient(Protocol):
         messages: list[dict],
         *,
         temperature: float | None = None,
-    ) -> dict:
+    ) -> dict | str:
         """Return a model response envelope."""

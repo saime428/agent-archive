@@ -55,7 +55,7 @@ class DeepSeekClient:
         messages: list[dict],
         *,
         temperature: float | None = None,
-    ) -> dict:
+    ) -> dict | str:
         payload: dict[str, object] = {
             "model": self.model,
             "messages": messages,
@@ -143,7 +143,9 @@ def smoke_deepseek_provider(
     )
 
 
-def _normalize_smoke_action(raw_action: dict) -> dict:
+def _normalize_smoke_action(raw_action: dict | str) -> dict | str:
+    if not isinstance(raw_action, dict):
+        return raw_action
     if _looks_like_action_envelope(raw_action):
         return raw_action
     if raw_action.get("action") and "message" not in raw_action:
@@ -175,7 +177,7 @@ def _urllib_transport(url: str, headers: dict[str, str], body: bytes, timeout: f
         return response.read()
 
 
-def _parse_chat_response(response_body: bytes) -> dict:
+def _parse_chat_response(response_body: bytes) -> dict | str:
     try:
         response = json.loads(response_body.decode("utf-8"))
         content = response["choices"][0]["message"]["content"]
@@ -187,8 +189,8 @@ def _parse_chat_response(response_body: bytes) -> dict:
 
     try:
         parsed = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise DeepSeekError("DeepSeek model content was not a valid JSON action.") from exc
+    except json.JSONDecodeError:
+        return content
     if not isinstance(parsed, dict):
         raise DeepSeekError("DeepSeek model content must be a valid JSON action object.")
     return parsed

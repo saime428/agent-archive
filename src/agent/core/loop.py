@@ -518,7 +518,7 @@ def _build_messages(
     skills: list[SkillMetadata],
     memory_entries: list[MemoryEntry],
 ) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
+    messages: list[dict[str, str]] = [_action_protocol_message()]
     project_message = build_project_instructions_message(project_instructions)
     if project_message is not None:
         messages.append(project_message)
@@ -530,6 +530,22 @@ def _build_messages(
         messages.append(memory_message)
     messages.append({"role": "user", "content": task})
     return messages
+
+
+def _action_protocol_message() -> dict[str, str]:
+    return {
+        "role": "system",
+        "content": (
+            "Return exactly one valid JSON action object and no other text. "
+            'The top-level object must have keys "message" and "action". '
+            'The action object must have keys "name" and "args". '
+            "Use available actions such as done, ask_user, list_dir, read_file, search_files, "
+            "git_status, and git_diff. Finish with done when the task is complete. "
+            "Example: "
+            '{"message":"Done.","action":{"name":"done","args":{"final":"Complete.",'
+            '"changed_files":[],"next_steps":[]}}}'
+        ),
+    }
 
 
 def _write_memory_candidate(context: RunContext, observations: list[Observation]) -> None:

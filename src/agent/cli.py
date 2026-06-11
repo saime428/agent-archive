@@ -139,7 +139,11 @@ def run(
         raise typer.Exit(code=1) from exc
 
     selected_skills = skill if skill else None
-    result = run_once(task, llm, cwd=workspace, config=config, selected_skills=selected_skills)
+    try:
+        result = run_once(task, llm, cwd=workspace, config=config, selected_skills=selected_skills)
+    except DeepSeekError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
     final = (result.observation.data or {}).get("final", "")
     console.print(f"run_id: {result.context.run_id}")
     console.print(f"mode: {config.mode}")
