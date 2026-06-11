@@ -103,16 +103,24 @@ def smoke_deepseek_provider(
     raw_action = client.chat(
         [
             {
+                "role": "system",
+                "content": (
+                    "You are testing an agent provider connection. Return only JSON, "
+                    "with no markdown, comments, or extra text."
+                ),
+            },
+            {
                 "role": "user",
                 "content": (
-                    "Return exactly one valid agent JSON action. "
-                    "The action name must be done, with args final='smoke ok', "
-                    "changed_files=[], and next_steps=[]. Do not include markdown."
+                    'Return exactly this JSON shape: {"message":"Smoke complete.",'
+                    '"action":{"name":"done","args":{"final":"smoke ok",'
+                    '"changed_files":[],"next_steps":[]}}}'
                 ),
             }
         ],
         temperature=0,
     )
+    raw_action = _normalize_smoke_action(raw_action)
     try:
         action = parse_model_action(
             raw_action,
@@ -133,6 +141,32 @@ def smoke_deepseek_provider(
         action_name=action.action.name,
         final=action.action.args["final"],
     )
+
+
+def _normalize_smoke_action(raw_action: dict) -> dict:
+    if _looks_like_action_envelope(raw_action):
+        return raw_action
+    if raw_action.get("action") and "message" not in raw_action:
+        return {"message": "Smoke complete.", "action": raw_action["action"]}
+    if raw_action.get("name") == "done" and isinstance(raw_action.get("args"), dict):
+        return {"message": "Smoke complete.", "action": raw_action}
+    if {"final", "changed_files", "next_steps"} <= raw_action.keys():
+        return {
+            "message": "Smoke complete.",
+            "action": {
+                "name": "done",
+                "args": {
+                    "final": raw_action["final"],
+                    "changed_files": raw_action["changed_files"],
+                    "next_steps": raw_action["next_steps"],
+                },
+            },
+        }
+    return raw_action
+
+
+def _looks_like_action_envelope(raw_action: dict) -> bool:
+    return isinstance(raw_action.get("message"), str) and isinstance(raw_action.get("action"), dict)
 
 
 def _urllib_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:

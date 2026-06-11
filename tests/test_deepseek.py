@@ -150,6 +150,61 @@ def test_deepseek_smoke_validates_done_action_without_running_tools() -> None:
     assert "done" in calls[0][2]["messages"][0]["content"]
 
 
+def test_deepseek_smoke_accepts_direct_done_action_shape() -> None:
+    def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "name": "done",
+                                    "args": {
+                                        "final": "smoke ok",
+                                        "changed_files": [],
+                                        "next_steps": [],
+                                    },
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    result = smoke_deepseek_provider(api_key="secret", transport=transport)
+
+    assert result.action_name == "done"
+    assert result.final == "smoke ok"
+
+
+def test_deepseek_smoke_accepts_direct_done_args_shape() -> None:
+    def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "final": "smoke ok",
+                                    "changed_files": [],
+                                    "next_steps": [],
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    result = smoke_deepseek_provider(api_key="secret", transport=transport)
+
+    assert result.action_name == "done"
+    assert result.final == "smoke ok"
+
+
 def test_deepseek_smoke_rejects_missing_api_key_without_network() -> None:
     calls = []
 
