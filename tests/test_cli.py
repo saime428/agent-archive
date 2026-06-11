@@ -63,6 +63,9 @@ def test_run_reports_fake_llm_result() -> None:
     assert result.exit_code == 0
     assert "inspect project" in result.output
     assert "run_id:" in result.output
+    assert "status: ok" in result.output
+    assert "completed: true" in result.output
+    assert "terminal_reason: done" in result.output
     assert "final:" in result.output
     assert "summary:" in result.output
 
@@ -177,6 +180,41 @@ def test_run_provider_error_returns_nonzero_without_traceback(monkeypatch, tmp_p
 
     assert result.exit_code == 1
     assert "DeepSeek model content was not a valid JSON action." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_run_error_result_prints_human_failure_summary(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    summary_path = workspace / ".agent" / "runs" / "run_error" / "summary.md"
+
+    action = SimpleNamespace(action=SimpleNamespace(name="list_dir"))
+    observation = SimpleNamespace(
+        status="error",
+        data=None,
+        error=SimpleNamespace(code="TOOL_FAILED", message="Run stopped after reaching the iteration limit."),
+    )
+    result_obj = SimpleNamespace(
+        context=SimpleNamespace(run_id="run_error"),
+        action=action,
+        observation=observation,
+        skills=[],
+        summary_path=summary_path,
+    )
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: object())
+    monkeypatch.setattr("agent.cli.run_once", lambda *args, **kwargs: result_obj)
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "run_id: run_error" in result.output
+    assert "status: error" in result.output
+    assert "completed: false" in result.output
+    assert "terminal_reason: iteration_limit" in result.output
+    assert "error: TOOL_FAILED: Run stopped after reaching the iteration limit." in result.output
+    assert "runs show run_error" in result.output
     assert "Traceback" not in result.output
 
 

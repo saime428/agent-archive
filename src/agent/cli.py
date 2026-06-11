@@ -145,6 +145,7 @@ def run(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     final = (result.observation.data or {}).get("final", "")
+    terminal_reason = _result_terminal_reason(result)
     console.print(f"run_id: {result.context.run_id}")
     console.print(f"mode: {config.mode}")
     console.print(f"sandbox: {config.sandbox}")
@@ -153,10 +154,17 @@ def run(
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     console.print(f"skills: {[item.name for item in result.skills]}")
+    console.print(f"status: {result.observation.status}")
+    console.print(f"completed: {str(_result_completed(result)).lower()}")
+    console.print(f"terminal_reason: {terminal_reason}")
     for warning in diagnostics.warnings:
         console.print(f"config warning: {warning}")
     console.print(f"final: {final}")
     console.print(f"summary: {result.summary_path}", soft_wrap=True)
+    if result.observation.error is not None:
+        console.print(f"error: {_error_code(result.observation.error)}: {result.observation.error.message}")
+        console.print(f"inspect: python -m agent.cli runs show {result.context.run_id}")
+        raise typer.Exit(code=1)
 
 
 @tools_app.command("list")
@@ -349,6 +357,27 @@ def _make_llm(config):
         return FakeLLMClient()
     api_key = os.environ.get(config.deepseek_api_key_env, "")
     return DeepSeekClient(api_key=api_key, model=config.model)
+
+
+def _result_completed(result) -> bool:
+    return result.action.action.name == "done" and result.observation.status == "ok"
+
+
+def _result_terminal_reason(result) -> str:
+    if _result_completed(result):
+        return "done"
+    if result.action.action.name == "ask_user" and result.observation.status == "ok":
+        return "ask_user"
+    error = result.observation.error
+    if error is None:
+        return "stopped"
+    if _error_code(error) == "TOOL_FAILED" and error.message == "Run stopped after reaching the iteration limit.":
+        return "iteration_limit"
+    return f"error:{_error_code(error)}"
+
+
+def _error_code(error) -> str:
+    return str(error.code)
 
 
 @runs_app.command("list")
