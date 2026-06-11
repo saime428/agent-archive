@@ -58,6 +58,12 @@ def test_v03_acceptance_checklist_records_document_slice_and_deferrals() -> None
     assert "read_xlsx" in checklist
     assert "read_pptx" in checklist
     assert "document dependency diagnostics" in checklist
+    assert "v0.3 freeze status" in checklist
+    assert "Core Document MVP is frozen" in checklist
+    assert "write_markdown_report" in checklist
+    assert "write_docx_report" in checklist
+    assert "Real binary Office fixtures" in checklist
+    assert "Complex report orchestration" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist
     assert "prompt-injection" in checklist
@@ -73,4 +79,8 @@ def test_readme_documents_v03_document_commands() -> None:
     assert "write_markdown_report" in readme
     assert "document dependency" in readme
     assert "python -m agent.cli doctor" in readme
+    assert "python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q" in readme
+    assert "Document read tools are low-risk read-only actions" in readme
+    assert "write_markdown_report is confirmation-required" in readme
+    assert "v0.3 manual smoke" in readme
     assert "UNTRUSTED DOCUMENT SOURCE MATERIAL" in readme

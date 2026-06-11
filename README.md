@@ -196,6 +196,9 @@ instructions, policy, approval, sandbox, or tool schemas.
 snapshot before writing, and inserts a source-grounding notice plus a Sources
 section into the report.
 
+Document read tools are low-risk read-only actions. write_markdown_report is confirmation-required,
+and dry-run skips it without writing files or snapshots.
+
 document dependency diagnostics are visible through doctor commands:
 
 ```powershell
@@ -206,5 +209,17 @@ python -m agent.cli config doctor --cwd F:\agent
 The diagnostics report whether `pypdf`, `python-docx`, `openpyxl`, and
 `python-pptx` are present. Missing optional document dependencies make only the
 matching document tool return a diagnostic `TOOL_FAILED` observation.
+
+v0.3 manual smoke:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m agent.cli tools list
+python -m agent.cli doctor
+python -m agent.cli config doctor --cwd F:\agent
+python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q
+python -m pytest -q
+git diff --check
+```
 
 Word report generation remains staged for later v0.3 slices.
