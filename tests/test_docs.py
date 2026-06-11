@@ -84,3 +84,21 @@ def test_readme_documents_v03_document_commands() -> None:
     assert "write_markdown_report is confirmation-required" in readme
     assert "v0.3 manual smoke" in readme
     assert "UNTRUSTED DOCUMENT SOURCE MATERIAL" in readme
+
+
+def test_readme_documents_v04_provider_smoke() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "agent provider smoke deepseek --model deepseek-v4-flash" in readme
+    assert "pytest does not require a real DeepSeek API key" in readme
+
+
+def test_v04_acceptance_checklist_records_provider_smoke() -> None:
+    checklist = (ROOT / "docs" / "v0.4-acceptance.md").read_text(encoding="utf-8")
+
+    assert "v0.4 Acceptance Checklist" in checklist
+    assert "provider smoke" in checklist
+    assert "DeepSeek" in checklist
+    assert "Implemented / Tested" in checklist
+    assert "default provider remains `fake`" in checklist
+    assert "automated tests do not require a real API key" in checklist

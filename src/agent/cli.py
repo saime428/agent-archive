@@ -14,7 +14,7 @@ from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.skills import SkillError, discover_skills, load_selected_skills
-from agent.llm.deepseek import DeepSeekClient, DeepSeekError
+from agent.llm.deepseek import DeepSeekClient, DeepSeekError, smoke_deepseek_provider
 from agent.llm.fake import FakeLLMClient
 from agent.policy.approvals import CONFIRMATION_REQUIRED_ACTIONS, LOW_RISK_ACTIONS
 
@@ -24,11 +24,13 @@ tools_app = typer.Typer(help="Inspect available agent tools.")
 config_app = typer.Typer(help="Inspect agent configuration.")
 skills_app = typer.Typer(help="Inspect and load agent skills.")
 memory_app = typer.Typer(help="Review and manage agent memory.")
+provider_app = typer.Typer(help="Inspect and smoke-test LLM providers.")
 app.add_typer(runs_app, name="runs")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
+app.add_typer(provider_app, name="provider")
 console = Console(highlight=False)
 
 
@@ -200,6 +202,48 @@ def config_doctor(
 ) -> None:
     """Report configuration and local environment diagnostics."""
     _print_doctor((cwd or Path.cwd()).resolve())
+
+
+@provider_app.command("smoke")
+def provider_smoke(
+    provider_name: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config."),
+    model: str | None = typer.Option(None, "--model", help="Model to smoke-test."),
+) -> None:
+    """Run an explicit provider smoke test without creating an agent run."""
+    if provider_name != "deepseek":
+        console.print(f"Unsupported provider smoke target: {provider_name}")
+        raise typer.Exit(code=1)
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        config, diagnostics = load_config(workspace, overrides=ConfigOverrides(model=model))
+    except ConfigError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    api_key = os.environ.get(config.deepseek_api_key_env, "")
+    if not api_key:
+        console.print(f"DeepSeek API key is required in {config.deepseek_api_key_env}.")
+        raise typer.Exit(code=1)
+
+    try:
+        result = smoke_deepseek_provider(
+            api_key=api_key,
+            model=config.model,
+            api_key_env=config.deepseek_api_key_env,
+        )
+    except DeepSeekError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"provider: {result.provider}")
+    console.print(f"model: {result.model}")
+    console.print(f"api_key_env: {result.api_key_env}")
+    console.print(f"status: {result.status}")
+    console.print(f"action: {result.action_name}")
+    console.print(f"final: {result.final}")
+    for warning in diagnostics.warnings:
+        console.print(f"config warning: {warning}")
 
 
 @skills_app.command("list")

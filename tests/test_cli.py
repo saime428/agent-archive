@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -195,6 +196,72 @@ def test_tools_list_outputs_v01_tools_and_policy_categories() -> None:
     assert "done\tterminal" in result.output
     assert "ask_user\tterminal" in result.output
     assert "dry-run: skipped" in result.output
+
+
+def test_provider_smoke_deepseek_reports_success(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_smoke(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key_env="DEEPSEEK_API_KEY",
+            status="ok",
+            action_name="done",
+            final="smoke ok",
+        )
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret")
+    monkeypatch.setattr("agent.cli.smoke_deepseek_provider", fake_smoke)
+
+    result = runner.invoke(
+        app,
+        ["provider", "smoke", "deepseek", "--cwd", str(workspace), "--model", "deepseek-v4-flash"],
+    )
+
+    assert result.exit_code == 0
+    assert "provider: deepseek" in result.output
+    assert "model: deepseek-v4-flash" in result.output
+    assert "api_key_env: DEEPSEEK_API_KEY" in result.output
+    assert "status: ok" in result.output
+    assert "action: done" in result.output
+    assert "final: smoke ok" in result.output
+    assert calls[0]["api_key"] == "secret"
+    assert calls[0]["model"] == "deepseek-v4-flash"
+    assert calls[0]["api_key_env"] == "DEEPSEEK_API_KEY"
+
+
+def test_provider_smoke_deepseek_missing_key_returns_nonzero(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_smoke(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("should not be called")
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr("agent.cli.smoke_deepseek_provider", fake_smoke)
+
+    result = runner.invoke(app, ["provider", "smoke", "deepseek", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "DeepSeek API key is required in DEEPSEEK_API_KEY" in result.output
+    assert calls == []
+
+
+def test_provider_smoke_rejects_unknown_provider() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["provider", "smoke", "fake"])
+
+    assert result.exit_code == 1
+    assert "Unsupported provider smoke target: fake" in result.output
 
 
 def test_skills_list_and_show_builtin_skill(tmp_path) -> None:

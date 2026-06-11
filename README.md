@@ -103,6 +103,20 @@ agent memory undo <entry-id>
 Hooks are disabled by default. When explicitly enabled in config, in-process
 hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.
 
+## v0.4 Provider Smoke
+
+v0.4 adds an explicit live smoke path for DeepSeek. It is opt-in: pytest does not require a real DeepSeek API key and does not make network requests.
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+agent provider smoke deepseek --model deepseek-v4-flash
+agent run --provider deepseek --model deepseek-v4-flash "inspect project"
+```
+
+The smoke command makes one non-streaming chat completion request, validates
+that the model returned a legal `done` action, prints the provider/model/status,
+and does not create `.agent/runs` entries or execute tools.
+
 ## v0.3 Document Slice
 
 v0.3 has started with minimal document reading tools in the internal action
