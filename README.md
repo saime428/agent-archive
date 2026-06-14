@@ -110,12 +110,24 @@ v0.4 adds an explicit live smoke path for DeepSeek. It is opt-in: pytest does no
 ```powershell
 $env:DEEPSEEK_API_KEY="..."
 agent provider smoke deepseek --model deepseek-v4-flash
-agent run --provider deepseek --model deepseek-v4-flash "inspect project"
+python -m agent.cli run --provider deepseek --model deepseek-v4-flash "inspect project"
+python -m agent.cli runs show <run-id>
 ```
 
 The smoke command makes one non-streaming chat completion request, validates
 that the model returned a legal `done` action, prints the provider/model/status,
 and does not create `.agent/runs` entries or execute tools.
+
+The live run command creates a normal run under `.agent/runs/<run-id>/`.
+Successful runs show `completed: true`, `terminal_reason: done`, and a natural
+language `final` value. Failed runs show `completed: false`, a
+`terminal_reason`, and the run summary records `failure_explanation` so the
+result can be judged without reading raw `tool_calls.jsonl`.
+
+During live runs, successful low-risk tool observations are fed back to the
+model as `UNTRUSTED TOOL OBSERVATION` context. The model must still answer with
+the internal JSON action protocol; free-form natural language is only surfaced
+through `done.final` and the run summary.
 
 ## v0.3 Document Slice
 

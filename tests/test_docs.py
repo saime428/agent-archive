@@ -90,7 +90,12 @@ def test_readme_documents_v04_provider_smoke() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "agent provider smoke deepseek --model deepseek-v4-flash" in readme
+    assert "python -m agent.cli runs show <run-id>" in readme
     assert "pytest does not require a real DeepSeek API key" in readme
+    assert "completed: true" in readme
+    assert "terminal_reason: done" in readme
+    assert "completed: false" in readme
+    assert "failure_explanation" in readme
 
 
 def test_v04_acceptance_checklist_records_provider_smoke() -> None:
@@ -102,3 +107,8 @@ def test_v04_acceptance_checklist_records_provider_smoke() -> None:
     assert "Implemented / Tested" in checklist
     assert "default provider remains `fake`" in checklist
     assert "automated tests do not require a real API key" in checklist
+    assert "observation feedback" in checklist
+    assert "completed" in checklist
+    assert "terminal_reason" in checklist
+    assert "CLI failure summary" in checklist
+    assert "complex planner" in checklist

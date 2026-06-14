@@ -146,7 +146,7 @@ def test_deepseek_smoke_validates_done_action_without_running_tools() -> None:
     assert calls[0][2]["model"] == "deepseek-v4-flash"
     assert calls[0][2]["stream"] is False
     assert calls[0][2]["temperature"] == 0
-    assert "done" in calls[0][2]["messages"][0]["content"]
+    assert any("done" in message["content"] for message in calls[0][2]["messages"])
 
 
 def test_deepseek_smoke_accepts_direct_done_action_shape() -> None:
