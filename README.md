@@ -46,6 +46,44 @@ Runs write durable files under `.agent/runs/<run-id>/`. Write tools create
 snapshot records before changing files; `agent runs show <run-id>` displays
 snapshot paths and restore hints when a run changed files.
 
+## v0.5 Interactive Chat
+
+v0.5 adds an interactive terminal loop on top of the same structured action
+protocol. Start a chat in a workspace:
+
+```powershell
+agent chat --cwd F:\agent
+```
+
+Each turn prints status-level live output such as model calls, parsed actions,
+tool execution, and approval waits. A completed turn shows `status`,
+`completed`, `terminal_reason`, `final`, and the backing run summary path.
+
+Resume a saved chat session:
+
+```powershell
+agent chat --resume <chat-id>
+```
+
+Chat sessions are stored under `.agent/chats/<chat-id>/`. Saved session JSON is
+redacted before it is written. Each chat turn still creates a normal
+`.agent/runs/<run-id>/` directory.
+
+When a write, patch, shell, or report action needs confirmation, chat prints
+`approval required` and asks for `approve? [y/N]`. Confirming executes the
+same action; denying returns a standard approval-denied observation. Non-chat
+`agent run` keeps fail-fast approval behavior.
+
+Reference workspace context explicitly with `@file` or `@dir`:
+
+```powershell
+agent chat --cwd F:\agent
+agent> summarize @README.md and inspect @src
+```
+
+Referenced content is loaded through the workspace sandbox, bounded by the
+context budget, and marked as untrusted context.
+
 ## Safety Model
 
 - Models emit structured JSON actions; the core validates and executes them.
@@ -128,6 +166,9 @@ During live runs, successful low-risk tool observations are fed back to the
 model as `UNTRUSTED TOOL OBSERVATION` context. The model must still answer with
 the internal JSON action protocol; free-form natural language is only surfaced
 through `done.final` and the run summary.
+
+Provider token streaming remains deferred; v0.5 focuses on status-level live
+output so JSON action parsing stays deterministic.
 
 ## v0.3 Document Slice
 

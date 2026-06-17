@@ -112,3 +112,27 @@ def test_v04_acceptance_checklist_records_provider_smoke() -> None:
     assert "terminal_reason" in checklist
     assert "CLI failure summary" in checklist
     assert "complex planner" in checklist
+
+
+def test_readme_documents_v05_chat_commands() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "agent chat --cwd F:\\agent" in readme
+    assert "agent chat --resume <chat-id>" in readme
+    assert "approval required" in readme
+    assert "@README.md" in readme
+    assert "status-level live output" in readme
+
+
+def test_v05_acceptance_checklist_records_chat_slice() -> None:
+    checklist = (ROOT / "docs" / "v0.5-acceptance.md").read_text(encoding="utf-8")
+
+    assert "v0.5 Acceptance Checklist" in checklist
+    assert "agent chat" in checklist
+    assert "ConversationState" in checklist
+    assert "interactive approval" in checklist
+    assert "session persistence" in checklist
+    assert "@file" in checklist
+    assert "status-level live output" in checklist
+    assert "provider token streaming" in checklist
+    assert "Deferred" in checklist

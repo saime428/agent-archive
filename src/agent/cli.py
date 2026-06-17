@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import platform
 import shutil
@@ -10,6 +11,7 @@ import typer
 from rich.console import Console
 
 from agent.config import ConfigError, ConfigOverrides, load_config
+from agent.core.chat import ChatSession, ConversationState
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
@@ -165,6 +167,97 @@ def run(
         console.print(f"error: {_error_code(result.observation.error)}: {result.observation.error.message}")
         console.print(f"inspect: python -m agent.cli runs show {result.context.run_id}")
         raise typer.Exit(code=1)
+
+
+@app.command()
+def chat(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the chat."),
+    resume: str | None = typer.Option(None, "--resume", help="Resume a chat session id."),
+    mode: str | None = typer.Option(None, "--mode", help="Run mode."),
+    sandbox: str | None = typer.Option(None, "--sandbox", help="Sandbox mode."),
+    approval: str | None = typer.Option(None, "--approval", help="Approval mode."),
+    dry_run: bool | None = typer.Option(None, "--dry-run/--no-dry-run", help="Record dry-run intent in config."),
+    provider: str | None = typer.Option(None, "--provider", help="LLM provider."),
+    model: str | None = typer.Option(None, "--model", help="LLM model."),
+    skill: list[str] | None = typer.Option(None, "--skill", help="Skill to load for chat turns."),
+) -> None:
+    """Start an interactive agent chat."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        config, diagnostics = load_config(
+            workspace,
+            overrides=ConfigOverrides(
+                mode=mode,
+                sandbox=sandbox,
+                approval=approval,
+                dry_run=dry_run,
+                provider=provider,
+                model=model,
+            ),
+        )
+    except ConfigError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    try:
+        llm = _make_llm(config)
+    except DeepSeekError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    try:
+        state = ConversationState.load(workspace, resume) if resume else ConversationState.create(workspace)
+    except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        console.print(f"Could not resume chat session {resume}: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    selected_skills = skill if skill else None
+    session = ChatSession(
+        cwd=workspace,
+        llm=llm,
+        config=config,
+        state=state,
+        selected_skills=selected_skills,
+    )
+    console.print(f"chat_id: {state.session_id}")
+    console.print(f"workspace: {workspace}")
+    console.print(f"provider: {config.provider}")
+    console.print(f"model: {config.model}")
+    for warning in diagnostics.warnings:
+        console.print(f"config warning: {warning}")
+
+    while True:
+        try:
+            user_input = input("agent> ")
+        except EOFError:
+            console.print("chat ended")
+            break
+        except KeyboardInterrupt:
+            console.print("\nchat ended")
+            break
+        if not user_input.strip():
+            continue
+        try:
+            result = session.run_turn(
+                user_input,
+                approval_handler=_chat_approval_handler,
+                event_handler=_chat_event_handler,
+            )
+        except DeepSeekError as exc:
+            console.print(str(exc))
+            continue
+        turn_number = len(session.state.turns)
+        final = (result.observation.data or {}).get("final", "")
+        terminal_reason = _result_terminal_reason(result)
+        console.print(f"turn: {turn_number}")
+        console.print(f"run_id: {result.context.run_id}")
+        console.print(f"status: {result.observation.status}")
+        console.print(f"completed: {str(_result_completed(result)).lower()}")
+        console.print(f"terminal_reason: {terminal_reason}")
+        console.print(f"final: {final}")
+        console.print(f"summary: {result.summary_path}", soft_wrap=True)
+        if result.observation.error is not None:
+            console.print(f"error: {_error_code(result.observation.error)}: {result.observation.error.message}")
 
 
 @tools_app.command("list")
@@ -357,6 +450,28 @@ def _make_llm(config):
         return FakeLLMClient()
     api_key = os.environ.get(config.deepseek_api_key_env, "")
     return DeepSeekClient(api_key=api_key, model=config.model)
+
+
+def _chat_approval_handler(action) -> bool:
+    console.print(f"approval required: {action.action.name}")
+    console.print(json.dumps(action.action.args, ensure_ascii=True, sort_keys=True))
+    try:
+        answer = input("approve? [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
+
+
+def _chat_event_handler(event: dict) -> None:
+    name = event.get("event")
+    if name == "model_call_start":
+        console.print("activity: calling model")
+    elif name == "action_parsed":
+        console.print(f"activity: action {event.get('action')}")
+    elif name == "tool_start":
+        console.print(f"activity: tool {event.get('action')}")
+    elif name == "approval_required":
+        console.print(f"activity: waiting for approval {event.get('action')}")
 
 
 def _result_completed(result) -> bool:

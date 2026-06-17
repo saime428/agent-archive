@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from agent.config import AgentConfig
 from agent.core.actions import (
@@ -62,6 +62,10 @@ class TraceRecord:
     config: dict[str, object]
 
 
+ApprovalHandler = Callable[[InternalAction], bool]
+RunEventHandler = Callable[[dict[str, Any]], None]
+
+
 SUPPORTED_TOOL_ACTIONS = {
     "list_dir",
     "read_file",
@@ -95,6 +99,9 @@ def run_once(
     config: AgentConfig | None = None,
     budget: ContextBudget | None = None,
     selected_skills: list[str] | tuple[str, ...] | None = None,
+    context_messages: list[dict[str, str]] | None = None,
+    approval_handler: ApprovalHandler | None = None,
+    event_handler: RunEventHandler | None = None,
 ) -> RunResult:
     effective_config = config or AgentConfig()
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
@@ -120,7 +127,7 @@ def run_once(
         max_items=effective_config.memory_max_items,
         max_chars=context.budget.memory_context_chars,
     )
-    messages = _build_messages(task, project_instructions, skills, memory_entries)
+    messages = _build_messages(task, project_instructions, skills, memory_entries, context_messages=context_messages)
     _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
     actions: list[InternalAction] = []
     observations: list[Observation] = []
@@ -131,6 +138,11 @@ def run_once(
 
     while completed_action_iterations < max_iterations:
         model_call_index += 1
+        _emit_event(
+            event_handler,
+            "model_call_start",
+            {"run_id": context.run_id, "action_index": model_call_index},
+        )
         raw_response = llm.chat(messages)
         try:
             action = parse_model_action(
@@ -162,6 +174,11 @@ def run_once(
         repair_attempt = 0
         completed_action_iterations += 1
         actions.append(action)
+        _emit_event(
+            event_handler,
+            "action_parsed",
+            {"run_id": context.run_id, "action_index": model_call_index, "action": action.action.name},
+        )
 
         before_tool_hooks = _run_hook_event(
             "before_tool",
@@ -211,12 +228,19 @@ def run_once(
                 },
             )
         elif action.action.name in SUPPORTED_TOOL_ACTIONS:
+            _emit_event(
+                event_handler,
+                "tool_start",
+                {"run_id": context.run_id, "action_index": model_call_index, "action": action.action.name},
+            )
             observation = _tool_observation(
                 action,
                 context,
                 sandbox,
                 effective_config,
                 observation_index=model_call_index,
+                approval_handler=approval_handler,
+                event_handler=event_handler,
             )
         else:
             observation = make_error_observation(
@@ -228,6 +252,17 @@ def run_once(
                 details={"requested_action": action.action.name},
             )
         observation = truncate_observation(observation, context.budget)
+        _emit_event(
+            event_handler,
+            "observation",
+            {
+                "run_id": context.run_id,
+                "action_index": model_call_index,
+                "action": action.action.name,
+                "status": observation.status,
+                "summary": observation.summary,
+            },
+        )
         observations.append(observation)
         _run_hook_event(
             "after_tool",
@@ -304,6 +339,13 @@ def _run_hook_event(event: str, config: AgentConfig, hooks_path: Path, payload: 
         payload=payload,
         log_path=hooks_path,
     )
+
+
+def _emit_event(handler: RunEventHandler | None, event: str, payload: dict[str, Any]) -> None:
+    if handler is None:
+        return
+    record = {"event": event, **payload}
+    handler(record)
 
 
 def _parse_error_record(
@@ -401,6 +443,8 @@ def _tool_observation(
     config: AgentConfig,
     *,
     observation_index: int,
+    approval_handler: ApprovalHandler | None = None,
+    event_handler: RunEventHandler | None = None,
 ) -> Observation:
     if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
         return make_observation(
@@ -412,14 +456,46 @@ def _tool_observation(
 
     decision = classify_action(action, config)
     if decision.status == "approval_required":
-        return make_error_observation(
-            action.action_id,
-            action.run_id,
-            observation_index=observation_index,
-            code=ErrorCode.APPROVAL_REQUIRED,
-            message=decision.reason,
-            details=_policy_details(action, config),
-        )
+        if approval_handler is not None:
+            _emit_event(
+                event_handler,
+                "approval_required",
+                {
+                    "run_id": context.run_id,
+                    "action_index": observation_index,
+                    "action": action.action.name,
+                    "reason": decision.reason,
+                },
+            )
+            if approval_handler(action):
+                _emit_event(
+                    event_handler,
+                    "approval_granted",
+                    {"run_id": context.run_id, "action_index": observation_index, "action": action.action.name},
+                )
+            else:
+                _emit_event(
+                    event_handler,
+                    "approval_denied",
+                    {"run_id": context.run_id, "action_index": observation_index, "action": action.action.name},
+                )
+                return make_error_observation(
+                    action.action_id,
+                    action.run_id,
+                    observation_index=observation_index,
+                    code=ErrorCode.APPROVAL_DENIED,
+                    message="Action was denied by user.",
+                    details=_policy_details(action, config),
+                )
+        else:
+            return make_error_observation(
+                action.action_id,
+                action.run_id,
+                observation_index=observation_index,
+                code=ErrorCode.APPROVAL_REQUIRED,
+                message=decision.reason,
+                details=_policy_details(action, config),
+            )
     if decision.status == "deny":
         return make_error_observation(
             action.action_id,
@@ -553,6 +629,8 @@ def _build_messages(
     project_instructions: ProjectInstructions,
     skills: list[SkillMetadata],
     memory_entries: list[MemoryEntry],
+    *,
+    context_messages: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = [_action_protocol_message()]
     project_message = build_project_instructions_message(project_instructions)
@@ -564,6 +642,8 @@ def _build_messages(
     memory_message = build_memory_message(memory_entries)
     if memory_message is not None:
         messages.append(memory_message)
+    if context_messages:
+        messages.extend(context_messages)
     messages.append({"role": "user", "content": task})
     return messages
 

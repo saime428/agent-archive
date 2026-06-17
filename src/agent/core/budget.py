@@ -25,6 +25,8 @@ class ContextBudget:
     repair_excerpt_chars: int = 1_000
     skill_body_chars: int = 8_000
     memory_context_chars: int = 8_000
+    conversation_context_chars: int = 8_000
+    conversation_max_turns: int = 10
 
 
 @dataclass(frozen=True)

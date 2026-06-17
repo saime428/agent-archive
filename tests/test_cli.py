@@ -4,7 +4,10 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from agent.cli import app
+from agent.config import AgentConfig
+from agent.core.chat import ConversationState
 from agent.llm.deepseek import DeepSeekError
+from agent.llm.fake import FakeLLMClient
 
 
 def test_doctor_reports_python_and_cwd() -> None:
@@ -68,6 +71,82 @@ def test_run_reports_fake_llm_result() -> None:
     assert "terminal_reason: done" in result.output
     assert "final:" in result.output
     assert "summary:" in result.output
+
+
+def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="first\nsecond\n")
+
+    assert result.exit_code == 0
+    assert "chat_id:" in result.output
+    assert "turn: 1" in result.output
+    assert "turn: 2" in result.output
+    assert "status: ok" in result.output
+    assert "completed: true" in result.output
+    assert "terminal_reason: done" in result.output
+    assert "final: FakeLLM received task: second" in result.output
+    assert (workspace / ".agent" / "chats").exists()
+
+
+def test_chat_resume_uses_existing_session_id(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = ConversationState.create(workspace, session_id="chat_existing")
+    state.add_turn(
+        user="first",
+        run_id="run_1",
+        status="ok",
+        completed=True,
+        terminal_reason="done",
+        final="first final",
+        last_action="done",
+        last_observation_summary="Done.",
+    )
+    state.save(AgentConfig())
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace), "--resume", "chat_existing"], input="second\n")
+
+    assert result.exit_code == 0
+    assert "chat_id: chat_existing" in result.output
+    assert "turn: 2" in result.output
+    assert "final: FakeLLM received task: second" in result.output
+
+
+def test_chat_confirmed_approval_executes_write_action(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: llm)
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="write notes\ny\n")
+
+    assert result.exit_code == 0
+    assert "approval required: write_file" in result.output
+    assert "turn: 1" in result.output
+    assert "final: Wrote notes." in result.output
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
 
 
 def test_run_cwd_writes_run_under_requested_directory(tmp_path) -> None:

@@ -19,6 +19,8 @@ def test_context_budget_defaults_match_existing_limits() -> None:
     assert budget.observation_summary_chars == 1_000
     assert budget.repair_attempts == 2
     assert budget.repair_excerpt_chars == 1_000
+    assert budget.conversation_context_chars == 8_000
+    assert budget.conversation_max_turns == 10
 
 
 def test_truncate_text_leaves_short_text_unchanged() -> None:
