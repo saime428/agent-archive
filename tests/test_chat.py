@@ -29,6 +29,36 @@ class SpyLLM:
         }
 
 
+class StreamingDoneLLM:
+    def __init__(self) -> None:
+        self.chat_calls = 0
+        self.stream_calls = 0
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+        self.chat_calls += 1
+        raise AssertionError("chat() should not be used when stream_handler is provided.")
+
+    def stream_chat(self, messages: list[dict], *, temperature: float | None = None):
+        self.stream_calls += 1
+        yield '{"message":"Done.",'
+        yield '"action":{"name":"done","args":{"final":"stream ok","changed_files":[],"next_steps":[]}}}'
+
+
+class NonStreamingLLM:
+    def __init__(self) -> None:
+        self.chat_calls = 0
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+        self.chat_calls += 1
+        return {
+            "message": "Done.",
+            "action": {
+                "name": "done",
+                "args": {"final": "fallback ok", "changed_files": [], "next_steps": []},
+            },
+        }
+
+
 def test_run_once_injects_context_messages_before_user_task(tmp_path) -> None:
     llm = SpyLLM()
 
@@ -43,6 +73,83 @@ def test_run_once_injects_context_messages_before_user_task(tmp_path) -> None:
     messages = llm.messages_by_call[0]
     assert messages[-2]["content"].startswith("UNTRUSTED CONVERSATION CONTEXT")
     assert messages[-1] == {"role": "user", "content": "second turn"}
+
+
+def test_run_once_uses_streaming_when_handler_is_provided(tmp_path) -> None:
+    llm = StreamingDoneLLM()
+    chunks: list[str] = []
+
+    result = run_once("finish", llm, cwd=tmp_path, stream_handler=chunks.append)
+
+    assert chunks == [
+        '{"message":"Done.",',
+        '"action":{"name":"done","args":{"final":"stream ok","changed_files":[],"next_steps":[]}}}',
+    ]
+    assert llm.stream_calls == 1
+    assert llm.chat_calls == 0
+    assert result.observation.status == "ok"
+    assert result.observation.data == {"final": "stream ok"}
+
+
+def test_run_once_falls_back_to_chat_when_streaming_is_not_supported(tmp_path) -> None:
+    llm = NonStreamingLLM()
+    chunks: list[str] = []
+
+    result = run_once("finish", llm, cwd=tmp_path, stream_handler=chunks.append)
+
+    assert chunks == []
+    assert llm.chat_calls == 1
+    assert result.observation.data == {"final": "fallback ok"}
+
+
+def test_streamed_invalid_json_enters_repair_loop_without_executing_partial_action(tmp_path) -> None:
+    target = tmp_path / "notes.txt"
+
+    class InvalidThenDoneLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            return {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "repaired", "changed_files": [], "next_steps": []},
+                },
+            }
+
+        def stream_chat(self, messages: list[dict], *, temperature: float | None = None):
+            self.calls += 1
+            if self.calls == 1:
+                yield '{"action":{"name":"write_file","args":{"path":"notes.txt","content":"bad","create_parents":false}}'
+            else:
+                yield '{"message":"Done.","action":{"name":"done","args":{"final":"repaired","changed_files":[],"next_steps":[]}}}'
+
+    llm = InvalidThenDoneLLM()
+
+    result = run_once("repair", llm, cwd=tmp_path, stream_handler=lambda chunk: None)
+
+    assert not target.exists()
+    assert result.observation.status == "ok"
+    assert result.observation.data == {"final": "repaired"}
+    assert result.observations[0].error is not None
+    assert result.observations[0].error.code == ErrorCode.INVALID_JSON
+
+
+def test_chat_session_forwards_stream_handler(tmp_path) -> None:
+    llm = StreamingDoneLLM()
+    chunks: list[str] = []
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=llm,
+        config=AgentConfig(default_skills=()),
+        state=ConversationState.create(tmp_path, session_id="chat_stream"),
+    )
+
+    result = session.run_turn("finish", stream_handler=chunks.append)
+
+    assert result.observation.data == {"final": "stream ok"}
+    assert chunks
 
 
 def test_conversation_state_builds_budgeted_untrusted_history(tmp_path) -> None:

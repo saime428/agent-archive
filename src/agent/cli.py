@@ -237,15 +237,19 @@ def chat(
             break
         if not user_input.strip():
             continue
+        stream_handler, stream_was_used = _make_chat_stream_handler(config.provider == "deepseek")
         try:
             result = session.run_turn(
                 user_input,
                 approval_handler=_chat_approval_handler,
                 event_handler=_chat_event_handler,
+                stream_handler=stream_handler,
             )
         except DeepSeekError as exc:
             console.print(str(exc))
             continue
+        if stream_was_used():
+            console.file.write("\n")
         turn_number = len(session.state.turns)
         final = (result.observation.data or {}).get("final", "")
         terminal_reason = _result_terminal_reason(result)
@@ -472,6 +476,23 @@ def _chat_event_handler(event: dict) -> None:
         console.print(f"activity: tool {event.get('action')}")
     elif name == "approval_required":
         console.print(f"activity: waiting for approval {event.get('action')}")
+
+
+def _make_chat_stream_handler(enabled: bool):
+    used = False
+
+    if not enabled:
+        return None, lambda: False
+
+    def handle_chunk(chunk: str) -> None:
+        nonlocal used
+        if not used:
+            console.print("raw model response preview:")
+            used = True
+        console.file.write(chunk)
+        console.file.flush()
+
+    return handle_chunk, lambda: used
 
 
 def _result_completed(result) -> bool:

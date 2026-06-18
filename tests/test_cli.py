@@ -149,6 +149,63 @@ def test_chat_confirmed_approval_executes_write_action(monkeypatch, tmp_path) ->
     assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
 
 
+def test_chat_deepseek_uses_streaming_preview(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class StreamingLLM:
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            raise AssertionError("chat() should not be used for deepseek chat streaming.")
+
+        def stream_chat(self, messages: list[dict], *, temperature: float | None = None):
+            yield '{"message":"Done.",'
+            yield '"action":{"name":"done","args":{"final":"stream ok","changed_files":[],"next_steps":[]}}}'
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: StreamingLLM())
+
+    result = runner.invoke(
+        app,
+        ["chat", "--cwd", str(workspace), "--provider", "deepseek", "--model", "deepseek-v4-flash"],
+        input="finish\n",
+    )
+
+    assert result.exit_code == 0
+    assert "raw model response preview:" in result.output
+    assert '"message":"Done."' in result.output
+    assert "final: stream ok" in result.output
+
+
+def test_run_deepseek_keeps_non_streaming_path(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class StreamingCapableLLM:
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            return {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "non-stream ok", "changed_files": [], "next_steps": []},
+                },
+            }
+
+        def stream_chat(self, messages: list[dict], *, temperature: float | None = None):
+            raise AssertionError("agent run should not use streaming.")
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: StreamingCapableLLM())
+
+    result = runner.invoke(
+        app,
+        ["run", "--cwd", str(workspace), "--provider", "deepseek", "--model", "deepseek-v4-flash", "finish"],
+    )
+
+    assert result.exit_code == 0
+    assert "raw model response preview:" not in result.output
+    assert "final: non-stream ok" in result.output
+
+
 def test_run_cwd_writes_run_under_requested_directory(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"

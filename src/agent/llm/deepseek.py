@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
@@ -14,6 +15,7 @@ DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 Transport = Callable[[str, dict[str, str], bytes, float], bytes]
+StreamTransport = Callable[[str, dict[str, str], bytes, float], Iterable[bytes]]
 
 
 class DeepSeekError(RuntimeError):
@@ -39,6 +41,7 @@ class DeepSeekClient:
         base_url: str = DEFAULT_DEEPSEEK_BASE_URL,
         timeout: float = 60.0,
         transport: Transport | None = None,
+        stream_transport: StreamTransport | None = None,
     ) -> None:
         if not api_key.strip():
             raise DeepSeekError("DeepSeek API key is required.")
@@ -49,6 +52,7 @@ class DeepSeekClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.transport = transport or _urllib_transport
+        self.stream_transport = stream_transport or _urllib_stream_transport
 
     def chat(
         self,
@@ -82,6 +86,38 @@ class DeepSeekClient:
             raise DeepSeekError(f"DeepSeek API request failed: {exc.reason}") from exc
 
         return _parse_chat_response(response_body)
+
+    def stream_chat(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float | None = None,
+    ) -> Iterator[str]:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            stream = self.stream_transport(
+                f"{self.base_url}/chat/completions",
+                headers,
+                body,
+                self.timeout,
+            )
+            yield from _parse_streaming_chat_response(stream)
+        except HTTPError as exc:
+            raise DeepSeekError(f"DeepSeek API request failed: {exc.code} {exc.reason}") from exc
+        except URLError as exc:
+            raise DeepSeekError(f"DeepSeek API request failed: {exc.reason}") from exc
 
 
 def smoke_deepseek_provider(
@@ -177,6 +213,12 @@ def _urllib_transport(url: str, headers: dict[str, str], body: bytes, timeout: f
         return response.read()
 
 
+def _urllib_stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> Iterable[bytes]:
+    request = Request(url, data=body, headers=headers, method="POST")
+    with urlopen(request, timeout=timeout) as response:
+        yield from response
+
+
 def _parse_chat_response(response_body: bytes) -> dict | str:
     try:
         response = json.loads(response_body.decode("utf-8"))
@@ -194,3 +236,48 @@ def _parse_chat_response(response_body: bytes) -> dict | str:
     if not isinstance(parsed, dict):
         raise DeepSeekError("DeepSeek model content must be a valid JSON action object.")
     return parsed
+
+
+def _parse_streaming_chat_response(chunks: Iterable[bytes]) -> Iterator[str]:
+    buffer = ""
+    for chunk in chunks:
+        try:
+            buffer += chunk.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise DeepSeekError("DeepSeek API returned an invalid streaming response.") from exc
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            result = _parse_sse_line(line)
+            if result is _StreamDone:
+                return
+            if result:
+                yield result
+    if buffer.strip():
+        result = _parse_sse_line(buffer)
+        if result is not _StreamDone and result:
+            yield result
+
+
+class _StreamDone:
+    pass
+
+
+def _parse_sse_line(line: str) -> str | type[_StreamDone] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith(":"):
+        return None
+    if not stripped.startswith("data:"):
+        raise DeepSeekError("DeepSeek API returned an invalid streaming response.")
+    payload = stripped[len("data:") :].strip()
+    if payload == "[DONE]":
+        return _StreamDone
+    try:
+        event = json.loads(payload)
+        content = event["choices"][0]["delta"].get("content")
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise DeepSeekError("DeepSeek API returned an invalid streaming response.") from exc
+    if content is None:
+        return None
+    if not isinstance(content, str):
+        raise DeepSeekError("DeepSeek API returned non-text streaming content.")
+    return content

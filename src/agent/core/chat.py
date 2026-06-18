@@ -158,6 +158,7 @@ class ChatSession:
         *,
         approval_handler: ApprovalHandler | None = None,
         event_handler: RunEventHandler | None = None,
+        stream_handler: Callable[[str], None] | None = None,
     ) -> RunResult:
         context_messages: list[dict[str, str]] = []
         history_message = self.state.build_context_message(self.budget)
@@ -174,6 +175,7 @@ class ChatSession:
             context_messages=context_messages,
             approval_handler=approval_handler,
             event_handler=event_handler,
+            stream_handler=stream_handler,
         )
         self.state.add_result(user_input, result)
         self.state.save(self.config)

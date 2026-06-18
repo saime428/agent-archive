@@ -11,3 +11,11 @@ class LLMClient(Protocol):
         temperature: float | None = None,
     ) -> dict | str:
         """Return a model response envelope."""
+
+    def stream_chat(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float | None = None,
+    ):
+        """Yield text chunks for a model response envelope."""

@@ -64,6 +64,7 @@ class TraceRecord:
 
 ApprovalHandler = Callable[[InternalAction], bool]
 RunEventHandler = Callable[[dict[str, Any]], None]
+StreamHandler = Callable[[str], None]
 
 
 SUPPORTED_TOOL_ACTIONS = {
@@ -102,6 +103,7 @@ def run_once(
     context_messages: list[dict[str, str]] | None = None,
     approval_handler: ApprovalHandler | None = None,
     event_handler: RunEventHandler | None = None,
+    stream_handler: StreamHandler | None = None,
 ) -> RunResult:
     effective_config = config or AgentConfig()
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
@@ -143,7 +145,7 @@ def run_once(
             "model_call_start",
             {"run_id": context.run_id, "action_index": model_call_index},
         )
-        raw_response = llm.chat(messages)
+        raw_response = _model_response(llm, messages, event_handler=event_handler, stream_handler=stream_handler)
         try:
             action = parse_model_action(
                 raw_response,
@@ -346,6 +348,27 @@ def _emit_event(handler: RunEventHandler | None, event: str, payload: dict[str, 
         return
     record = {"event": event, **payload}
     handler(record)
+
+
+def _model_response(
+    llm: LLMClient,
+    messages: list[dict],
+    *,
+    event_handler: RunEventHandler | None,
+    stream_handler: StreamHandler | None,
+) -> dict | str:
+    stream_chat = getattr(llm, "stream_chat", None)
+    if stream_handler is None or stream_chat is None:
+        return llm.chat(messages)
+
+    _emit_event(event_handler, "model_stream_start", {})
+    chunks: list[str] = []
+    for chunk in stream_chat(messages):
+        text = str(chunk)
+        chunks.append(text)
+        stream_handler(text)
+        _emit_event(event_handler, "model_stream_chunk", {"chunk_chars": len(text)})
+    return "".join(chunks)
 
 
 def _parse_error_record(

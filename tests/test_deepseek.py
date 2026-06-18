@@ -5,6 +5,7 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
+from agent.core.actions import parse_model_action
 from agent.llm.deepseek import DeepSeekClient, DeepSeekError, smoke_deepseek_provider
 
 
@@ -96,6 +97,78 @@ def test_deepseek_client_reports_network_errors() -> None:
         client.chat([{"role": "user", "content": "finish"}])
 
     assert "DeepSeek API request failed" in str(exc_info.value)
+
+
+def test_deepseek_client_streams_sse_delta_content() -> None:
+    calls = []
+
+    def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
+        calls.append((url, headers, json.loads(body.decode("utf-8")), timeout))
+        yield b'data: {"choices":[{"delta":{"content":"{\\"message\\":\\"Done.\\","}}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"content":"\\"action\\":{\\"name\\":\\"done\\","}}]}\n\n'
+        yield b'data: {"choices":[{"delta":{"content":"\\"args\\":{\\"final\\":\\"ok\\",\\"changed_files\\":[],\\"next_steps\\":[]}}}"}}]}\n\n'
+        yield b"data: [DONE]\n\n"
+
+    client = DeepSeekClient(api_key="secret", model="deepseek-v4-flash", stream_transport=stream_transport)
+
+    chunks = list(client.stream_chat([{"role": "user", "content": "finish"}], temperature=0))
+    raw_action = "".join(chunks)
+    action = parse_model_action(raw_action, run_id="run_stream", action_index=1, created_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+
+    assert action.action.name == "done"
+    assert action.action.args["final"] == "ok"
+    assert calls[0][0] == "https://api.deepseek.com/chat/completions"
+    assert calls[0][1]["Authorization"] == "Bearer secret"
+    assert calls[0][2]["stream"] is True
+    assert calls[0][2]["temperature"] == 0
+
+
+def test_deepseek_client_streaming_stops_on_done_marker() -> None:
+    def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
+        yield b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'
+        yield b"data: [DONE]\n\n"
+        yield b'data: {"choices":[{"delta":{"content":"ignored"}}]}\n\n'
+
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+
+    assert list(client.stream_chat([{"role": "user", "content": "finish"}])) == ["hello"]
+
+
+def test_deepseek_client_streaming_reports_invalid_sse() -> None:
+    def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
+        yield b"data: {not json}\n\n"
+
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+
+    with pytest.raises(DeepSeekError) as exc_info:
+        list(client.stream_chat([{"role": "user", "content": "finish"}]))
+
+    assert "invalid streaming response" in str(exc_info.value)
+
+
+def test_deepseek_client_streaming_reports_non_text_delta() -> None:
+    def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
+        yield b'data: {"choices":[{"delta":{"content":123}}]}\n\n'
+
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+
+    with pytest.raises(DeepSeekError) as exc_info:
+        list(client.stream_chat([{"role": "user", "content": "finish"}]))
+
+    assert "non-text streaming content" in str(exc_info.value)
+
+
+def test_deepseek_client_streaming_reports_http_errors() -> None:
+    def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
+        raise HTTPError(url, 429, "Too Many Requests", hdrs=None, fp=None)
+        yield b""
+
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+
+    with pytest.raises(DeepSeekError) as exc_info:
+        list(client.stream_chat([{"role": "user", "content": "finish"}]))
+
+    assert "DeepSeek API request failed: 429 Too Many Requests" in str(exc_info.value)
 
 
 def test_deepseek_smoke_validates_done_action_without_running_tools() -> None:

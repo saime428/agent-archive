@@ -56,8 +56,15 @@ agent chat --cwd F:\agent
 ```
 
 Each turn prints status-level live output such as model calls, parsed actions,
-tool execution, and approval waits. A completed turn shows `status`,
+tool execution, and approval waits. With DeepSeek chat, provider token streaming
+also prints a `raw model response preview` while the JSON action is arriving.
+A completed turn shows `status`,
 `completed`, `terminal_reason`, `final`, and the backing run summary path.
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+agent chat --cwd F:\agent --provider deepseek --model deepseek-v4-flash
+```
 
 Resume a saved chat session:
 
@@ -167,8 +174,9 @@ model as `UNTRUSTED TOOL OBSERVATION` context. The model must still answer with
 the internal JSON action protocol; free-form natural language is only surfaced
 through `done.final` and the run summary.
 
-Provider token streaming remains deferred; v0.5 focuses on status-level live
-output so JSON action parsing stays deterministic.
+Provider token streaming is implemented for DeepSeek chat only. Streaming is a
+terminal preview: the core still waits for the full response before parsing and
+executing one JSON action, so JSON action parsing stays deterministic.
 
 ## v0.3 Document Slice
 
