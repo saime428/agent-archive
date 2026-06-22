@@ -125,6 +125,9 @@ def test_readme_documents_v05_chat_commands() -> None:
     assert "raw model response preview" in readme
     assert "provider token streaming" in readme
     assert "agent chat --cwd F:\\agent --provider deepseek --model deepseek-v4-flash" in readme
+    assert "/help" in readme
+    assert "/status" in readme
+    assert "/transcript" in readme
 
 
 def test_v05_acceptance_checklist_records_chat_slice() -> None:
@@ -138,4 +141,6 @@ def test_v05_acceptance_checklist_records_chat_slice() -> None:
     assert "@file" in checklist
     assert "status-level live output" in checklist
     assert "| provider token streaming | Implemented / Tested" in checklist
+    assert "slash commands" in checklist
+    assert "transcript" in checklist
     assert "Deferred" in checklist

@@ -91,6 +91,15 @@ agent> summarize @README.md and inspect @src
 Referenced content is loaded through the workspace sandbox, bounded by the
 context budget, and marked as untrusted context.
 
+Chat slash commands are handled locally and do not call the model:
+
+```powershell
+/help
+/status
+/transcript
+/exit
+```
+
 ## Safety Model
 
 - Models emit structured JSON actions; the core validates and executes them.

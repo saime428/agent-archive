@@ -237,6 +237,12 @@ def chat(
             break
         if not user_input.strip():
             continue
+        command_result = _handle_chat_command(user_input.strip(), session, config)
+        if command_result == "exit":
+            console.print("chat ended")
+            break
+        if command_result == "handled":
+            continue
         stream_handler, stream_was_used = _make_chat_stream_handler(config.provider == "deepseek")
         try:
             result = session.run_turn(
@@ -493,6 +499,68 @@ def _make_chat_stream_handler(enabled: bool):
         console.file.flush()
 
     return handle_chunk, lambda: used
+
+
+def _handle_chat_command(command: str, session: ChatSession, config) -> str | None:
+    normalized = command.strip().lower()
+    if normalized in {"/exit", "/quit"}:
+        return "exit"
+    if normalized == "/help":
+        _print_chat_help()
+        return "handled"
+    if normalized == "/status":
+        _print_chat_status(session, config)
+        return "handled"
+    if normalized == "/transcript":
+        _print_chat_transcript(session)
+        return "handled"
+    if normalized.startswith("/"):
+        console.print(f"unknown command: {command}")
+        console.print("try /help")
+        return "handled"
+    return None
+
+
+def _print_chat_help() -> None:
+    console.print("commands:")
+    console.print("/help        Show chat commands.")
+    console.print("/status      Show current chat session status.")
+    console.print("/transcript  Show recent chat turns.")
+    console.print("/exit        End the chat.")
+
+
+def _print_chat_status(session: ChatSession, config) -> None:
+    turns = session.state.turns
+    console.print("chat status:")
+    console.print(f"chat_id: {session.state.session_id}")
+    console.print(f"workspace: {session.cwd}", soft_wrap=True)
+    console.print(f"provider: {config.provider}")
+    console.print(f"model: {config.model}")
+    console.print(f"turns: {len(turns)}")
+    console.print(f"session_file: {session.cwd / '.agent' / 'chats' / session.state.session_id / 'session.json'}")
+    if not turns:
+        console.print("last_status: none")
+        return
+    last_turn = turns[-1]
+    console.print(f"last_run_id: {last_turn.run_id}")
+    console.print(f"last_status: {last_turn.status}")
+    console.print(f"last_terminal_reason: {last_turn.terminal_reason}")
+    console.print(f"last_final: {last_turn.final}")
+
+
+def _print_chat_transcript(session: ChatSession, limit: int = 10) -> None:
+    turns = session.state.turns[-limit:]
+    console.print("transcript:")
+    if not turns:
+        console.print("(no turns yet)")
+        return
+    start = len(session.state.turns) - len(turns) + 1
+    for offset, turn in enumerate(turns):
+        console.print(f"turn {start + offset}")
+        console.print(f"user: {turn.user}")
+        console.print(f"status: {turn.status}")
+        console.print(f"terminal_reason: {turn.terminal_reason}")
+        console.print(f"final: {turn.final}")
 
 
 def _result_completed(result) -> bool:

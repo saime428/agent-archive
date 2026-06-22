@@ -91,6 +91,96 @@ def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:
     assert (workspace / ".agent" / "chats").exists()
 
 
+def test_chat_exit_command_ends_without_running_turn(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class NoRunLLM:
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            raise AssertionError("/exit should not call the model.")
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: NoRunLLM())
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="/exit\n")
+
+    assert result.exit_code == 0
+    assert "chat ended" in result.output
+    assert not (workspace / ".agent" / "runs").exists()
+
+
+def test_chat_help_command_prints_available_commands_without_running_turn(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class NoRunLLM:
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            raise AssertionError("/help should not call the model.")
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: NoRunLLM())
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="/help\n/exit\n")
+
+    assert result.exit_code == 0
+    assert "commands:" in result.output
+    assert "/exit" in result.output
+    assert "/status" in result.output
+    assert "/transcript" in result.output
+    assert not (workspace / ".agent" / "runs").exists()
+
+
+def test_chat_unknown_slash_command_is_local_error_without_running_turn(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class NoRunLLM:
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            raise AssertionError("unknown slash command should not call the model.")
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: NoRunLLM())
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="/stauts\n/exit\n")
+
+    assert result.exit_code == 0
+    assert "unknown command: /stauts" in result.output
+    assert "try /help" in result.output
+    assert not (workspace / ".agent" / "runs").exists()
+
+
+def test_chat_status_command_prints_current_session_state(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="first\n/status\n/exit\n")
+
+    assert result.exit_code == 0
+    assert "chat status:" in result.output
+    assert "turns: 1" in result.output
+    assert "last_status: ok" in result.output
+    assert "last_terminal_reason: done" in result.output
+    assert "last_final: FakeLLM received task: first" in result.output
+
+
+def test_chat_transcript_command_prints_recent_turns(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="first\nsecond\n/transcript\n/exit\n")
+
+    assert result.exit_code == 0
+    assert "transcript:" in result.output
+    assert "turn 1" in result.output
+    assert "user: first" in result.output
+    assert "final: FakeLLM received task: first" in result.output
+    assert "turn 2" in result.output
+    assert "user: second" in result.output
+    assert "final: FakeLLM received task: second" in result.output
+
+
 def test_chat_resume_uses_existing_session_id(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
