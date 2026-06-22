@@ -100,6 +100,27 @@ Chat slash commands are handled locally and do not call the model:
 /exit
 ```
 
+v0.5 manual smoke:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m agent.cli chat --cwd F:\agent
+python -m agent.cli chat --cwd F:\agent --provider deepseek --model deepseek-v4-flash
+python -m agent.cli chat --cwd F:\agent --resume <chat-id>
+python -m agent.cli runs show <run-id>
+python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q
+python -m pytest -q
+git diff --check
+```
+
+live chat success criteria:
+
+- `chat_id` is printed when the session starts.
+- DeepSeek chat shows `raw model response preview` before the parsed action result.
+- Completed turns show `status: ok`, `completed: true`, `terminal_reason: done`, and a natural-language `final`.
+- `/status` shows the current turn count and latest result; `/transcript` shows recent turns.
+- Denied chat approvals return `APPROVAL_DENIED`; non-chat `agent run` still fails fast for required approvals.
+
 ## Safety Model
 
 - Models emit structured JSON actions; the core validates and executes them.

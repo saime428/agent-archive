@@ -134,6 +134,8 @@ def test_v05_acceptance_checklist_records_chat_slice() -> None:
     checklist = (ROOT / "docs" / "v0.5-acceptance.md").read_text(encoding="utf-8")
 
     assert "v0.5 Acceptance Checklist" in checklist
+    assert "v0.5 freeze status" in checklist
+    assert "Interactive Terminal Agent MVP is frozen" in checklist
     assert "agent chat" in checklist
     assert "ConversationState" in checklist
     assert "interactive approval" in checklist
@@ -143,4 +145,21 @@ def test_v05_acceptance_checklist_records_chat_slice() -> None:
     assert "| provider token streaming | Implemented / Tested" in checklist
     assert "slash commands" in checklist
     assert "transcript" in checklist
+    assert "manual smoke" in checklist
+    assert "live chat success criteria" in checklist
     assert "Deferred" in checklist
+
+
+def test_readme_documents_v05_manual_smoke_and_success_criteria() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "v0.5 manual smoke" in readme
+    assert "python -m agent.cli chat --cwd F:\\agent" in readme
+    assert "python -m agent.cli chat --cwd F:\\agent --provider deepseek --model deepseek-v4-flash" in readme
+    assert "python -m agent.cli runs show <run-id>" in readme
+    assert "python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q" in readme
+    assert "live chat success criteria" in readme
+    assert "raw model response preview" in readme
+    assert "chat_id" in readme
+    assert "terminal_reason: done" in readme
+    assert "APPROVAL_DENIED" in readme
