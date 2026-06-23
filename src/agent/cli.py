@@ -16,9 +16,10 @@ from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.skills import SkillError, discover_skills, load_selected_skills
+from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekClient, DeepSeekError, smoke_deepseek_provider
 from agent.llm.fake import FakeLLMClient
-from agent.policy.approvals import CONFIRMATION_REQUIRED_ACTIONS, LOW_RISK_ACTIONS
+from agent.web.server import serve_workbench
 
 app = typer.Typer(help="Minimal Python CLI agent.")
 runs_app = typer.Typer(help="Inspect agent run logs.")
@@ -34,26 +35,6 @@ app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(provider_app, name="provider")
 console = Console(highlight=False)
-
-
-TOOL_DESCRIPTIONS = {
-    "done": "Finish the run with a final response.",
-    "ask_user": "Stop and return a structured user question.",
-    "list_dir": "List workspace directory entries.",
-    "read_file": "Read a workspace text file.",
-    "read_pdf": "Extract text from a workspace PDF as untrusted source material.",
-    "read_docx": "Extract text from a workspace DOCX as untrusted source material.",
-    "read_xlsx": "Extract sheet summaries from a workspace XLSX as untrusted source material.",
-    "read_pptx": "Extract slide text from a workspace PPTX as untrusted source material.",
-    "write_markdown_report": "Write a source-grounded Markdown report with snapshot protection.",
-    "search_files": "Search workspace paths and text.",
-    "write_file": "Write a workspace text file with snapshot protection.",
-    "apply_patch": "Apply structured text replacements with snapshots.",
-    "run_command": "Run an allowed structured argv command.",
-    "git_status": "Show repository status.",
-    "git_diff": "Show repository diff.",
-}
-DRY_RUN_SKIPPED_TOOLS = {"write_file", "apply_patch", "run_command", "write_markdown_report"}
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
     "python-docx": "docx",
@@ -170,6 +151,26 @@ def run(
 
 
 @app.command()
+def ui(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
+    port: int = typer.Option(8765, "--port", help="Port for the local workbench."),
+) -> None:
+    """Start the local read-only web workbench."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        load_config(workspace)
+    except ConfigError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    try:
+        serve_workbench(workspace=workspace, host=host, port=port)
+    except OSError as exc:
+        console.print(f"Could not start Agent Workbench: {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command()
 def chat(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the chat."),
     resume: str | None = typer.Option(None, "--resume", help="Resume a chat session id."),
@@ -273,10 +274,8 @@ def chat(
 @tools_app.command("list")
 def tools_list() -> None:
     """List available tools and policy categories."""
-    for tool_name, description in TOOL_DESCRIPTIONS.items():
-        category = _tool_category(tool_name)
-        dry_run = "skipped" if tool_name in DRY_RUN_SKIPPED_TOOLS else "executes"
-        console.file.write(f"{tool_name}\t{category}\tdry-run: {dry_run}\t{description}\n")
+    for tool in list_tool_infos():
+        console.file.write(f"{tool.name}\t{tool.category}\tdry-run: {tool.dry_run}\t{tool.description}\n")
 
 
 @config_app.command("show")
@@ -443,16 +442,6 @@ def memory_undo(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     console.print(f"undone: {tombstone.supersedes}")
-
-
-def _tool_category(tool_name: str) -> str:
-    if tool_name in {"done", "ask_user"}:
-        return "terminal"
-    if tool_name in LOW_RISK_ACTIONS:
-        return "low-risk"
-    if tool_name in CONFIRMATION_REQUIRED_ACTIONS:
-        return "confirmation-required"
-    return "unknown"
 
 
 def _make_llm(config):

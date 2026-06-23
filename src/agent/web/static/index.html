@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Workbench</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <div class="workbench-shell">
+      <nav class="rail" aria-label="Workbench navigation">
+        <div class="brand-mark">A</div>
+        <button class="rail-button active" type="button" title="Chat">C</button>
+        <button class="rail-button" type="button" title="Runs">R</button>
+        <button class="rail-button" type="button" title="Tools">T</button>
+        <button class="rail-button" type="button" title="Config">S</button>
+      </nav>
+
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <button class="collapse-button" type="button" title="Toggle sidebar">=</button>
+          <input id="run-search" type="search" placeholder="Search runs" />
+        </div>
+        <button class="new-run-button" type="button">Open terminal chat</button>
+        <section>
+          <div class="section-label">Recent runs</div>
+          <div id="run-list" class="run-list"></div>
+        </section>
+      </aside>
+
+      <main class="main-stage">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">Local workspace</div>
+            <h1>Agent Workbench</h1>
+          </div>
+          <div id="workspace-pill" class="workspace-pill">Loading workspace</div>
+        </header>
+
+        <section class="conversation-panel" aria-label="Run summary">
+          <div class="conversation-header">
+            <div>
+              <div class="eyebrow">Latest run</div>
+              <h2 id="selected-run-title">No run selected</h2>
+            </div>
+            <div id="run-state" class="state-chip">read-only</div>
+          </div>
+          <pre id="summary-view" class="summary-view">Loading run history...</pre>
+        </section>
+
+        <section class="input-dock" aria-label="Chat entry">
+          <textarea readonly placeholder="Interactive browser chat lands in the next slice. Use agent chat for now."></textarea>
+          <div class="dock-actions">
+            <span id="provider-chip" class="pill">provider</span>
+            <span id="model-chip" class="pill">model</span>
+            <span class="pill muted">read-only UI</span>
+          </div>
+        </section>
+      </main>
+
+      <aside class="details-pane">
+        <section class="detail-section">
+          <div class="section-label">Tool catalog</div>
+          <div id="tool-list" class="tool-list"></div>
+        </section>
+        <section class="detail-section">
+          <div class="section-label">Trace</div>
+          <div id="tool-call-list" class="trace-list"></div>
+        </section>
+      </aside>
+    </div>
+
+    <script src="/assets/app.js" type="module"></script>
+  </body>
+</html>

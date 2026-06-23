@@ -46,6 +46,40 @@ Runs write durable files under `.agent/runs/<run-id>/`. Write tools create
 snapshot records before changing files; `agent runs show <run-id>` displays
 snapshot paths and restore hints when a run changed files.
 
+## v0.6 Visual Workbench
+
+v0.6 starts the Apix-style visual direction with a local read-only web workbench.
+It reuses the existing Python core and durable logs; it does not
+replace `agent run` or `agent chat`.
+
+Start the workbench:
+
+```powershell
+python -m agent.cli ui --cwd F:\agent
+```
+
+Open the printed URL, usually:
+
+```text
+http://127.0.0.1:8765
+```
+
+The first slice shows a Runs Dashboard, effective config, tool catalog, run
+summary, and tool-call trace. It is read-only: browser chat, approval modals,
+file editing, diff review, and Electron packaging are deferred to later v0.6
+slices.
+
+v0.6 manual smoke:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m agent.cli run --cwd F:\agent "inspect project"
+python -m agent.cli ui --cwd F:\agent
+python -m pytest tests/test_ui.py tests/test_cli.py tests/test_docs.py -q
+python -m pytest -q
+git diff --check
+```
+
 ## v0.5 Interactive Chat
 
 v0.5 adds an interactive terminal loop on top of the same structured action
