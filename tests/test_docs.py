@@ -171,7 +171,7 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "v0.6 Visual Workbench" in readme
     assert "python -m agent.cli ui --cwd F:\\agent" in readme
     assert "http://127.0.0.1:8765" in readme
-    assert "read-only web workbench" in readme
+    assert "browser chat turn" in readme
     assert "Runs Dashboard" in readme
 
 
@@ -181,7 +181,7 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "v0.6 Acceptance Checklist" in checklist
     assert "Visual Workbench" in checklist
     assert "agent ui" in checklist
-    assert "read-only" in checklist
+    assert "browser chat turn" in checklist
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist

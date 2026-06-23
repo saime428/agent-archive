@@ -48,9 +48,9 @@ snapshot paths and restore hints when a run changed files.
 
 ## v0.6 Visual Workbench
 
-v0.6 starts the Apix-style visual direction with a local read-only web workbench.
-It reuses the existing Python core and durable logs; it does not
-replace `agent run` or `agent chat`.
+v0.6 starts the Apix-style visual direction with a local web workbench. It
+reuses the existing Python core and durable logs; it does not replace
+`agent run` or `agent chat`.
 
 Start the workbench:
 
@@ -64,10 +64,14 @@ Open the printed URL, usually:
 http://127.0.0.1:8765
 ```
 
-The first slice shows a Runs Dashboard, effective config, tool catalog, run
-summary, and tool-call trace. It is read-only: browser chat, approval modals,
-file editing, diff review, and Electron packaging are deferred to later v0.6
-slices.
+The workbench shows a Runs Dashboard, effective config, tool catalog, run
+summary, and tool-call trace. It also supports a basic browser chat turn from
+the bottom input dock; each turn creates the same durable `.agent/runs` and
+`.agent/chats` records as terminal chat.
+
+Current v0.6 limits: browser chat is synchronous, confirmation-required actions
+still fail fast, and approval modals, file editing, diff review, token-level UI
+streaming, and Electron packaging are deferred to later slices.
 
 v0.6 manual smoke:
 
@@ -75,6 +79,7 @@ v0.6 manual smoke:
 $env:PYTHONPATH="src"
 python -m agent.cli run --cwd F:\agent "inspect project"
 python -m agent.cli ui --cwd F:\agent
+Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
 python -m pytest tests/test_ui.py tests/test_cli.py tests/test_docs.py -q
 python -m pytest -q
 git diff --check

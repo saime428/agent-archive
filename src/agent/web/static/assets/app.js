@@ -1,6 +1,7 @@
 const state = {
   runs: [],
   selectedRunId: null,
+  sessionId: null,
 };
 
 const els = {
@@ -14,6 +15,10 @@ const els = {
   toolList: document.querySelector("#tool-list"),
   toolCallList: document.querySelector("#tool-call-list"),
   runSearch: document.querySelector("#run-search"),
+  chatForm: document.querySelector("#chat-form"),
+  messageInput: document.querySelector("#message-input"),
+  sendButton: document.querySelector("#send-button"),
+  sessionChip: document.querySelector("#session-chip"),
 };
 
 async function loadJson(path) {
@@ -23,6 +28,19 @@ async function loadJson(path) {
     throw new Error(`${path} failed: ${text}`);
   }
   return response.json();
+}
+
+async function postJson(path, payload) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error || `${path} failed`);
+  }
+  return result;
 }
 
 async function boot() {
@@ -64,7 +82,7 @@ function renderTools(tools) {
       `;
       item.querySelector(".tool-name").textContent = tool.name;
       item.querySelector(".tool-category").textContent = tool.category;
-      item.querySelector(".tool-meta").textContent = `dry-run: ${tool.dry_run} · ${tool.description}`;
+      item.querySelector(".tool-meta").textContent = `dry-run: ${tool.dry_run} - ${tool.description}`;
       return item;
     }),
   );
@@ -130,13 +148,52 @@ function renderToolCalls(toolCalls) {
         <div class="trace-meta"></div>
       `;
       item.querySelector(".tool-name").textContent = action;
-      item.querySelectorAll(".trace-meta")[0].textContent = `line ${call.line_number} · ${status}`;
+      item.querySelectorAll(".trace-meta")[0].textContent = `line ${call.line_number} - ${status}`;
       item.querySelectorAll(".trace-meta")[1].textContent = observation;
       return item;
     }),
   );
 }
 
+async function submitChatTurn(event) {
+  event.preventDefault();
+  const message = els.messageInput.value.trim();
+  if (!message) {
+    els.messageInput.focus();
+    return;
+  }
+  els.sendButton.disabled = true;
+  els.runState.textContent = "running";
+  els.summary.textContent = `Submitting browser chat turn...\n\n${message}`;
+  try {
+    const turn = await postJson("/api/chat/turn", { session_id: state.sessionId, message });
+    state.sessionId = turn.session_id;
+    els.sessionChip.textContent = `session: ${turn.session_id}`;
+    els.messageInput.value = "";
+    els.selectedRunTitle.textContent = turn.run_id;
+    els.runState.textContent = turn.status;
+    els.summary.textContent = [
+      `final: ${turn.final || "(empty)"}`,
+      `status: ${turn.status}`,
+      `completed: ${turn.completed}`,
+      `terminal_reason: ${turn.terminal_reason}`,
+      `last_action: ${turn.last_action}`,
+      `last_observation_summary: ${turn.last_observation_summary}`,
+      `summary: ${turn.summary_path}`,
+    ].join("\n");
+    const runs = await loadJson("/api/runs");
+    state.runs = runs.runs;
+    await selectRun(turn.run_id);
+  } catch (error) {
+    els.runState.textContent = "error";
+    els.summary.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    els.sendButton.disabled = false;
+    els.messageInput.focus();
+  }
+}
+
 els.runSearch.addEventListener("input", renderRuns);
+els.chatForm.addEventListener("submit", submitChatTurn);
 
 boot();

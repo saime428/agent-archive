@@ -3,4 +3,5 @@ __pycache__/
 .pytest_cache/
 .venv/
 .agent/runs/
+.agent/chats/
 .agent/memory/

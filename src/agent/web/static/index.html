@@ -48,14 +48,15 @@
           <pre id="summary-view" class="summary-view">Loading run history...</pre>
         </section>
 
-        <section class="input-dock" aria-label="Chat entry">
-          <textarea readonly placeholder="Interactive browser chat lands in the next slice. Use agent chat for now."></textarea>
+        <form id="chat-form" class="input-dock" aria-label="Chat entry">
+          <textarea id="message-input" name="message" placeholder="Ask the local agent to inspect, summarize, or plan..."></textarea>
           <div class="dock-actions">
             <span id="provider-chip" class="pill">provider</span>
             <span id="model-chip" class="pill">model</span>
-            <span class="pill muted">read-only UI</span>
+            <span id="session-chip" class="pill muted">new browser session</span>
+            <button id="send-button" class="send-button" type="submit">Send</button>
           </div>
-        </section>
+        </form>
       </main>
 
       <aside class="details-pane">

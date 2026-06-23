@@ -10,8 +10,11 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent.config import ConfigError, load_config
+from agent.core.chat import ChatSession, ConversationState
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
+from agent.llm.deepseek import DeepSeekError
+from agent.llm.factory import make_llm
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -73,8 +76,37 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             except (OSError, ValueError) as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            path = unquote(parsed.path)
+            try:
+                if path == "/api/chat/turn":
+                    self._send_json(build_chat_turn_payload(root, self._read_json_body()))
+                    return
+                self._send_json({"error": f"Unknown endpoint: {path}"}, status=HTTPStatus.NOT_FOUND)
+            except json.JSONDecodeError as exc:
+                self._send_json({"error": f"Invalid JSON body: {exc.msg}"}, status=HTTPStatus.BAD_REQUEST)
+            except (ConfigError, ValueError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            except DeepSeekError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_GATEWAY)
+            except OSError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
         def log_message(self, format: str, *args: object) -> None:
             return
+
+        def _read_json_body(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0:
+                raise ValueError("JSON body is required.")
+            if length > 64_000:
+                raise ValueError("JSON body is too large.")
+            raw = self.rfile.read(length).decode("utf-8")
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise ValueError("JSON body must be an object.")
+            return payload
 
         def _send_json(self, payload: dict[str, Any], *, status: HTTPStatus = HTTPStatus.OK) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -151,6 +183,35 @@ def build_runs_payload(workspace: Path, *, limit: int = 20) -> dict[str, Any]:
             }
             for run in runs
         ],
+    }
+
+
+def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    message = request.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("message is required.")
+    session_id = request.get("session_id")
+    if session_id is not None and not isinstance(session_id, str):
+        raise ValueError("session_id must be a string.")
+
+    root = workspace.resolve()
+    config, diagnostics = load_config(root)
+    state = ConversationState.load(root, session_id) if session_id else ConversationState.create(root)
+    session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
+    result = session.run_turn(message.strip())
+    turn = session.state.turns[-1]
+    return {
+        "session_id": session.state.session_id,
+        "turn_count": len(session.state.turns),
+        "run_id": turn.run_id,
+        "status": turn.status,
+        "completed": turn.completed,
+        "terminal_reason": turn.terminal_reason,
+        "final": turn.final,
+        "last_action": turn.last_action,
+        "last_observation_summary": turn.last_observation_summary,
+        "summary_path": str(result.summary_path),
+        "config_warnings": diagnostics.warnings,
     }
 
 

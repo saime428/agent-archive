@@ -17,8 +17,8 @@ from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.skills import SkillError, discover_skills, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
-from agent.llm.deepseek import DeepSeekClient, DeepSeekError, smoke_deepseek_provider
-from agent.llm.fake import FakeLLMClient
+from agent.llm.deepseek import DeepSeekError, smoke_deepseek_provider
+from agent.llm.factory import make_llm as make_llm_client
 from agent.web.server import serve_workbench
 
 app = typer.Typer(help="Minimal Python CLI agent.")
@@ -445,10 +445,7 @@ def memory_undo(
 
 
 def _make_llm(config):
-    if config.provider == "fake":
-        return FakeLLMClient()
-    api_key = os.environ.get(config.deepseek_api_key_env, "")
-    return DeepSeekClient(api_key=api_key, model=config.model)
+    return make_llm_client(config)
 
 
 def _chat_approval_handler(action) -> bool:

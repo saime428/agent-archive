@@ -275,6 +275,7 @@ h2 {
 
 .dock-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -282,6 +283,22 @@ h2 {
 .pill.muted {
   background: #f1f4f5;
   color: #7a8588;
+}
+
+.send-button {
+  margin-left: auto;
+  min-width: 86px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: #82bdb8;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.send-button:disabled {
+  background: #c7d4d5;
+  color: #f8fbfb;
 }
 
 .details-pane {
