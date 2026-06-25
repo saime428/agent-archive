@@ -70,9 +70,11 @@ the bottom input dock; each turn creates the same durable `.agent/runs` and
 `.agent/chats` records as terminal chat.
 
 Confirmation-required actions use native browser confirmation and then retry the
-same message with one approved action. Current v0.6 limits: browser chat is
-synchronous, custom approval modals, file editing, diff review, token-level UI
-streaming, and Electron packaging are deferred to later slices.
+same message with one approved action. The Files panel lists workspace files
+and opens read-only text previews. The Snapshots panel shows run snapshot paths
+and restore hints when a run changed files. Current v0.6 limits: browser chat
+is synchronous, custom approval modals, file editing, diff review, token-level
+UI streaming, and Electron packaging are deferred to later slices.
 
 v0.6 manual smoke:
 

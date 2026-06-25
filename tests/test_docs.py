@@ -173,6 +173,8 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "http://127.0.0.1:8765" in readme
     assert "browser chat turn" in readme
     assert "native browser confirmation" in readme
+    assert "Files panel" in readme
+    assert "Snapshots panel" in readme
     assert "Runs Dashboard" in readme
 
 
@@ -184,6 +186,8 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "agent ui" in checklist
     assert "browser chat turn" in checklist
     assert "native browser confirmation" in checklist
+    assert "Files panel" in checklist
+    assert "Snapshots panel" in checklist
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist

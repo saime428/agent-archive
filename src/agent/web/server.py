@@ -10,11 +10,13 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent.config import ConfigError, load_config
+from agent.core.budget import ContextBudget, truncate_text
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.factory import make_llm
+from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -64,6 +66,12 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/runs":
                     self._send_json(build_runs_payload(root))
                     return
+                if path == "/api/files":
+                    self._send_json(build_files_payload(root, _query_value(parsed.query, "path")))
+                    return
+                if path == "/api/file":
+                    self._send_json(build_file_payload(root, _query_value(parsed.query, "path")))
+                    return
                 if path.startswith("/api/runs/"):
                     run_id = path.rsplit("/", 1)[-1]
                     self._send_json(build_run_detail_payload(root, run_id))
@@ -73,7 +81,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             except RunStoreError as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.NOT_FOUND)
-            except (OSError, ValueError) as exc:
+            except (ValueError, SandboxError) as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            except OSError as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
         def do_POST(self) -> None:  # noqa: N802
@@ -186,6 +196,60 @@ def build_runs_payload(workspace: Path, *, limit: int = 20) -> dict[str, Any]:
     }
 
 
+def build_files_payload(workspace: Path, path: str | None = None) -> dict[str, Any]:
+    root = workspace.resolve()
+    sandbox = WorkspaceSandbox(root)
+    requested = path or "."
+    try:
+        directory = sandbox.resolve_read_path(requested)
+    except SandboxError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+    if not directory.exists():
+        raise ValueError(f"Directory not found: {requested}")
+    if not directory.is_dir():
+        raise ValueError(f"Path is not a directory: {requested}")
+    entries = []
+    for entry in sorted(directory.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
+        entries.append(
+            {
+                "name": entry.name,
+                "path": _display_path(entry, root),
+                "kind": "dir" if entry.is_dir() else "file",
+                "size": entry.stat().st_size if entry.is_file() else None,
+            }
+        )
+    return {"path": _display_path(directory, root), "entries": entries}
+
+
+def build_file_payload(workspace: Path, path: str | None, *, max_chars: int | None = None) -> dict[str, Any]:
+    if not path:
+        raise ValueError("path is required.")
+    root = workspace.resolve()
+    sandbox = WorkspaceSandbox(root)
+    try:
+        file_path = sandbox.resolve_read_path(path)
+    except SandboxError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+    if not file_path.exists():
+        raise ValueError(f"File not found: {path}")
+    if not file_path.is_file():
+        raise ValueError(f"Path is not a file: {path}")
+    budget = ContextBudget()
+    limit = min(max_chars or budget.file_read_max_chars, budget.file_read_max_chars)
+    with file_path.open("rb") as handle:
+        sample = handle.read(min(limit, 4096))
+    if b"\x00" in sample:
+        raise ValueError(f"Binary file preview is not supported: {path}")
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    truncated = truncate_text(content, limit)
+    return {
+        "path": _display_path(file_path, root),
+        "content": truncated.value,
+        "truncated": truncated.truncated,
+        "size": file_path.stat().st_size,
+    }
+
+
 def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
     message = request.get("message")
     if not isinstance(message, str) or not message.strip():
@@ -255,3 +319,22 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
         ],
         "snapshots": detail.snapshots,
     }
+
+
+def _query_value(query: str, key: str) -> str | None:
+    for part in query.split("&"):
+        if not part:
+            continue
+        name, _, value = part.partition("=")
+        if unquote(name) == key:
+            return unquote(value)
+    return None
+
+
+def _display_path(path: Path, root: Path) -> str:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return str(path)
+    value = relative.as_posix()
+    return value or "."

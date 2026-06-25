@@ -6,6 +6,8 @@ from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
     build_chat_turn_payload,
     build_config_payload,
+    build_file_payload,
+    build_files_payload,
     build_run_detail_payload,
     build_runs_payload,
     build_tools_payload,
@@ -68,6 +70,70 @@ def test_build_run_detail_payload_includes_summary_and_tool_calls(tmp_path: Path
     assert "final: ok" in payload["summary"]
     assert payload["tool_calls"][0]["valid"] is True
     assert payload["tool_calls"][0]["data"]["action"]["action"]["name"] == "done"
+
+
+def test_build_files_payload_lists_workspace_directory(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "README.md").write_text("hello\n", encoding="utf-8")
+
+    payload = build_files_payload(workspace, "")
+    items = {item["name"]: item for item in payload["entries"]}
+
+    assert payload["path"] == "."
+    assert items["README.md"]["kind"] == "file"
+    assert items["src"]["kind"] == "dir"
+
+
+def test_build_file_payload_reads_text_with_budget(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "notes.txt").write_text("abcdef", encoding="utf-8")
+
+    payload = build_file_payload(workspace, "notes.txt", max_chars=4)
+
+    assert payload["path"] == "notes.txt"
+    assert payload["content"] == "abcd\n[truncated]"
+    assert payload["truncated"] is True
+
+
+def test_build_file_payload_rejects_outside_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    workspace.mkdir()
+    outside.write_text("secret", encoding="utf-8")
+
+    try:
+        build_file_payload(workspace, "../outside.txt")
+    except ValueError as exc:
+        assert "SANDBOX_VIOLATION" in str(exc)
+    else:
+        raise AssertionError("outside file reads should be rejected")
+
+
+def test_build_file_payload_reports_missing_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    try:
+        build_file_payload(workspace, "missing.txt")
+    except ValueError as exc:
+        assert "File not found" in str(exc)
+    else:
+        raise AssertionError("missing file reads should fail")
+
+
+def test_build_file_payload_rejects_binary_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "data.bin").write_bytes(b"abc\x00def")
+
+    try:
+        build_file_payload(workspace, "data.bin")
+    except ValueError as exc:
+        assert "Binary file preview is not supported" in str(exc)
+    else:
+        raise AssertionError("binary previews should fail")
 
 
 def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: Path) -> None:
@@ -218,6 +284,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "message-input" in index
     assert "/api/health" in script
     assert "/api/runs" in script
+    assert "/api/files" in script
+    assert "/api/file" in script
     assert "/api/chat/turn" in script
     assert "window.confirm" in script
+    assert "Snapshots" in index
     assert ".workbench-shell" in styles

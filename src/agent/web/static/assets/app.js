@@ -14,6 +14,8 @@ const els = {
   runState: document.querySelector("#run-state"),
   toolList: document.querySelector("#tool-list"),
   toolCallList: document.querySelector("#tool-call-list"),
+  snapshotList: document.querySelector("#snapshot-list"),
+  fileList: document.querySelector("#file-list"),
   runSearch: document.querySelector("#run-search"),
   chatForm: document.querySelector("#chat-form"),
   messageInput: document.querySelector("#message-input"),
@@ -59,6 +61,7 @@ async function boot() {
     } else {
       renderEmptyRuns();
     }
+    await loadFiles(".");
   } catch (error) {
     els.summary.textContent = error instanceof Error ? error.message : String(error);
   }
@@ -117,6 +120,7 @@ function renderEmptyRuns() {
   els.runState.textContent = "waiting";
   els.summary.textContent = "Run `agent run` or `agent chat` to create durable logs, then refresh this page.";
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
+  els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
 
 async function selectRun(runId) {
@@ -128,6 +132,7 @@ async function selectRun(runId) {
   const lastCall = detail.tool_calls[detail.tool_calls.length - 1];
   els.runState.textContent = lastCall?.data?.observation?.status || "loaded";
   renderToolCalls(detail.tool_calls);
+  renderSnapshots(detail.snapshots);
 }
 
 function renderToolCalls(toolCalls) {
@@ -153,6 +158,79 @@ function renderToolCalls(toolCalls) {
       return item;
     }),
   );
+}
+
+function renderSnapshots(snapshots) {
+  if (!snapshots.length) {
+    els.snapshotList.innerHTML = '<div class="empty-state">No snapshots for this run.</div>';
+    return;
+  }
+  els.snapshotList.replaceChildren(
+    ...snapshots.map((snapshot) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = snapshot.path;
+      item.querySelectorAll(".trace-meta")[0].textContent = snapshot.snapshot_path;
+      item.querySelectorAll(".trace-meta")[1].textContent = snapshot.restore_hint || "No restore hint.";
+      return item;
+    }),
+  );
+}
+
+async function loadFiles(path) {
+  try {
+    const payload = await loadJson(`/api/files?path=${encodeURIComponent(path)}`);
+    renderFiles(payload.entries, payload.path);
+  } catch (error) {
+    els.fileList.innerHTML = `<div class="empty-state">${error instanceof Error ? error.message : String(error)}</div>`;
+  }
+}
+
+function renderFiles(entries, currentPath) {
+  const parent = parentPath(currentPath);
+  const rows = [];
+  if (currentPath !== "." && parent) {
+    rows.push(fileButton("..", parent, "dir"));
+  }
+  rows.push(...entries.map((entry) => fileButton(entry.name, entry.path, entry.kind)));
+  els.fileList.replaceChildren(...rows);
+}
+
+function fileButton(name, path, kind) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "file-item";
+  button.innerHTML = `
+    <div class="run-id"></div>
+    <div class="run-meta"></div>
+  `;
+  button.querySelector(".run-id").textContent = name;
+  button.querySelector(".run-meta").textContent = `${kind} - ${path}`;
+  button.addEventListener("click", () => (kind === "dir" ? loadFiles(path) : openFile(path)));
+  return button;
+}
+
+async function openFile(path) {
+  try {
+    const payload = await loadJson(`/api/file?path=${encodeURIComponent(path)}`);
+    els.selectedRunTitle.textContent = payload.path;
+    els.runState.textContent = payload.truncated ? "truncated" : "file";
+    els.summary.textContent = payload.content || "(empty file)";
+  } catch (error) {
+    els.runState.textContent = "error";
+    els.summary.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+function parentPath(path) {
+  const parts = path.split("/").filter(Boolean);
+  parts.pop();
+  return parts.length ? parts.join("/") : ".";
 }
 
 async function sendChatTurn(message, { approveOnce = false } = {}) {

@@ -114,6 +114,10 @@ textarea {
   padding: 0 14px;
 }
 
+.sidebar-section {
+  margin-top: 22px;
+}
+
 .section-label,
 .eyebrow {
   color: #84a7a7;
@@ -124,6 +128,7 @@ textarea {
 }
 
 .run-list,
+.file-list,
 .tool-list,
 .trace-list {
   display: grid;
@@ -132,6 +137,7 @@ textarea {
 }
 
 .run-item,
+.file-item,
 .tool-item,
 .trace-item {
   border: 1px solid #e1e7e8;
@@ -140,7 +146,8 @@ textarea {
   padding: 12px;
 }
 
-.run-item {
+.run-item,
+.file-item {
   display: grid;
   gap: 4px;
   cursor: pointer;
