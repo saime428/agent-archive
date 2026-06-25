@@ -155,21 +155,18 @@ function renderToolCalls(toolCalls) {
   );
 }
 
-async function submitChatTurn(event) {
-  event.preventDefault();
-  const message = els.messageInput.value.trim();
+async function sendChatTurn(message, { approveOnce = false } = {}) {
   if (!message) {
     els.messageInput.focus();
     return;
   }
   els.sendButton.disabled = true;
-  els.runState.textContent = "running";
-  els.summary.textContent = `Submitting browser chat turn...\n\n${message}`;
+  els.runState.textContent = approveOnce ? "approved" : "running";
+  els.summary.textContent = `${approveOnce ? "Submitting approved action" : "Submitting browser chat turn"}...\n\n${message}`;
   try {
-    const turn = await postJson("/api/chat/turn", { session_id: state.sessionId, message });
+    const turn = await postJson("/api/chat/turn", { session_id: state.sessionId, message, approve_once: approveOnce });
     state.sessionId = turn.session_id;
     els.sessionChip.textContent = `session: ${turn.session_id}`;
-    els.messageInput.value = "";
     els.selectedRunTitle.textContent = turn.run_id;
     els.runState.textContent = turn.status;
     els.summary.textContent = [
@@ -181,6 +178,14 @@ async function submitChatTurn(event) {
       `last_observation_summary: ${turn.last_observation_summary}`,
       `summary: ${turn.summary_path}`,
     ].join("\n");
+    if (turn.approval_required) {
+      const ok = window.confirm(`Approve ${turn.requested_action}?`);
+      if (ok) {
+        await sendChatTurn(message, { approveOnce: true });
+      }
+      return;
+    }
+    els.messageInput.value = "";
     const runs = await loadJson("/api/runs");
     state.runs = runs.runs;
     await selectRun(turn.run_id);
@@ -191,6 +196,11 @@ async function submitChatTurn(event) {
     els.sendButton.disabled = false;
     els.messageInput.focus();
   }
+}
+
+async function submitChatTurn(event) {
+  event.preventDefault();
+  await sendChatTurn(els.messageInput.value.trim());
 }
 
 els.runSearch.addEventListener("input", renderRuns);

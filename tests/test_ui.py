@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
     build_chat_turn_payload,
     build_config_payload,
@@ -112,6 +113,102 @@ def test_build_chat_turn_payload_rejects_empty_message(tmp_path: Path) -> None:
         raise AssertionError("empty chat messages should be rejected")
 
 
+def test_build_chat_turn_payload_reports_approval_required(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    payload = build_chat_turn_payload(workspace, {"message": "write notes"})
+
+    assert payload["status"] == "error"
+    assert payload["approval_required"] is True
+    assert payload["error_code"] == "APPROVAL_REQUIRED"
+    assert payload["requested_action"] == "write_file"
+    assert not (workspace / "notes.txt").exists()
+
+
+def test_build_chat_turn_payload_approve_once_executes_one_required_action(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    payload = build_chat_turn_payload(workspace, {"message": "write notes", "approve_once": True})
+
+    assert payload["status"] == "ok"
+    assert payload["approval_required"] is False
+    assert payload["terminal_reason"] == "done"
+    assert payload["final"] == "Wrote notes."
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+
+
+def test_build_chat_turn_payload_approval_retry_uses_same_session(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    def make_write_llm(_config):
+        return FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
+                    },
+                },
+            ]
+        )
+
+    monkeypatch.setattr("agent.web.server.make_llm", make_write_llm)
+
+    first = build_chat_turn_payload(workspace, {"message": "write notes"})
+    second = build_chat_turn_payload(
+        workspace,
+        {"session_id": first["session_id"], "message": "write notes", "approve_once": True},
+    )
+
+    assert first["approval_required"] is True
+    assert second["session_id"] == first["session_id"]
+    assert second["status"] == "ok"
+    assert second["turn_count"] == 2
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+
+
 def test_static_workbench_assets_exist_and_reference_api() -> None:
     index = static_file_path("index.html").read_text(encoding="utf-8")
     script = static_file_path("assets/app.js").read_text(encoding="utf-8")
@@ -122,4 +219,5 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/health" in script
     assert "/api/runs" in script
     assert "/api/chat/turn" in script
+    assert "window.confirm" in script
     assert ".workbench-shell" in styles

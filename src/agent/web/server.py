@@ -193,13 +193,18 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
     session_id = request.get("session_id")
     if session_id is not None and not isinstance(session_id, str):
         raise ValueError("session_id must be a string.")
+    approve_once = request.get("approve_once", False)
+    if not isinstance(approve_once, bool):
+        raise ValueError("approve_once must be a boolean.")
 
     root = workspace.resolve()
     config, diagnostics = load_config(root)
     state = ConversationState.load(root, session_id) if session_id else ConversationState.create(root)
     session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
-    result = session.run_turn(message.strip())
+    result = session.run_turn(message.strip(), approval_handler=_approve_once_handler() if approve_once else None)
     turn = session.state.turns[-1]
+    error = result.observation.error
+    error_code = str(error.code) if error is not None else None
     return {
         "session_id": session.state.session_id,
         "turn_count": len(session.state.turns),
@@ -211,8 +216,25 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         "last_action": turn.last_action,
         "last_observation_summary": turn.last_observation_summary,
         "summary_path": str(result.summary_path),
+        "error_code": error_code,
+        "error_message": error.message if error is not None else None,
+        "approval_required": error_code == "APPROVAL_REQUIRED",
+        "requested_action": result.action.action.name,
         "config_warnings": diagnostics.warnings,
     }
+
+
+def _approve_once_handler():
+    approved = False
+
+    def approve_once(_action: Any) -> bool:
+        nonlocal approved
+        if approved:
+            return False
+        approved = True
+        return True
+
+    return approve_once
 
 
 def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:

@@ -69,8 +69,9 @@ summary, and tool-call trace. It also supports a basic browser chat turn from
 the bottom input dock; each turn creates the same durable `.agent/runs` and
 `.agent/chats` records as terminal chat.
 
-Current v0.6 limits: browser chat is synchronous, confirmation-required actions
-still fail fast, and approval modals, file editing, diff review, token-level UI
+Confirmation-required actions use native browser confirmation and then retry the
+same message with one approved action. Current v0.6 limits: browser chat is
+synchronous, custom approval modals, file editing, diff review, token-level UI
 streaming, and Electron packaging are deferred to later slices.
 
 v0.6 manual smoke:
