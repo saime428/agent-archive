@@ -31,7 +31,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.3 | Document tools | PDF/DOCX/XLSX/PPTX readers, Markdown report writer, source-grounded document handling |
 | v0.4 | Real model loop | DeepSeek smoke, live provider run, observation feedback, readable final/summary output |
 | v0.5 | Terminal agent | `agent chat`, session history, resume, interactive approval, `@file`/`@dir`, slash commands, DeepSeek streaming preview |
-| v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, snapshots, diff viewer, snapshot restore |
+| v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 
 ## Active v0.6 Plan
 
@@ -39,17 +39,21 @@ These percentages are product estimates, not exact engineering metrics.
    - Show immediate UI state for model calls, tool execution, approval waits,
      and run completion.
    - Keep action parsing unchanged; live events are display-only.
-   - Current slice: Activity panel for browser turns, approval waits, restores,
+   - Done: Activity panel for browser turns, approval waits, saves, restores,
      completion, and failures.
 
 2. Custom approval panel
    - Replace `window.confirm`.
    - Show action name, arguments, affected files, snapshot/diff context, and
      Approve/Deny buttons.
+   - Done: browser chat approvals, snapshot restore approvals, and file save
+     approvals use the custom panel.
 
 3. Minimal file editor
    - Start with textarea editing, not Monaco.
    - Save through existing approval and snapshot paths.
+   - Done: text file saves use `/api/file/save`, custom approval, and durable
+     run snapshots.
 
 4. Auto-refresh and status bar
    - Refresh runs after browser turns and restores.
@@ -69,12 +73,14 @@ These percentages are product estimates, not exact engineering metrics.
 
 ## Current Recommendation
 
-Next slice: v0.6 Browser Live Events.
+Completed slice: v0.6 Browser Live Events.
 
-Reason: the Workbench can already chat, inspect files, view diffs, and restore
-snapshots. The biggest user-experience gap is that the browser still waits
-synchronously after Send. Live status makes the UI feel alive without adding a
-new editing surface or a frontend framework.
+Next slice: v0.6 Auto-refresh and Status Bar.
+
+Reason: the Workbench can already chat, approve, inspect files, edit a text
+file, view diffs, and restore snapshots. The next small usability gap is making
+run/file state refresh predictably and exposing provider/model/session/API-key
+status in one stable strip.
 
 ## Guardrails
 

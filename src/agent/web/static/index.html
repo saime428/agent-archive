@@ -47,9 +47,13 @@
               <div class="eyebrow">Latest run</div>
               <h2 id="selected-run-title">No run selected</h2>
             </div>
-            <div id="run-state" class="state-chip">read-only</div>
+            <div class="conversation-actions">
+              <button id="save-file-button" class="diff-button hidden" type="button">Save</button>
+              <div id="run-state" class="state-chip">read-only</div>
+            </div>
           </div>
           <pre id="summary-view" class="summary-view">Loading run history...</pre>
+          <textarea id="file-editor" class="summary-view hidden" spellcheck="false"></textarea>
         </section>
 
         <form id="chat-form" class="input-dock" aria-label="Chat entry">

@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-width: 980px;
@@ -241,6 +245,12 @@ h2 {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.conversation-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .summary-view {

@@ -12,6 +12,7 @@ from agent.web.server import (
     build_restore_snapshot_payload,
     build_run_detail_payload,
     build_runs_payload,
+    build_save_file_payload,
     build_tools_payload,
     static_file_path,
 )
@@ -136,6 +137,40 @@ def test_build_file_payload_rejects_binary_file(tmp_path: Path) -> None:
         assert "Binary file preview is not supported" in str(exc)
     else:
         raise AssertionError("binary previews should fail")
+
+
+def test_build_save_file_payload_writes_text_and_records_snapshot(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "notes.txt"
+    target.write_text("old\n", encoding="utf-8")
+
+    payload = build_save_file_payload(workspace, {"path": "notes.txt", "content": "new\n"})
+
+    assert payload["status"] == "ok"
+    assert payload["path"] == "notes.txt"
+    assert payload["bytes_written"] == 4
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert payload["snapshot_path"].startswith(".agent/runs/")
+    assert payload["snapshot_path"].endswith("/snapshots/act_000001/original")
+
+    detail = build_run_detail_payload(workspace, payload["run_id"])
+    assert detail["snapshots"][0]["path"] == "notes.txt"
+    assert detail["snapshots"][0]["snapshot_path"] == payload["snapshot_path"]
+    assert "Workbench file editor" in detail["summary"]
+
+
+def test_build_save_file_payload_rejects_outside_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (tmp_path / "outside.txt").write_text("old\n", encoding="utf-8")
+
+    try:
+        build_save_file_payload(workspace, {"path": "../outside.txt", "content": "new\n"})
+    except ValueError as exc:
+        assert "SANDBOX_VIOLATION" in str(exc)
+    else:
+        raise AssertionError("outside file saves should be rejected")
 
 
 def test_build_diff_payload_compares_snapshot_to_current_file(tmp_path: Path) -> None:
@@ -406,6 +441,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/runs" in script
     assert "/api/files" in script
     assert "/api/file" in script
+    assert "/api/file/save" in script
     assert "/api/diff" in script
     assert "/api/snapshot/restore" in script
     assert "/api/chat/turn" in script
@@ -413,7 +449,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "approval-panel" in index
     assert "approve-button" in index
     assert "deny-button" in index
+    assert "file-editor" in index
+    assert "save-file-button" in index
     assert "showApprovalPanel" in script
+    assert "Save file" in script
     assert "Restore" in script
     assert "activity-log" in index
     assert "addActivityEvent" in script

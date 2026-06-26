@@ -178,6 +178,9 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "Diff Viewer" in readme
     assert "/api/diff" in readme
     assert "Restore button" in readme
+    assert "file editor" in readme
+    assert "Save button" in readme
+    assert "/api/file/save" in readme
     assert "Activity panel" in readme
     assert "Runs Dashboard" in readme
 
@@ -195,6 +198,8 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "Diff Viewer" in checklist
     assert "/api/diff" in checklist
     assert "Restore button" in checklist
+    assert "file editor" in checklist
+    assert "/api/file/save" in checklist
     assert "Activity panel" in checklist
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist

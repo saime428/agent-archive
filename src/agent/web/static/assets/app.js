@@ -3,6 +3,7 @@ const state = {
   selectedRunId: null,
   sessionId: null,
   pendingApproval: null,
+  openFilePath: null,
 };
 
 const els = {
@@ -11,6 +12,8 @@ const els = {
   model: document.querySelector("#model-chip"),
   runList: document.querySelector("#run-list"),
   summary: document.querySelector("#summary-view"),
+  fileEditor: document.querySelector("#file-editor"),
+  saveFileButton: document.querySelector("#save-file-button"),
   selectedRunTitle: document.querySelector("#selected-run-title"),
   runState: document.querySelector("#run-state"),
   toolList: document.querySelector("#tool-list"),
@@ -73,7 +76,7 @@ async function boot() {
     addActivityEvent("Workbench ready", "Local state loaded.");
   } catch (error) {
     addActivityEvent("Workbench error", error instanceof Error ? error.message : String(error));
-    els.summary.textContent = error instanceof Error ? error.message : String(error);
+    showSummary(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -128,7 +131,7 @@ function renderRuns() {
 function renderEmptyRuns() {
   els.selectedRunTitle.textContent = "No runs yet";
   els.runState.textContent = "waiting";
-  els.summary.textContent = "Run `agent run` or `agent chat` to create durable logs, then refresh this page.";
+  showSummary("Run `agent run` or `agent chat` to create durable logs, then refresh this page.");
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -161,12 +164,28 @@ function hideApprovalPanel() {
   els.approvalPanel.classList.add("hidden");
 }
 
+function showSummary(text) {
+  state.openFilePath = null;
+  els.fileEditor.classList.add("hidden");
+  els.saveFileButton.classList.add("hidden");
+  els.summary.classList.remove("hidden");
+  els.summary.textContent = text;
+}
+
+function showFileEditor(payload) {
+  state.openFilePath = payload.path;
+  els.summary.classList.add("hidden");
+  els.fileEditor.classList.remove("hidden");
+  els.saveFileButton.classList.remove("hidden");
+  els.fileEditor.value = payload.content || "";
+}
+
 async function selectRun(runId) {
   state.selectedRunId = runId;
   renderRuns();
   const detail = await loadJson(`/api/runs/${encodeURIComponent(runId)}`);
   els.selectedRunTitle.textContent = detail.run_id;
-  els.summary.textContent = detail.summary || "(summary is empty)";
+  showSummary(detail.summary || "(summary is empty)");
   const lastCall = detail.tool_calls[detail.tool_calls.length - 1];
   els.runState.textContent = lastCall?.data?.observation?.status || "loaded";
   renderToolCalls(detail.tool_calls);
@@ -262,10 +281,10 @@ async function openFile(path) {
     const payload = await loadJson(`/api/file?path=${encodeURIComponent(path)}`);
     els.selectedRunTitle.textContent = payload.path;
     els.runState.textContent = payload.truncated ? "truncated" : "file";
-    els.summary.textContent = payload.content || "(empty file)";
+    showFileEditor(payload);
   } catch (error) {
     els.runState.textContent = "error";
-    els.summary.textContent = error instanceof Error ? error.message : String(error);
+    showSummary(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -275,11 +294,41 @@ async function openDiff(path, snapshotPath) {
     const payload = await loadJson(`/api/diff?${query}`);
     els.selectedRunTitle.textContent = `Diff: ${payload.path}`;
     els.runState.textContent = payload.truncated ? "truncated" : "diff";
-    els.summary.textContent = payload.diff || "(no changes)";
+    showSummary(payload.diff || "(no changes)");
   } catch (error) {
     els.runState.textContent = "error";
-    els.summary.textContent = error instanceof Error ? error.message : String(error);
+    showSummary(error instanceof Error ? error.message : String(error));
   }
+}
+
+async function saveOpenFile() {
+  if (!state.openFilePath) {
+    return;
+  }
+  const path = state.openFilePath;
+  showApprovalPanel(
+    "Save file",
+    path,
+    async () => {
+      try {
+        addActivityEvent("Saving file", path);
+        const payload = await postJson("/api/file/save", {
+          path,
+          content: els.fileEditor.value,
+        });
+        addActivityEvent("File saved", payload.path);
+        await loadFiles(".");
+        const runs = await loadJson("/api/runs");
+        state.runs = runs.runs;
+        await selectRun(payload.run_id);
+      } catch (error) {
+        addActivityEvent("Save failed", error instanceof Error ? error.message : String(error));
+        els.runState.textContent = "error";
+        showSummary(error instanceof Error ? error.message : String(error));
+      }
+    },
+    () => addActivityEvent("Save denied", path),
+  );
 }
 
 async function restoreSnapshot(snapshot) {
@@ -295,13 +344,13 @@ async function restoreSnapshot(snapshot) {
         });
         els.selectedRunTitle.textContent = `Restored: ${payload.path}`;
         els.runState.textContent = payload.action;
-        els.summary.textContent = `${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`;
+        showSummary(`${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`);
         await loadFiles(".");
         addActivityEvent("Restore completed", payload.path);
       } catch (error) {
         addActivityEvent("Restore failed", error instanceof Error ? error.message : String(error));
         els.runState.textContent = "error";
-        els.summary.textContent = error instanceof Error ? error.message : String(error);
+        showSummary(error instanceof Error ? error.message : String(error));
       }
     },
     () => addActivityEvent("Restore denied", snapshot.path),
@@ -321,7 +370,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
   }
   els.sendButton.disabled = true;
   els.runState.textContent = approveOnce ? "approved" : "running";
-  els.summary.textContent = `${approveOnce ? "Submitting approved action" : "Submitting browser chat turn"}...\n\n${message}`;
+  showSummary(`${approveOnce ? "Submitting approved action" : "Submitting browser chat turn"}...\n\n${message}`);
   addActivityEvent(approveOnce ? "Submitting approved action" : "Submitting browser chat turn", message);
   addActivityEvent("Waiting for agent core", "Calling /api/chat/turn.");
   try {
@@ -331,7 +380,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
     els.sessionChip.textContent = `session: ${turn.session_id}`;
     els.selectedRunTitle.textContent = turn.run_id;
     els.runState.textContent = turn.status;
-    els.summary.textContent = [
+    showSummary([
       `final: ${turn.final || "(empty)"}`,
       `status: ${turn.status}`,
       `completed: ${turn.completed}`,
@@ -339,7 +388,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
       `last_action: ${turn.last_action}`,
       `last_observation_summary: ${turn.last_observation_summary}`,
       `summary: ${turn.summary_path}`,
-    ].join("\n");
+    ].join("\n"));
     if (turn.approval_required) {
       showApprovalPanel(
         `Approve ${turn.requested_action}`,
@@ -360,7 +409,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
   } catch (error) {
     addActivityEvent("Run failed", error instanceof Error ? error.message : String(error));
     els.runState.textContent = "error";
-    els.summary.textContent = error instanceof Error ? error.message : String(error);
+    showSummary(error instanceof Error ? error.message : String(error));
   } finally {
     els.sendButton.disabled = false;
     els.messageInput.focus();
@@ -392,5 +441,6 @@ els.runSearch.addEventListener("input", renderRuns);
 els.chatForm.addEventListener("submit", submitChatTurn);
 els.approveButton.addEventListener("click", approvePendingAction);
 els.denyButton.addEventListener("click", denyPendingAction);
+els.saveFileButton.addEventListener("click", saveOpenFile);
 
 boot();

@@ -13,13 +13,17 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent.config import ConfigError, load_config
+from agent.core.actions import ActionCall, InternalAction, make_observation
 from agent.core.budget import ContextBudget, truncate_text
 from agent.core.chat import ChatSession, ConversationState
+from agent.core.context import RunContext
+from agent.core.redaction import redact_record, redact_value
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.factory import make_llm
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
+from agent.tools.filesystem import create_snapshot
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -107,6 +111,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/snapshot/restore":
                     self._send_json(build_restore_snapshot_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/file/save":
+                    self._send_json(build_save_file_payload(root, self._read_json_body()))
                     return
                 self._send_json({"error": f"Unknown endpoint: {path}"}, status=HTTPStatus.NOT_FOUND)
             except json.JSONDecodeError as exc:
@@ -262,6 +269,68 @@ def build_file_payload(workspace: Path, path: str | None, *, max_chars: int | No
         "content": truncated.value,
         "truncated": truncated.truncated,
         "size": file_path.stat().st_size,
+    }
+
+
+def build_save_file_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    path = request.get("path")
+    content = request.get("content")
+    if not isinstance(path, str) or not path:
+        raise ValueError("path is required.")
+    if not isinstance(content, str):
+        raise ValueError("content is required.")
+
+    root = workspace.resolve()
+    try:
+        file_path = WorkspaceSandbox(root).resolve_write_path(path, create_parents=False)
+    except SandboxError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+    if not file_path.exists():
+        raise ValueError(f"File not found: {path}")
+    if not file_path.is_file():
+        raise ValueError(f"Path is not a file: {path}")
+    with file_path.open("rb") as handle:
+        if b"\x00" in handle.read(4096):
+            raise ValueError(f"Binary file editing is not supported: {path}")
+
+    context = RunContext.create("Workbench file editor save", cwd=root)
+    action = InternalAction(
+        run_id=context.run_id,
+        action_id="act_000001",
+        created_at=context.created_at,
+        message="Workbench file editor save.",
+        action=ActionCall(
+            name="write_file",
+            args={
+                "path": _display_path(file_path, root),
+                "source": "workbench-file-editor",
+                "bytes": len(content.encode("utf-8")),
+            },
+        ),
+    )
+    snapshot = create_snapshot(file_path, context, action_id=action.action_id)
+    encoded = content.encode("utf-8")
+    file_path.write_bytes(encoded)
+    observation = make_observation(
+        action,
+        observation_index=1,
+        summary=f"Saved {len(encoded)} bytes from Workbench file editor.",
+        data={
+            "path": _display_path(file_path, root),
+            "bytes_written": len(encoded),
+            "snapshot_path": _display_path(snapshot.snapshot_path, root),
+            "previously_existed": snapshot.previously_existed,
+            "restore_hint": snapshot.restore_hint,
+        },
+    )
+    _write_workbench_file_save_log(context, action, observation)
+    return {
+        "status": "ok",
+        "run_id": context.run_id,
+        "path": _display_path(file_path, root),
+        "bytes_written": len(encoded),
+        "snapshot_path": _display_path(snapshot.snapshot_path, root),
+        "restore_hint": snapshot.restore_hint,
     }
 
 
@@ -491,6 +560,60 @@ def _read_text_for_diff(path: Path, label: str) -> str:
     if b"\x00" in raw[:4096]:
         raise ValueError(f"Binary diff is not supported: {label}")
     return raw.decode("utf-8", errors="replace")
+
+
+def _write_workbench_file_save_log(context: RunContext, action: InternalAction, observation: Any) -> None:
+    run_dir = context.cwd / ".agent" / "runs" / context.run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "action": action.model_dump(mode="json"),
+        "observation": observation.model_dump(mode="json"),
+        "trace": {
+            "phase": "workbench",
+            "action_index": 1,
+            "observation_index": 1,
+            "repair_attempt": 0,
+            "terminal": True,
+        },
+    }
+    redacted_record = redact_record(record)
+    serialized_record = redacted_record.value
+    if redacted_record.applied:
+        serialized_record["redaction"] = {
+            "applied": True,
+            "replacements": redacted_record.replacements,
+        }
+    (run_dir / "tool_calls.jsonl").write_text(
+        json.dumps(serialized_record, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+    data = observation.data or {}
+    summary = "\n".join(
+        [
+            f"# Run {context.run_id}",
+            "",
+            "- task: Workbench file editor save",
+            "- action: write_file",
+            f"- status: {observation.status}",
+            "- completed: true",
+            "- terminal_reason: workbench_file_save",
+            "- final: Saved file from Workbench file editor.",
+            f"- last_action: {action.action.name}",
+            f"- last_observation_summary: {observation.summary}",
+            "",
+            "## Changed Files",
+            f"- changed_file: {data.get('path', '')}",
+            f"- snapshot: {data.get('snapshot_path', '')}",
+            f"- restore: {data.get('restore_hint', '')}",
+            "",
+        ]
+    )
+    redacted_summary = redact_value(summary)
+    summary_text = redacted_summary.value
+    if redacted_summary.applied:
+        summary_text = summary_text.rstrip("\n") + "\n- redaction_applied: true\n"
+    (run_dir / "summary.md").write_text(summary_text, encoding="utf-8")
 
 
 def _is_within(path: Path, root: Path) -> bool:
