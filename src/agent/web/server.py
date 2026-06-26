@@ -4,6 +4,7 @@ import difflib
 import json
 import mimetypes
 import os
+import shutil
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -103,6 +104,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             try:
                 if path == "/api/chat/turn":
                     self._send_json(build_chat_turn_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/snapshot/restore":
+                    self._send_json(build_restore_snapshot_payload(root, self._read_json_body()))
                     return
                 self._send_json({"error": f"Unknown endpoint: {path}"}, status=HTTPStatus.NOT_FOUND)
             except json.JSONDecodeError as exc:
@@ -305,6 +309,42 @@ def build_diff_payload(
     }
 
 
+def build_restore_snapshot_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    path = request.get("path")
+    snapshot = request.get("snapshot_path")
+    if not isinstance(path, str) or not path:
+        raise ValueError("path is required.")
+    if not isinstance(snapshot, str) or not snapshot:
+        raise ValueError("snapshot_path is required.")
+
+    root = workspace.resolve()
+    snapshot_path = _resolve_snapshot_path(root, snapshot)
+    metadata = _snapshot_metadata(snapshot_path)
+    target_path = _restore_target_path(root, str(metadata.get("path") or path))
+    previously_existed = metadata.get("previously_existed")
+    if not isinstance(previously_existed, bool):
+        raise ValueError("Snapshot metadata is missing previously_existed.")
+
+    if previously_existed:
+        original = _resolve_snapshot_path(root, str(metadata.get("snapshot_file") or snapshot))
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original, target_path)
+        action = "restored"
+    else:
+        if target_path.exists():
+            if not target_path.is_file():
+                raise ValueError(f"Restore target is not a file: {path}")
+            target_path.unlink()
+        action = "deleted"
+
+    return {
+        "status": "ok",
+        "action": action,
+        "path": _display_path(target_path, root),
+        "snapshot_path": _display_path(snapshot_path, root),
+    }
+
+
 def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
     message = request.get("message")
     if not isinstance(message, str) or not message.strip():
@@ -414,13 +454,34 @@ def _resolve_snapshot_path(root: Path, snapshot: str) -> Path:
 
 def _snapshot_text(path: Path, requested: str) -> tuple[str, bool]:
     if path.name == "metadata.json":
-        try:
-            metadata = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        except json.JSONDecodeError:
-            metadata = {}
+        metadata = _read_json_file(path)
         if isinstance(metadata, dict) and metadata.get("previously_existed") is False:
             return "", True
     return _read_text_for_diff(path, requested), False
+
+
+def _snapshot_metadata(snapshot_path: Path) -> dict[str, Any]:
+    metadata_path = snapshot_path if snapshot_path.name == "metadata.json" else snapshot_path.parent / "metadata.json"
+    if not metadata_path.is_file():
+        raise ValueError(f"Snapshot metadata missing: {metadata_path}")
+    metadata = _read_json_file(metadata_path)
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Snapshot metadata must be an object: {metadata_path}")
+    return metadata
+
+
+def _read_json_file(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid snapshot metadata: {path}") from exc
+
+
+def _restore_target_path(root: Path, path: str) -> Path:
+    try:
+        return WorkspaceSandbox(root).resolve_write_path(path, create_parents=True)
+    except SandboxError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
 
 
 def _read_text_for_diff(path: Path, label: str) -> str:

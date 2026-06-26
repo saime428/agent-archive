@@ -174,11 +174,13 @@ function renderSnapshots(snapshots) {
         <div class="trace-meta"></div>
         <div class="trace-meta"></div>
         <button class="diff-button" type="button">Show diff</button>
+        <button class="restore-button" type="button">Restore</button>
       `;
       item.querySelector(".tool-name").textContent = snapshot.path;
       item.querySelectorAll(".trace-meta")[0].textContent = snapshot.snapshot_path;
       item.querySelectorAll(".trace-meta")[1].textContent = snapshot.restore_hint || "No restore hint.";
       item.querySelector(".diff-button").addEventListener("click", () => openDiff(snapshot.path, snapshot.snapshot_path));
+      item.querySelector(".restore-button").addEventListener("click", () => restoreSnapshot(snapshot));
       return item;
     }),
   );
@@ -236,6 +238,26 @@ async function openDiff(path, snapshotPath) {
     els.selectedRunTitle.textContent = `Diff: ${payload.path}`;
     els.runState.textContent = payload.truncated ? "truncated" : "diff";
     els.summary.textContent = payload.diff || "(no changes)";
+  } catch (error) {
+    els.runState.textContent = "error";
+    els.summary.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function restoreSnapshot(snapshot) {
+  const ok = window.confirm(`Restore ${snapshot.path} from snapshot?`);
+  if (!ok) {
+    return;
+  }
+  try {
+    const payload = await postJson("/api/snapshot/restore", {
+      path: snapshot.path,
+      snapshot_path: snapshot.snapshot_path,
+    });
+    els.selectedRunTitle.textContent = `Restored: ${payload.path}`;
+    els.runState.textContent = payload.action;
+    els.summary.textContent = `${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`;
+    await loadFiles(".");
   } catch (error) {
     els.runState.textContent = "error";
     els.summary.textContent = error instanceof Error ? error.message : String(error);

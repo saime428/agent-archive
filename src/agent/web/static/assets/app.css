@@ -340,7 +340,8 @@ h2 {
   gap: 6px;
 }
 
-.diff-button {
+.diff-button,
+.restore-button {
   width: max-content;
   border: 1px solid #d9e5e6;
   border-radius: 8px;

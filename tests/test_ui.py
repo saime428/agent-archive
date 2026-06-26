@@ -9,6 +9,7 @@ from agent.web.server import (
     build_diff_payload,
     build_file_payload,
     build_files_payload,
+    build_restore_snapshot_payload,
     build_run_detail_payload,
     build_runs_payload,
     build_tools_payload,
@@ -185,6 +186,76 @@ def test_build_diff_payload_rejects_non_snapshot_run_file(tmp_path: Path) -> Non
         raise AssertionError("non-snapshot run files should be rejected")
 
 
+def test_build_restore_snapshot_payload_restores_existing_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    target = workspace / "notes.txt"
+    snapshot_dir = workspace / ".agent" / "runs" / "run_test" / "snapshots" / "act"
+    original = snapshot_dir / "original"
+    snapshot_dir.mkdir(parents=True)
+    target.write_text("new\n", encoding="utf-8")
+    original.write_text("old\n", encoding="utf-8")
+    (snapshot_dir / "metadata.json").write_text(
+        f'{{"path": "{target.as_posix()}", "previously_existed": true, "snapshot_file": "{original.as_posix()}"}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_restore_snapshot_payload(
+        workspace,
+        {"path": "notes.txt", "snapshot_path": ".agent/runs/run_test/snapshots/act/original"},
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["action"] == "restored"
+    assert payload["path"] == "notes.txt"
+    assert target.read_text(encoding="utf-8") == "old\n"
+
+
+def test_build_restore_snapshot_payload_deletes_file_created_by_run(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    target = workspace / "notes.txt"
+    snapshot_dir = workspace / ".agent" / "runs" / "run_test" / "snapshots" / "act"
+    metadata = snapshot_dir / "metadata.json"
+    snapshot_dir.mkdir(parents=True)
+    target.write_text("new\n", encoding="utf-8")
+    metadata.write_text(
+        f'{{"path": "{target.as_posix()}", "previously_existed": false, "snapshot_file": null}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_restore_snapshot_payload(
+        workspace,
+        {"path": "notes.txt", "snapshot_path": ".agent/runs/run_test/snapshots/act/metadata.json"},
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["action"] == "deleted"
+    assert not target.exists()
+
+
+def test_build_restore_snapshot_payload_rejects_metadata_outside_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    snapshot_dir = workspace / ".agent" / "runs" / "run_test" / "snapshots" / "act"
+    original = snapshot_dir / "original"
+    snapshot_dir.mkdir(parents=True)
+    original.write_text("old\n", encoding="utf-8")
+    outside.write_text("new\n", encoding="utf-8")
+    (snapshot_dir / "metadata.json").write_text(
+        f'{{"path": "{outside.as_posix()}", "previously_existed": true, "snapshot_file": "{original.as_posix()}"}}\n',
+        encoding="utf-8",
+    )
+
+    try:
+        build_restore_snapshot_payload(
+            workspace,
+            {"path": "notes.txt", "snapshot_path": ".agent/runs/run_test/snapshots/act/original"},
+        )
+    except ValueError as exc:
+        assert "SANDBOX_VIOLATION" in str(exc)
+    else:
+        raise AssertionError("metadata pointing outside the workspace should be rejected")
+
+
 def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -336,8 +407,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/files" in script
     assert "/api/file" in script
     assert "/api/diff" in script
+    assert "/api/snapshot/restore" in script
     assert "/api/chat/turn" in script
     assert "window.confirm" in script
+    assert "Restore" in script
     assert "Snapshots" in index
     assert "Diff Viewer" in index
     assert ".workbench-shell" in styles
