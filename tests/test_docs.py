@@ -172,7 +172,7 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "python -m agent.cli ui --cwd F:\\agent" in readme
     assert "http://127.0.0.1:8765" in readme
     assert "browser chat turn" in readme
-    assert "native browser confirmation" in readme
+    assert "custom approval panel" in readme
     assert "Files panel" in readme
     assert "Snapshots panel" in readme
     assert "Diff Viewer" in readme
@@ -189,7 +189,7 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "Visual Workbench" in checklist
     assert "agent ui" in checklist
     assert "browser chat turn" in checklist
-    assert "native browser confirmation" in checklist
+    assert "custom approval panel" in checklist
     assert "Files panel" in checklist
     assert "Snapshots panel" in checklist
     assert "Diff Viewer" in checklist

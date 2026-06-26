@@ -72,6 +72,15 @@
           <div class="section-label">Activity</div>
           <div id="activity-log" class="activity-list"></div>
         </section>
+        <section id="approval-panel" class="detail-section approval-panel hidden">
+          <div class="section-label">Approval</div>
+          <div id="approval-action" class="tool-name">No approval pending</div>
+          <div id="approval-detail" class="trace-meta"></div>
+          <div class="approval-actions">
+            <button id="approve-button" class="approval-button" type="button">Approve</button>
+            <button id="deny-button" class="approval-button secondary" type="button">Deny</button>
+          </div>
+        </section>
         <section class="detail-section">
           <div class="section-label">Trace</div>
           <div id="tool-call-list" class="trace-list"></div>

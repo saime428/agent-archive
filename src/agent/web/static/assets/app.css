@@ -347,6 +347,39 @@ h2 {
   gap: 4px;
 }
 
+.approval-panel {
+  border: 1px solid #d8e5e6;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.approval-panel.hidden {
+  display: none;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.approval-button {
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #82bdb8;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.approval-button.secondary {
+  border: 1px solid #d9e5e6;
+  background: #ffffff;
+  color: #607579;
+}
+
 .diff-button,
 .restore-button {
   width: max-content;

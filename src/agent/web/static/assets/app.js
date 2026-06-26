@@ -2,6 +2,7 @@ const state = {
   runs: [],
   selectedRunId: null,
   sessionId: null,
+  pendingApproval: null,
 };
 
 const els = {
@@ -14,6 +15,11 @@ const els = {
   runState: document.querySelector("#run-state"),
   toolList: document.querySelector("#tool-list"),
   activityLog: document.querySelector("#activity-log"),
+  approvalPanel: document.querySelector("#approval-panel"),
+  approvalAction: document.querySelector("#approval-action"),
+  approvalDetail: document.querySelector("#approval-detail"),
+  approveButton: document.querySelector("#approve-button"),
+  denyButton: document.querySelector("#deny-button"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -142,6 +148,19 @@ function addActivityEvent(title, detail) {
   }
 }
 
+function showApprovalPanel(action, detail, onApprove, onDeny) {
+  state.pendingApproval = { onApprove, onDeny };
+  els.approvalAction.textContent = action;
+  els.approvalDetail.textContent = detail;
+  els.approvalPanel.classList.remove("hidden");
+  addActivityEvent("Waiting for approval", action);
+}
+
+function hideApprovalPanel() {
+  state.pendingApproval = null;
+  els.approvalPanel.classList.add("hidden");
+}
+
 async function selectRun(runId) {
   state.selectedRunId = runId;
   renderRuns();
@@ -264,28 +283,29 @@ async function openDiff(path, snapshotPath) {
 }
 
 async function restoreSnapshot(snapshot) {
-  addActivityEvent("Waiting for approval", `Restore ${snapshot.path} from snapshot.`);
-  const ok = window.confirm(`Restore ${snapshot.path} from snapshot?`);
-  if (!ok) {
-    addActivityEvent("Restore denied", snapshot.path);
-    return;
-  }
-  try {
-    addActivityEvent("Restoring snapshot", snapshot.snapshot_path);
-    const payload = await postJson("/api/snapshot/restore", {
-      path: snapshot.path,
-      snapshot_path: snapshot.snapshot_path,
-    });
-    els.selectedRunTitle.textContent = `Restored: ${payload.path}`;
-    els.runState.textContent = payload.action;
-    els.summary.textContent = `${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`;
-    await loadFiles(".");
-    addActivityEvent("Restore completed", payload.path);
-  } catch (error) {
-    addActivityEvent("Restore failed", error instanceof Error ? error.message : String(error));
-    els.runState.textContent = "error";
-    els.summary.textContent = error instanceof Error ? error.message : String(error);
-  }
+  showApprovalPanel(
+    "Restore snapshot",
+    `${snapshot.path} from ${snapshot.snapshot_path}`,
+    async () => {
+      try {
+        addActivityEvent("Restoring snapshot", snapshot.snapshot_path);
+        const payload = await postJson("/api/snapshot/restore", {
+          path: snapshot.path,
+          snapshot_path: snapshot.snapshot_path,
+        });
+        els.selectedRunTitle.textContent = `Restored: ${payload.path}`;
+        els.runState.textContent = payload.action;
+        els.summary.textContent = `${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`;
+        await loadFiles(".");
+        addActivityEvent("Restore completed", payload.path);
+      } catch (error) {
+        addActivityEvent("Restore failed", error instanceof Error ? error.message : String(error));
+        els.runState.textContent = "error";
+        els.summary.textContent = error instanceof Error ? error.message : String(error);
+      }
+    },
+    () => addActivityEvent("Restore denied", snapshot.path),
+  );
 }
 
 function parentPath(path) {
@@ -321,14 +341,15 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
       `summary: ${turn.summary_path}`,
     ].join("\n");
     if (turn.approval_required) {
-      addActivityEvent("Waiting for approval", turn.requested_action);
-      const ok = window.confirm(`Approve ${turn.requested_action}?`);
-      if (ok) {
-        addActivityEvent("Approval granted", turn.requested_action);
-        await sendChatTurn(message, { approveOnce: true });
-      } else {
-        addActivityEvent("Approval denied", turn.requested_action);
-      }
+      showApprovalPanel(
+        `Approve ${turn.requested_action}`,
+        turn.last_observation_summary || "Action requires approval.",
+        async () => {
+          addActivityEvent("Approval granted", turn.requested_action);
+          await sendChatTurn(message, { approveOnce: true });
+        },
+        () => addActivityEvent("Approval denied", turn.requested_action),
+      );
       return;
     }
     els.messageInput.value = "";
@@ -351,7 +372,25 @@ async function submitChatTurn(event) {
   await sendChatTurn(els.messageInput.value.trim());
 }
 
+async function approvePendingAction() {
+  const pending = state.pendingApproval;
+  hideApprovalPanel();
+  if (pending) {
+    await pending.onApprove();
+  }
+}
+
+function denyPendingAction() {
+  const pending = state.pendingApproval;
+  hideApprovalPanel();
+  if (pending) {
+    pending.onDeny();
+  }
+}
+
 els.runSearch.addEventListener("input", renderRuns);
 els.chatForm.addEventListener("submit", submitChatTurn);
+els.approveButton.addEventListener("click", approvePendingAction);
+els.denyButton.addEventListener("click", denyPendingAction);
 
 boot();

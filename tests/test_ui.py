@@ -409,7 +409,11 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/diff" in script
     assert "/api/snapshot/restore" in script
     assert "/api/chat/turn" in script
-    assert "window.confirm" in script
+    assert "window.confirm" not in script
+    assert "approval-panel" in index
+    assert "approve-button" in index
+    assert "deny-button" in index
+    assert "showApprovalPanel" in script
     assert "Restore" in script
     assert "activity-log" in index
     assert "addActivityEvent" in script
