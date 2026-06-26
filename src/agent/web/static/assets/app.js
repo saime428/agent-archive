@@ -173,10 +173,12 @@ function renderSnapshots(snapshots) {
         <div class="tool-name"></div>
         <div class="trace-meta"></div>
         <div class="trace-meta"></div>
+        <button class="diff-button" type="button">Show diff</button>
       `;
       item.querySelector(".tool-name").textContent = snapshot.path;
       item.querySelectorAll(".trace-meta")[0].textContent = snapshot.snapshot_path;
       item.querySelectorAll(".trace-meta")[1].textContent = snapshot.restore_hint || "No restore hint.";
+      item.querySelector(".diff-button").addEventListener("click", () => openDiff(snapshot.path, snapshot.snapshot_path));
       return item;
     }),
   );
@@ -221,6 +223,19 @@ async function openFile(path) {
     els.selectedRunTitle.textContent = payload.path;
     els.runState.textContent = payload.truncated ? "truncated" : "file";
     els.summary.textContent = payload.content || "(empty file)";
+  } catch (error) {
+    els.runState.textContent = "error";
+    els.summary.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function openDiff(path, snapshotPath) {
+  try {
+    const query = `path=${encodeURIComponent(path)}&snapshot=${encodeURIComponent(snapshotPath)}`;
+    const payload = await loadJson(`/api/diff?${query}`);
+    els.selectedRunTitle.textContent = `Diff: ${payload.path}`;
+    els.runState.textContent = payload.truncated ? "truncated" : "diff";
+    els.summary.textContent = payload.diff || "(no changes)";
   } catch (error) {
     els.runState.textContent = "error";
     els.summary.textContent = error instanceof Error ? error.message : String(error);

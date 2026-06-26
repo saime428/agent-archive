@@ -175,6 +175,8 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "native browser confirmation" in readme
     assert "Files panel" in readme
     assert "Snapshots panel" in readme
+    assert "Diff Viewer" in readme
+    assert "/api/diff" in readme
     assert "Runs Dashboard" in readme
 
 
@@ -188,6 +190,8 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "native browser confirmation" in checklist
     assert "Files panel" in checklist
     assert "Snapshots panel" in checklist
+    assert "Diff Viewer" in checklist
+    assert "/api/diff" in checklist
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist

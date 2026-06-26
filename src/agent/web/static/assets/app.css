@@ -340,6 +340,17 @@ h2 {
   gap: 6px;
 }
 
+.diff-button {
+  width: max-content;
+  border: 1px solid #d9e5e6;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: #f6fbfb;
+  color: #426c6e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .empty-state {
   border: 1px dashed #d0dadc;
   border-radius: 8px;

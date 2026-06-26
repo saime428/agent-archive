@@ -6,6 +6,7 @@ from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
     build_chat_turn_payload,
     build_config_payload,
+    build_diff_payload,
     build_file_payload,
     build_files_payload,
     build_run_detail_payload,
@@ -134,6 +135,54 @@ def test_build_file_payload_rejects_binary_file(tmp_path: Path) -> None:
         assert "Binary file preview is not supported" in str(exc)
     else:
         raise AssertionError("binary previews should fail")
+
+
+def test_build_diff_payload_compares_snapshot_to_current_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    snapshot = workspace / ".agent" / "runs" / "run_test" / "snapshots" / "act" / "original"
+    snapshot.parent.mkdir(parents=True)
+    workspace.mkdir(exist_ok=True)
+    (workspace / "notes.txt").write_text("new\n", encoding="utf-8")
+    snapshot.write_text("old\n", encoding="utf-8")
+
+    payload = build_diff_payload(workspace, "notes.txt", ".agent/runs/run_test/snapshots/act/original")
+
+    assert payload["path"] == "notes.txt"
+    assert payload["snapshot_path"] == ".agent/runs/run_test/snapshots/act/original"
+    assert "--- snapshot/notes.txt" in payload["diff"]
+    assert "+++ current/notes.txt" in payload["diff"]
+    assert "-old" in payload["diff"]
+    assert "+new" in payload["diff"]
+
+
+def test_build_diff_payload_rejects_outside_snapshot_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    workspace.mkdir()
+    (workspace / "notes.txt").write_text("new\n", encoding="utf-8")
+    outside.write_text("old\n", encoding="utf-8")
+
+    try:
+        build_diff_payload(workspace, "notes.txt", "../outside.txt")
+    except ValueError as exc:
+        assert "SANDBOX_VIOLATION" in str(exc)
+    else:
+        raise AssertionError("outside snapshot paths should be rejected")
+
+
+def test_build_diff_payload_rejects_non_snapshot_run_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_summary = workspace / ".agent" / "runs" / "run_test" / "summary.md"
+    run_summary.parent.mkdir(parents=True)
+    (workspace / "notes.txt").write_text("new\n", encoding="utf-8")
+    run_summary.write_text("internal\n", encoding="utf-8")
+
+    try:
+        build_diff_payload(workspace, "notes.txt", ".agent/runs/run_test/summary.md")
+    except ValueError as exc:
+        assert "Snapshot path must stay under .agent/runs snapshots" in str(exc)
+    else:
+        raise AssertionError("non-snapshot run files should be rejected")
 
 
 def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: Path) -> None:
@@ -286,7 +335,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/runs" in script
     assert "/api/files" in script
     assert "/api/file" in script
+    assert "/api/diff" in script
     assert "/api/chat/turn" in script
     assert "window.confirm" in script
     assert "Snapshots" in index
+    assert "Diff Viewer" in index
     assert ".workbench-shell" in styles

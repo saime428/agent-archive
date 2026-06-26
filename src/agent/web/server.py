@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import difflib
 import json
 import mimetypes
+import os
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -71,6 +73,15 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/file":
                     self._send_json(build_file_payload(root, _query_value(parsed.query, "path")))
+                    return
+                if path == "/api/diff":
+                    self._send_json(
+                        build_diff_payload(
+                            root,
+                            _query_value(parsed.query, "path"),
+                            _query_value(parsed.query, "snapshot"),
+                        )
+                    )
                     return
                 if path.startswith("/api/runs/"):
                     run_id = path.rsplit("/", 1)[-1]
@@ -250,6 +261,50 @@ def build_file_payload(workspace: Path, path: str | None, *, max_chars: int | No
     }
 
 
+def build_diff_payload(
+    workspace: Path,
+    path: str | None,
+    snapshot: str | None,
+    *,
+    max_chars: int | None = None,
+) -> dict[str, Any]:
+    if not path:
+        raise ValueError("path is required.")
+    if not snapshot:
+        raise ValueError("snapshot is required.")
+    root = workspace.resolve()
+    sandbox = WorkspaceSandbox(root)
+    try:
+        current_path = sandbox.resolve_read_path(path)
+    except SandboxError as exc:
+        raise ValueError(f"{exc.code}: {exc.message}") from exc
+    snapshot_path = _resolve_snapshot_path(root, snapshot)
+
+    old_text, snapshot_missing = _snapshot_text(snapshot_path, snapshot)
+    new_text = "" if not current_path.exists() else _read_text_for_diff(current_path, path)
+    display_path = _display_path(current_path, root)
+    diff = "\n".join(
+        difflib.unified_diff(
+            old_text.splitlines(),
+            new_text.splitlines(),
+            fromfile=f"snapshot/{display_path}",
+            tofile=f"current/{display_path}",
+            lineterm="",
+        )
+    )
+    budget = ContextBudget()
+    limit = min(max_chars or budget.file_read_max_chars, budget.file_read_max_chars)
+    truncated = truncate_text(diff, limit)
+    return {
+        "path": display_path,
+        "snapshot_path": _display_path(snapshot_path, root),
+        "diff": truncated.value,
+        "truncated": truncated.truncated,
+        "current_exists": current_path.exists(),
+        "snapshot_missing": snapshot_missing,
+    }
+
+
 def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
     message = request.get("message")
     if not isinstance(message, str) or not message.strip():
@@ -338,3 +393,49 @@ def _display_path(path: Path, root: Path) -> str:
         return str(path)
     value = relative.as_posix()
     return value or "."
+
+
+def _resolve_snapshot_path(root: Path, snapshot: str) -> Path:
+    requested = Path(snapshot)
+    candidate = requested if requested.is_absolute() else root / requested
+    resolved = candidate.resolve()
+    runs_root = (root / ".agent" / "runs").resolve()
+    if not _is_within(resolved, runs_root):
+        raise ValueError("SANDBOX_VIOLATION: Snapshot path must stay under .agent/runs.")
+    relative_parts = resolved.relative_to(runs_root).parts
+    if len(relative_parts) < 3 or relative_parts[1] != "snapshots":
+        raise ValueError("SANDBOX_VIOLATION: Snapshot path must stay under .agent/runs snapshots.")
+    if not resolved.exists():
+        raise ValueError(f"Snapshot not found: {snapshot}")
+    if not resolved.is_file():
+        raise ValueError(f"Snapshot path is not a file: {snapshot}")
+    return resolved
+
+
+def _snapshot_text(path: Path, requested: str) -> tuple[str, bool]:
+    if path.name == "metadata.json":
+        try:
+            metadata = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            metadata = {}
+        if isinstance(metadata, dict) and metadata.get("previously_existed") is False:
+            return "", True
+    return _read_text_for_diff(path, requested), False
+
+
+def _read_text_for_diff(path: Path, label: str) -> str:
+    if path.is_dir():
+        raise ValueError(f"Diff path is not a file: {label}")
+    raw = path.read_bytes()
+    if b"\x00" in raw[:4096]:
+        raise ValueError(f"Binary diff is not supported: {label}")
+    return raw.decode("utf-8", errors="replace")
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    path_text = os.path.normcase(str(path))
+    root_text = os.path.normcase(str(root))
+    try:
+        return os.path.commonpath([path_text, root_text]) == root_text
+    except ValueError:
+        return False
