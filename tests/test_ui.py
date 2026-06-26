@@ -5,7 +5,6 @@ from pathlib import Path
 from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
     build_chat_turn_payload,
-    build_changes_payload,
     build_config_payload,
     build_diff_payload,
     build_file_payload,
@@ -16,20 +15,6 @@ from agent.web.server import (
     build_tools_payload,
     static_file_path,
 )
-
-
-def test_build_changes_payload_lists_git_status_entries(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "notes.txt").write_text("hello\n", encoding="utf-8")
-    import subprocess
-
-    subprocess.run(["git", "-C", str(workspace), "init"], check=True, capture_output=True)
-
-    payload = build_changes_payload(workspace)
-
-    assert payload["git_available"] is True
-    assert payload["entries"] == [{"status": "??", "path": "notes.txt", "label": "untracked"}]
 
 
 def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path) -> None:
@@ -418,7 +403,6 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "Agent Workbench" in index
     assert "message-input" in index
     assert "/api/health" in script
-    assert "/api/changes" in script
     assert "/api/runs" in script
     assert "/api/files" in script
     assert "/api/file" in script
@@ -428,8 +412,6 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "window.confirm" in script
     assert "Restore" in script
     assert "activity-log" in index
-    assert "changes-list" in index
-    assert "loadChanges" in script
     assert "addActivityEvent" in script
     assert "Waiting for agent core" in script
     assert "Waiting for approval" in script

@@ -9,7 +9,6 @@ const els = {
   provider: document.querySelector("#provider-chip"),
   model: document.querySelector("#model-chip"),
   runList: document.querySelector("#run-list"),
-  changesList: document.querySelector("#changes-list"),
   summary: document.querySelector("#summary-view"),
   selectedRunTitle: document.querySelector("#selected-run-title"),
   runState: document.querySelector("#run-state"),
@@ -64,7 +63,6 @@ async function boot() {
     } else {
       renderEmptyRuns();
     }
-    await loadChanges();
     await loadFiles(".");
     addActivityEvent("Workbench ready", "Local state loaded.");
   } catch (error) {
@@ -77,41 +75,6 @@ function renderHealth(health) {
   els.workspace.textContent = health.workspace;
   els.provider.textContent = `provider: ${health.provider}`;
   els.model.textContent = `model: ${health.model}`;
-}
-
-async function loadChanges() {
-  try {
-    const payload = await loadJson("/api/changes");
-    renderChanges(payload.entries, payload.error);
-  } catch (error) {
-    els.changesList.innerHTML = `<div class="empty-state">${error instanceof Error ? error.message : String(error)}</div>`;
-  }
-}
-
-function renderChanges(entries, error) {
-  if (error) {
-    els.changesList.innerHTML = `<div class="empty-state">${error}</div>`;
-    return;
-  }
-  if (!entries.length) {
-    els.changesList.innerHTML = '<div class="empty-state">No workspace changes.</div>';
-    return;
-  }
-  els.changesList.replaceChildren(
-    ...entries.map((entry) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "change-item";
-      button.innerHTML = `
-        <div class="run-id"></div>
-        <div class="run-meta"></div>
-      `;
-      button.querySelector(".run-id").textContent = entry.path;
-      button.querySelector(".run-meta").textContent = `${entry.status.trim() || entry.status} - ${entry.label}`;
-      button.addEventListener("click", () => openFile(entry.path));
-      return button;
-    }),
-  );
 }
 
 function renderTools(tools) {
@@ -316,7 +279,6 @@ async function restoreSnapshot(snapshot) {
     els.selectedRunTitle.textContent = `Restored: ${payload.path}`;
     els.runState.textContent = payload.action;
     els.summary.textContent = `${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`;
-    await loadChanges();
     await loadFiles(".");
     addActivityEvent("Restore completed", payload.path);
   } catch (error) {
@@ -373,7 +335,6 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
     const runs = await loadJson("/api/runs");
     state.runs = runs.runs;
     await selectRun(turn.run_id);
-    await loadChanges();
     addActivityEvent(turn.completed ? "Run completed" : "Run stopped", turn.terminal_reason);
   } catch (error) {
     addActivityEvent("Run failed", error instanceof Error ? error.message : String(error));

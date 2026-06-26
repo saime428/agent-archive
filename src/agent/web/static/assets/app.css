@@ -128,7 +128,6 @@ textarea {
 }
 
 .run-list,
-.changes-list,
 .file-list,
 .tool-list,
 .activity-list,
@@ -139,7 +138,6 @@ textarea {
 }
 
 .run-item,
-.change-item,
 .file-item,
 .tool-item,
 .activity-item,
@@ -151,7 +149,6 @@ textarea {
 }
 
 .run-item,
-.change-item,
 .file-item {
   display: grid;
   gap: 4px;
