@@ -13,6 +13,7 @@ const els = {
   selectedRunTitle: document.querySelector("#selected-run-title"),
   runState: document.querySelector("#run-state"),
   toolList: document.querySelector("#tool-list"),
+  activityLog: document.querySelector("#activity-log"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -47,6 +48,7 @@ async function postJson(path, payload) {
 
 async function boot() {
   try {
+    addActivityEvent("Workbench boot", "Loading health, tools, runs, and files.");
     const [health, tools, runs] = await Promise.all([
       loadJson("/api/health"),
       loadJson("/api/tools"),
@@ -62,7 +64,9 @@ async function boot() {
       renderEmptyRuns();
     }
     await loadFiles(".");
+    addActivityEvent("Workbench ready", "Local state loaded.");
   } catch (error) {
+    addActivityEvent("Workbench error", error instanceof Error ? error.message : String(error));
     els.summary.textContent = error instanceof Error ? error.message : String(error);
   }
 }
@@ -121,6 +125,21 @@ function renderEmptyRuns() {
   els.summary.textContent = "Run `agent run` or `agent chat` to create durable logs, then refresh this page.";
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
+}
+
+function addActivityEvent(title, detail) {
+  const item = document.createElement("article");
+  item.className = "activity-item";
+  item.innerHTML = `
+    <div class="tool-name"></div>
+    <div class="trace-meta"></div>
+  `;
+  item.querySelector(".tool-name").textContent = title;
+  item.querySelector(".trace-meta").textContent = detail;
+  els.activityLog.prepend(item);
+  while (els.activityLog.children.length > 12) {
+    els.activityLog.lastElementChild.remove();
+  }
 }
 
 async function selectRun(runId) {
@@ -245,11 +264,14 @@ async function openDiff(path, snapshotPath) {
 }
 
 async function restoreSnapshot(snapshot) {
+  addActivityEvent("Waiting for approval", `Restore ${snapshot.path} from snapshot.`);
   const ok = window.confirm(`Restore ${snapshot.path} from snapshot?`);
   if (!ok) {
+    addActivityEvent("Restore denied", snapshot.path);
     return;
   }
   try {
+    addActivityEvent("Restoring snapshot", snapshot.snapshot_path);
     const payload = await postJson("/api/snapshot/restore", {
       path: snapshot.path,
       snapshot_path: snapshot.snapshot_path,
@@ -258,7 +280,9 @@ async function restoreSnapshot(snapshot) {
     els.runState.textContent = payload.action;
     els.summary.textContent = `${payload.action}: ${payload.path}\nsnapshot: ${payload.snapshot_path}`;
     await loadFiles(".");
+    addActivityEvent("Restore completed", payload.path);
   } catch (error) {
+    addActivityEvent("Restore failed", error instanceof Error ? error.message : String(error));
     els.runState.textContent = "error";
     els.summary.textContent = error instanceof Error ? error.message : String(error);
   }
@@ -278,8 +302,11 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
   els.sendButton.disabled = true;
   els.runState.textContent = approveOnce ? "approved" : "running";
   els.summary.textContent = `${approveOnce ? "Submitting approved action" : "Submitting browser chat turn"}...\n\n${message}`;
+  addActivityEvent(approveOnce ? "Submitting approved action" : "Submitting browser chat turn", message);
+  addActivityEvent("Waiting for agent core", "Calling /api/chat/turn.");
   try {
     const turn = await postJson("/api/chat/turn", { session_id: state.sessionId, message, approve_once: approveOnce });
+    addActivityEvent("Run response received", `run_id: ${turn.run_id}`);
     state.sessionId = turn.session_id;
     els.sessionChip.textContent = `session: ${turn.session_id}`;
     els.selectedRunTitle.textContent = turn.run_id;
@@ -294,9 +321,13 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
       `summary: ${turn.summary_path}`,
     ].join("\n");
     if (turn.approval_required) {
+      addActivityEvent("Waiting for approval", turn.requested_action);
       const ok = window.confirm(`Approve ${turn.requested_action}?`);
       if (ok) {
+        addActivityEvent("Approval granted", turn.requested_action);
         await sendChatTurn(message, { approveOnce: true });
+      } else {
+        addActivityEvent("Approval denied", turn.requested_action);
       }
       return;
     }
@@ -304,7 +335,9 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
     const runs = await loadJson("/api/runs");
     state.runs = runs.runs;
     await selectRun(turn.run_id);
+    addActivityEvent(turn.completed ? "Run completed" : "Run stopped", turn.terminal_reason);
   } catch (error) {
+    addActivityEvent("Run failed", error instanceof Error ? error.message : String(error));
     els.runState.textContent = "error";
     els.summary.textContent = error instanceof Error ? error.message : String(error);
   } finally {

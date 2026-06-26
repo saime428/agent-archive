@@ -178,6 +178,7 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "Diff Viewer" in readme
     assert "/api/diff" in readme
     assert "Restore button" in readme
+    assert "Activity panel" in readme
     assert "Runs Dashboard" in readme
 
 
@@ -194,6 +195,7 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "Diff Viewer" in checklist
     assert "/api/diff" in checklist
     assert "Restore button" in checklist
+    assert "Activity panel" in checklist
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist
@@ -205,5 +207,6 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Product Goal" in roadmap
     assert "Current Progress Estimate" in roadmap
     assert "v0.6 Browser Live Events" in roadmap
+    assert "Activity panel" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap

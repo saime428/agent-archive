@@ -39,6 +39,8 @@ These percentages are product estimates, not exact engineering metrics.
    - Show immediate UI state for model calls, tool execution, approval waits,
      and run completion.
    - Keep action parsing unchanged; live events are display-only.
+   - Current slice: Activity panel for browser turns, approval waits, restores,
+     completion, and failures.
 
 2. Custom approval panel
    - Replace `window.confirm`.

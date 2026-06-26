@@ -75,9 +75,11 @@ and opens read-only text previews. The Snapshots panel shows run snapshot paths
 and restore hints when a run changed files. The Diff Viewer uses `/api/diff` to
 show a read-only unified diff between a snapshot and the current file. The
 Restore button asks for browser confirmation before restoring or deleting the
-changed file from snapshot metadata. Current v0.6 limits: browser chat is
-synchronous, custom approval modals, file editing, token-level UI streaming,
-and Electron packaging are deferred to later slices.
+changed file from snapshot metadata. The Activity panel shows status-level live
+events for browser turns, approval waits, restores, completion, and failures.
+Current v0.6 limits: browser chat is synchronous, custom approval modals, file
+editing, token-level UI streaming, and Electron packaging are deferred to later
+slices.
 
 v0.6 manual smoke:
 

@@ -411,6 +411,11 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/chat/turn" in script
     assert "window.confirm" in script
     assert "Restore" in script
+    assert "activity-log" in index
+    assert "addActivityEvent" in script
+    assert "Waiting for agent core" in script
+    assert "Waiting for approval" in script
     assert "Snapshots" in index
     assert "Diff Viewer" in index
+    assert ".activity-list" in styles
     assert ".workbench-shell" in styles
