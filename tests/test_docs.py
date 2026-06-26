@@ -197,3 +197,13 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist
+
+
+def test_roadmap_progress_records_overall_plan() -> None:
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "Product Goal" in roadmap
+    assert "Current Progress Estimate" in roadmap
+    assert "v0.6 Browser Live Events" in roadmap
+    assert "Core agent engine" in roadmap
+    assert "Visual Workbench product" in roadmap
