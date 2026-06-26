@@ -77,6 +77,8 @@ show a read-only unified diff between a snapshot and the current file. The
 Restore button asks for browser confirmation before restoring or deleting the
 changed file from snapshot metadata. The Activity panel shows status-level live
 events for browser turns, approval waits, restores, completion, and failures.
+The Changes panel shows current `git status --short` entries in the sidebar so
+the touched files stay visible while work continues.
 Current v0.6 limits: browser chat is synchronous, custom approval modals, file
 editing, token-level UI streaming, and Electron packaging are deferred to later
 slices.

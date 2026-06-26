@@ -54,6 +54,8 @@ These percentages are product estimates, not exact engineering metrics.
 4. Auto-refresh and status bar
    - Refresh runs after browser turns and restores.
    - Surface provider/model/API-key presence/session status in one place.
+   - Current slice: Changes panel keeps git status entries visible in the
+     sidebar so each step's touched files are easy to find.
 
 5. v0.6 closeout
    - Freeze Workbench MVP docs, manual smoke steps, and acceptance checklist.

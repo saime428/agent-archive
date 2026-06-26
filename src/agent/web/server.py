@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import shutil
+import subprocess
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -65,6 +66,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                     return
                 if path == "/api/tools":
                     self._send_json(build_tools_payload())
+                    return
+                if path == "/api/changes":
+                    self._send_json(build_changes_payload(root))
                     return
                 if path == "/api/runs":
                     self._send_json(build_runs_payload(root))
@@ -191,6 +195,37 @@ def build_config_payload(workspace: Path) -> dict[str, Any]:
 
 def build_tools_payload() -> dict[str, Any]:
     return {"tools": [asdict(tool) for tool in list_tool_infos()]}
+
+
+def build_changes_payload(workspace: Path) -> dict[str, Any]:
+    root = workspace.resolve()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "status", "--short"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except FileNotFoundError:
+        return {"git_available": False, "entries": [], "error": "git not found"}
+    except subprocess.TimeoutExpired:
+        return {"git_available": True, "entries": [], "error": "git status timed out"}
+
+    if result.returncode != 0:
+        return {
+            "git_available": True,
+            "entries": [],
+            "error": (result.stderr or result.stdout).strip() or "git status failed",
+        }
+
+    return {
+        "git_available": True,
+        "entries": [_git_status_entry(line) for line in result.stdout.splitlines() if line.strip()],
+        "error": None,
+    }
 
 
 def build_runs_payload(workspace: Path, *, limit: int = 20) -> dict[str, Any]:
@@ -424,6 +459,26 @@ def _query_value(query: str, key: str) -> str | None:
         if unquote(name) == key:
             return unquote(value)
     return None
+
+
+def _git_status_entry(line: str) -> dict[str, str]:
+    status = line[:2]
+    path = line[3:] if len(line) > 3 else line[2:].strip()
+    return {"status": status, "path": path, "label": _git_status_label(status)}
+
+
+def _git_status_label(status: str) -> str:
+    if status == "??":
+        return "untracked"
+    if "A" in status:
+        return "added"
+    if "M" in status:
+        return "modified"
+    if "D" in status:
+        return "deleted"
+    if "R" in status:
+        return "renamed"
+    return "changed"
 
 
 def _display_path(path: Path, root: Path) -> str:
