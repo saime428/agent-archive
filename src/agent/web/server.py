@@ -485,6 +485,47 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
             for call in detail.tool_calls
         ],
         "snapshots": detail.snapshots,
+        "review": _build_task_review(detail.tool_calls, detail.snapshots),
+    }
+
+
+def _build_task_review(tool_calls: list[Any], snapshots: list[dict[str, str]]) -> dict[str, Any]:
+    latest_action = "none"
+    last_observation_summary = "No observation recorded."
+    changed_files: list[str] = []
+
+    for call in tool_calls:
+        if not call.valid or not call.data:
+            continue
+        action = call.data.get("action")
+        if isinstance(action, dict):
+            inner_action = action.get("action")
+            if isinstance(inner_action, dict):
+                latest_action = str(inner_action.get("name") or latest_action)
+                args = inner_action.get("args")
+                if isinstance(args, dict):
+                    raw_changed_files = args.get("changed_files")
+                    if isinstance(raw_changed_files, list):
+                        changed_files.extend(str(path) for path in raw_changed_files if path)
+        observation = call.data.get("observation")
+        if isinstance(observation, dict):
+            last_observation_summary = str(observation.get("summary") or last_observation_summary)
+
+    changed_files.extend(str(snapshot.get("path")) for snapshot in snapshots if snapshot.get("path"))
+    unique_changed_files = list(dict.fromkeys(changed_files))
+    if unique_changed_files:
+        manual_checks = ["Open the changed files and review the saved summary."]
+    else:
+        manual_checks = ["Review the summary and trace for the final status."]
+    if snapshots:
+        manual_checks.append("Use Show diff before Restore when checking snapshot-backed changes.")
+
+    return {
+        "latest_action": latest_action,
+        "last_observation_summary": last_observation_summary,
+        "changed_files": unique_changed_files,
+        "snapshot_count": len(snapshots),
+        "manual_checks": manual_checks,
     }
 
 

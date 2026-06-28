@@ -99,6 +99,36 @@ def test_build_run_detail_payload_includes_summary_and_tool_calls(tmp_path: Path
     assert payload["tool_calls"][0]["data"]["action"]["action"]["name"] == "done"
 
 
+def test_build_run_detail_payload_includes_task_review(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_test"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text(
+        "# Run run_test\n\n- completed: true\n- terminal_reason: done\n",
+        encoding="utf-8",
+    )
+    (run_dir / "tool_calls.jsonl").write_text(
+        "\n".join(
+            [
+                '{"action":{"action":{"name":"list_dir"}},"observation":{"status":"ok","summary":"Listed workspace."}}',
+                '{"action":{"action":{"name":"done","args":{"changed_files":["notes.txt"]}}},"observation":{"status":"ok","summary":"Finished."}}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    payload = build_run_detail_payload(workspace, "run_test")
+
+    assert payload["review"] == {
+        "latest_action": "done",
+        "last_observation_summary": "Finished.",
+        "changed_files": ["notes.txt"],
+        "snapshot_count": 0,
+        "manual_checks": ["Open the changed files and review the saved summary."],
+    }
+
+
 def test_build_files_payload_lists_workspace_directory(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     (workspace / "src").mkdir(parents=True)
@@ -181,6 +211,9 @@ def test_build_save_file_payload_writes_text_and_records_snapshot(tmp_path: Path
     detail = build_run_detail_payload(workspace, payload["run_id"])
     assert detail["snapshots"][0]["path"] == "notes.txt"
     assert detail["snapshots"][0]["snapshot_path"] == payload["snapshot_path"]
+    assert detail["review"]["changed_files"] == ["notes.txt"]
+    assert detail["review"]["snapshot_count"] == 1
+    assert "Show diff" in detail["review"]["manual_checks"][1]
     assert "Workbench file editor" in detail["summary"]
 
 
@@ -488,6 +521,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "setInterval" in script
     assert "10000" in script
     assert "state.openFilePath || state.pendingApproval" in script
+    assert "Task Review" in index
+    assert "task-review-list" in index
+    assert "renderTaskReview" in script
+    assert "manual_checks" in script
     assert "DeepSeek key" in script
     assert "Last refresh" in script
     assert "Waiting for agent core" in script

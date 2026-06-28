@@ -51,7 +51,9 @@ snapshot paths and restore hints when a run changed files.
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or
 Tauri until the static UI actually hurts. The decision record lives at
 `docs/v0.7-shell-decision.md` and defines the migration triggers for a future
-frontend or desktop shell.
+frontend or desktop shell. The Workbench also has a Task Review panel for the
+selected run: latest action, last observation, changed files, snapshot count,
+and suggested manual checks.
 
 ## v0.6 Visual Workbench
 
@@ -90,9 +92,11 @@ completion, and failures. The Status Bar shows workspace, provider, model,
 session, DeepSeek key presence, and last refresh time. Auto-refresh updates
 health and runs every 10 seconds without replacing an open file editor or
 pending approval, and the Refresh button performs the same safe refresh on
-demand. Current v0.6 limits: browser chat is synchronous, the file editor is a
-single textarea, token-level UI streaming and Electron packaging are deferred
-to later slices.
+demand. The Task Review panel summarizes the selected run's latest action, last
+observation, changed files, snapshot count, and suggested manual checks.
+Current v0.6 limits: browser chat is synchronous, the file editor is a single
+textarea, token-level UI streaming and Electron packaging are deferred to later
+slices.
 
 v0.6 manual smoke:
 
@@ -114,6 +118,7 @@ workbench success criteria:
 - Approval panel handles confirmation-required chat retries, file saves, and snapshot restores.
 - Files panel opens text files in the file editor; Save button writes through `/api/file/save` with a snapshot.
 - Diff Viewer shows `/api/diff` output and Snapshots panel shows restore hints.
+- Task Review panel shows latest action, last observation, changed files, snapshot count, and suggested manual checks.
 - Refresh does not overwrite an open file editor or pending approval.
 
 ## v0.5 Interactive Chat

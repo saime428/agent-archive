@@ -17,7 +17,7 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 57% | v0.7 keeps static shell until migration triggers appear |
+| Visual Workbench product | 60% | v0.7 task review panel is implemented in the static shell |
 | Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
 
 These percentages are product estimates, not exact engineering metrics.
@@ -32,6 +32,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.4 | Real model loop | DeepSeek smoke, live provider run, observation feedback, readable final/summary output |
 | v0.5 | Terminal agent | `agent chat`, session history, resume, interactive approval, `@file`/`@dir`, slash commands, DeepSeek streaming preview |
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
+| v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel |
 
 ## Active v0.6 Plan
 
@@ -77,7 +78,8 @@ These percentages are product estimates, not exact engineering metrics.
 2. Workbench task review panel
    - Add a read-only view of latest action, last observation, changed files,
      snapshots, and suggested manual checks.
-   - Stay in the static Workbench unless a documented migration trigger appears.
+   - Done: the run detail API returns `review`, and the static Workbench renders
+     the Task Review panel without a new framework.
 
 ## Later Roadmap
 
@@ -98,12 +100,14 @@ Completed slice: v0.6 closeout.
 
 Completed slice: v0.7 Product shell decision.
 
-Next slice: v0.7 Workbench task review panel.
+Completed slice: v0.7 Workbench task review panel.
+
+Next slice: v0.7 closeout.
 
 Reason: the Workbench can already chat, approve, inspect files, edit a text
-file, view diffs, restore snapshots, and keep status visible. The static shell
-is still enough; the next useful move is a small read-only review panel rather
-than a framework migration.
+file, view diffs, restore snapshots, keep status visible, and summarize the
+selected run in a read-only review panel. The next useful move is freezing v0.7
+docs and smoke criteria before starting v0.8 coding workflow helpers.
 
 ## Guardrails
 

@@ -26,6 +26,7 @@ const els = {
   approvalDetail: document.querySelector("#approval-detail"),
   approveButton: document.querySelector("#approve-button"),
   denyButton: document.querySelector("#deny-button"),
+  taskReviewList: document.querySelector("#task-review-list"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -166,6 +167,7 @@ function renderEmptyRuns() {
   els.selectedRunTitle.textContent = "No runs yet";
   els.runState.textContent = "waiting";
   showSummary("Run `agent run` or `agent chat` to create durable logs, then refresh this page.");
+  els.taskReviewList.innerHTML = '<div class="empty-state">No task review yet.</div>';
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -222,8 +224,38 @@ async function selectRun(runId) {
   showSummary(detail.summary || "(summary is empty)");
   const lastCall = detail.tool_calls[detail.tool_calls.length - 1];
   els.runState.textContent = lastCall?.data?.observation?.status || "loaded";
+  renderTaskReview(detail.review);
   renderToolCalls(detail.tool_calls);
   renderSnapshots(detail.snapshots);
+}
+
+function renderTaskReview(review) {
+  if (!review) {
+    els.taskReviewList.innerHTML = '<div class="empty-state">No task review recorded.</div>';
+    return;
+  }
+  const changedFiles = review.changed_files?.length ? review.changed_files.join(", ") : "none";
+  const checks = review.manual_checks?.length ? review.manual_checks.join(" ") : "Review the summary and trace.";
+  const rows = [
+    ["Latest action", review.latest_action || "none"],
+    ["Last observation", review.last_observation_summary || "No observation recorded."],
+    ["Changed files", changedFiles],
+    ["Snapshots", `${review.snapshot_count || 0}`],
+    ["Manual checks", checks],
+  ];
+  els.taskReviewList.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = label;
+      item.querySelector(".trace-meta").textContent = value;
+      return item;
+    }),
+  );
 }
 
 function renderToolCalls(toolCalls) {

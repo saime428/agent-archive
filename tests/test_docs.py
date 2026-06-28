@@ -186,6 +186,7 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "Status Bar" in readme
     assert "Refresh button" in readme
     assert "DeepSeek key presence" in readme
+    assert "Task Review panel" in readme
     assert "Runs Dashboard" in readme
     assert "workbench success criteria" in readme
     assert "Status Bar shows workspace, provider, model, session, DeepSeek key presence, and last refresh" in readme
@@ -230,7 +231,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "v0.6 Auto-refresh and Status Bar" in roadmap
     assert "Completed slice: v0.6 closeout" in roadmap
     assert "Completed slice: v0.7 Product shell decision" in roadmap
-    assert "Next slice: v0.7 Workbench task review panel" in roadmap
+    assert "Completed slice: v0.7 Workbench task review panel" in roadmap
+    assert "Next slice: v0.7 closeout" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -246,8 +248,9 @@ def test_v07_shell_decision_keeps_static_workbench_until_needed() -> None:
     assert "Migration triggers" in decision
     assert "state management starts duplicating across panels" in decision
     assert "desktop-only integration becomes required" in decision
-    assert "Next slice: v0.7 Workbench task review panel" in decision
+    assert "Task review panel is now implemented" in decision
     assert "v0.7 Product Shell Decision" in readme
+    assert "Task Review panel" in readme
     assert "docs/v0.7-shell-decision.md" in readme
     assert "Completed slice: v0.7 Product shell decision" in roadmap
-    assert "Next slice: v0.7 Workbench task review panel" in roadmap
+    assert "Completed slice: v0.7 Workbench task review panel" in roadmap
