@@ -77,6 +77,10 @@ runs and `git diff --check`; it does not execute commands or create commits.
 The Workbench also includes a read-only Failure Summary panel. It reads failed
 observations from the selected run, shows `latest_failure`, and suggests next
 checks. It does not retry tools, edit files, or infer a fix on its own.
+
+The Provider Notice banner shows whether the Workbench is using FakeLLM or
+DeepSeek. It reports `provider_notice` from `/api/health`; it does not write
+config files or store API keys.
 Acceptance notes live in `docs/v0.8-acceptance.md`.
 
 ## v0.6 Visual Workbench

@@ -10,6 +10,7 @@ const els = {
   workspace: document.querySelector("#workspace-pill"),
   provider: document.querySelector("#provider-chip"),
   model: document.querySelector("#model-chip"),
+  providerNotice: document.querySelector("#provider-notice"),
   apiKey: document.querySelector("#api-key-chip"),
   lastRefresh: document.querySelector("#last-refresh-chip"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -93,6 +94,11 @@ function renderHealth(health) {
   els.model.textContent = `model: ${health.model}`;
   els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"}`;
   els.apiKey.title = `DeepSeek key env: ${health.deepseek_api_key_env}`;
+  els.providerNotice.textContent = health.provider_notice || "";
+  els.providerNotice.className =
+    health.provider === "deepseek" && health.deepseek_api_key_present
+      ? "provider-notice ok"
+      : "provider-notice warning";
 }
 
 function renderLastRefresh(date = new Date()) {

@@ -293,6 +293,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "verification_commands" in checklist
     assert "Failure Summary panel" in checklist
     assert "latest_failure" in checklist
+    assert "Provider Notice" in checklist
+    assert "provider_notice" in checklist
     assert "failed observations" in checklist
     assert "does not retry tools" in checklist
     assert "read-only" in checklist
@@ -303,7 +305,9 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "v0.8 Stronger Coding Workflow" in readme
     assert "Workflow Hints panel" in readme
     assert "Failure Summary panel" in readme
+    assert "Provider Notice" in readme
     assert "docs/v0.8-acceptance.md" in readme
     assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
     assert "Completed slice: v0.8 failure summary" in roadmap
+    assert "Completed slice: v0.8 Workbench provider notice" in roadmap
     assert "Next slice: v0.8 patch review helper" in roadmap

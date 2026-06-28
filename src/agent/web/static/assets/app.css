@@ -206,6 +206,29 @@ textarea {
   flex-wrap: wrap;
 }
 
+.provider-notice {
+  margin: 12px 28px 0;
+  border: 1px solid #dfe7e8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #526064;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.provider-notice.warning {
+  border-color: #ead2a0;
+  background: #fff8e8;
+  color: #806120;
+}
+
+.provider-notice.ok {
+  border-color: #b9dcd8;
+  background: #edf8f6;
+  color: #317672;
+}
+
 h1,
 h2 {
   margin: 0;

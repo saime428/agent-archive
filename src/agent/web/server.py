@@ -170,6 +170,7 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
     config_payload = build_config_payload(workspace)
     config = config_payload["config"]
     api_key_env = str(config["deepseek_api_key_env"])
+    api_key_present = bool(os.environ.get(api_key_env))
     return {
         "status": "ok",
         "app": "agent-workbench",
@@ -178,8 +179,17 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "model": config["model"],
         "mode": config["mode"],
         "deepseek_api_key_env": api_key_env,
-        "deepseek_api_key_present": bool(os.environ.get(api_key_env)),
+        "deepseek_api_key_present": api_key_present,
+        "provider_notice": _provider_notice(str(config["provider"]), api_key_env, api_key_present),
     }
+
+
+def _provider_notice(provider: str, api_key_env: str, api_key_present: bool) -> str:
+    if provider != "deepseek":
+        return 'Workbench is using FakeLLM. Set provider = "deepseek" in .agent/config.toml to use DeepSeek.'
+    if not api_key_present:
+        return f"DeepSeek provider is selected, but {api_key_env} is missing."
+    return "DeepSeek provider is selected."
 
 
 def build_config_payload(workspace: Path) -> dict[str, Any]:

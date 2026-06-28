@@ -56,6 +56,31 @@ def test_build_health_payload_reports_missing_deepseek_key(monkeypatch, tmp_path
     assert payload["deepseek_api_key_present"] is False
 
 
+def test_build_health_payload_warns_when_workbench_uses_fake_provider(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    payload = build_health_payload(workspace)
+
+    assert payload["provider"] == "fake"
+    assert payload["provider_notice"] == (
+        'Workbench is using FakeLLM. Set provider = "deepseek" in .agent/config.toml to use DeepSeek.'
+    )
+
+
+def test_build_health_payload_reports_deepseek_provider_status(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('provider = "deepseek"\nmodel = "deepseek-v4-flash"\n', encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    payload = build_health_payload(workspace)
+
+    assert payload["provider"] == "deepseek"
+    assert payload["provider_notice"] == "DeepSeek provider is selected, but DEEPSEEK_API_KEY is missing."
+
+
 def test_build_tools_payload_reuses_policy_categories() -> None:
     payload = build_tools_payload()
     tools = {tool["name"]: tool for tool in payload["tools"]}
@@ -550,6 +575,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "Agent Workbench" in index
     assert "message-input" in index
     assert "status-bar" in index
+    assert "provider-notice" in index
     assert "api-key-chip" in index
     assert "last-refresh-chip" in index
     assert "refresh-button" in index
@@ -589,6 +615,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "renderFailureSummary" in script
     assert "latest_failure" in script
     assert "DeepSeek key" in script
+    assert "provider_notice" in script
+    assert ".provider-notice" in styles
     assert "Last refresh" in script
     assert "Waiting for agent core" in script
     assert "Waiting for approval" in script

@@ -17,7 +17,7 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 66% | v0.8 read-only workflow hints and failure summary are implemented |
+| Visual Workbench product | 67% | v0.8 read-only workflow hints, failure summary, and provider notice are implemented |
 | Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
 
 These percentages are product estimates, not exact engineering metrics.
@@ -33,7 +33,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.5 | Terminal agent | `agent chat`, session history, resume, interactive approval, `@file`/`@dir`, slash commands, DeepSeek streaming preview |
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
-| v0.8 | Stronger coding workflow | Read-only Workflow Hints panel, Failure Summary panel |
+| v0.8 | Stronger coding workflow | Read-only Workflow Hints panel, Failure Summary panel, Provider Notice banner |
 
 ## Active v0.6 Plan
 
@@ -100,7 +100,12 @@ These percentages are product estimates, not exact engineering metrics.
    - Done: run detail payload exposes `failure.latest_failure`, and the static
      Workbench renders the read-only Failure Summary panel.
 
-3. Patch review helper
+3. Provider notice
+   - Show whether the Workbench is using FakeLLM or DeepSeek.
+   - Done: `/api/health` exposes `provider_notice`, and the static Workbench
+     renders it without storing API keys or writing config.
+
+4. Patch review helper
    - Build a read-only review checklist over diffs, snapshots, workflow hints,
      and failure summary.
    - Next: keep the first version advisory only; no browser-side command
@@ -137,11 +142,14 @@ Completed slice: v0.8 Workflow Hints panel.
 
 Completed slice: v0.8 failure summary.
 
+Completed slice: v0.8 Workbench provider notice.
+
 Next slice: v0.8 patch review helper.
 
-Reason: the Workbench can now suggest verification commands and explain failed
-observations. The next useful helper is a read-only patch review checklist that
-ties together diffs, snapshots, workflow hints, and failure summary.
+Reason: the Workbench can now suggest verification commands, explain failed
+observations, and say plainly whether it is using FakeLLM or DeepSeek. The next
+useful helper is a read-only patch review checklist that ties together diffs,
+snapshots, workflow hints, and failure summary.
 
 ## Guardrails
 
