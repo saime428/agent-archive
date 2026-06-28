@@ -17,7 +17,7 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 55% | v0.6 Workbench MVP frozen; product shell choices come next |
+| Visual Workbench product | 57% | v0.7 keeps static shell until migration triggers appear |
 | Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
 
 These percentages are product estimates, not exact engineering metrics.
@@ -64,7 +64,20 @@ These percentages are product estimates, not exact engineering metrics.
 5. v0.6 closeout
    - Freeze Workbench MVP docs, manual smoke steps, and acceptance checklist.
    - Done: v0.6 freeze status, success criteria, and next-step roadmap are
-     documented.
+    documented.
+
+## Active v0.7 Plan
+
+1. Product shell decision
+   - Decide whether to keep the static Workbench or scaffold Vue/Vite and a
+     desktop shell.
+   - Done: `docs/v0.7-shell-decision.md` keeps the stdlib static shell and
+     records migration triggers.
+
+2. Workbench task review panel
+   - Add a read-only view of latest action, last observation, changed files,
+     snapshots, and suggested manual checks.
+   - Stay in the static Workbench unless a documented migration trigger appears.
 
 ## Later Roadmap
 
@@ -83,12 +96,14 @@ Completed slice: v0.6 Auto-refresh and Status Bar.
 
 Completed slice: v0.6 closeout.
 
-Next slice: v0.7 Product shell decision.
+Completed slice: v0.7 Product shell decision.
+
+Next slice: v0.7 Workbench task review panel.
 
 Reason: the Workbench can already chat, approve, inspect files, edit a text
-file, view diffs, restore snapshots, and keep status visible. The next useful
-move is deciding whether the static UI is still enough or whether the project
-should graduate to Vue/Vite and a desktop shell.
+file, view diffs, restore snapshots, and keep status visible. The static shell
+is still enough; the next useful move is a small read-only review panel rather
+than a framework migration.
 
 ## Guardrails
 

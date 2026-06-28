@@ -46,6 +46,13 @@ Runs write durable files under `.agent/runs/<run-id>/`. Write tools create
 snapshot records before changing files; `agent runs show <run-id>` displays
 snapshot paths and restore hints when a run changed files.
 
+## v0.7 Product Shell Decision
+
+v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or
+Tauri until the static UI actually hurts. The decision record lives at
+`docs/v0.7-shell-decision.md` and defines the migration triggers for a future
+frontend or desktop shell.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It

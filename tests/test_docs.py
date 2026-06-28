@@ -229,6 +229,25 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Activity panel" in roadmap
     assert "v0.6 Auto-refresh and Status Bar" in roadmap
     assert "Completed slice: v0.6 closeout" in roadmap
-    assert "Next slice: v0.7 Product shell decision" in roadmap
+    assert "Completed slice: v0.7 Product shell decision" in roadmap
+    assert "Next slice: v0.7 Workbench task review panel" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
+
+
+def test_v07_shell_decision_keeps_static_workbench_until_needed() -> None:
+    decision = (ROOT / "docs" / "v0.7-shell-decision.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "v0.7 Product Shell Decision" in decision
+    assert "Decision: keep the stdlib static Workbench shell for now" in decision
+    assert "Do not add Vue, Vite, Electron, or Tauri in this slice" in decision
+    assert "Migration triggers" in decision
+    assert "state management starts duplicating across panels" in decision
+    assert "desktop-only integration becomes required" in decision
+    assert "Next slice: v0.7 Workbench task review panel" in decision
+    assert "v0.7 Product Shell Decision" in readme
+    assert "docs/v0.7-shell-decision.md" in readme
+    assert "Completed slice: v0.7 Product shell decision" in roadmap
+    assert "Next slice: v0.7 Workbench task review panel" in roadmap
