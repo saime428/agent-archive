@@ -79,9 +79,13 @@ snapshot paths and restore hints when a run changed files. The Diff Viewer uses
 file. The Restore button uses the same approval panel before restoring or
 deleting the changed file from snapshot metadata. The Activity panel shows
 status-level live events for browser turns, approval waits, saves, restores,
-completion, and failures. Current v0.6 limits: browser chat is synchronous,
-the file editor is a single textarea, token-level UI streaming and Electron
-packaging are deferred to later slices.
+completion, and failures. The Status Bar shows workspace, provider, model,
+session, DeepSeek key presence, and last refresh time. Auto-refresh updates
+health and runs every 10 seconds without replacing an open file editor or
+pending approval, and the Refresh button performs the same safe refresh on
+demand. Current v0.6 limits: browser chat is synchronous, the file editor is a
+single textarea, token-level UI streaming and Electron packaging are deferred
+to later slices.
 
 v0.6 manual smoke:
 

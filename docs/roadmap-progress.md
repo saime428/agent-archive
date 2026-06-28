@@ -58,6 +58,8 @@ These percentages are product estimates, not exact engineering metrics.
 4. Auto-refresh and status bar
    - Refresh runs after browser turns and restores.
    - Surface provider/model/API-key presence/session status in one place.
+   - Done: Status Bar, DeepSeek key presence, manual Refresh, and 10-second
+     safe auto-refresh.
 
 5. v0.6 closeout
    - Freeze Workbench MVP docs, manual smoke steps, and acceptance checklist.
@@ -75,12 +77,14 @@ These percentages are product estimates, not exact engineering metrics.
 
 Completed slice: v0.6 Browser Live Events.
 
-Next slice: v0.6 Auto-refresh and Status Bar.
+Completed slice: v0.6 Auto-refresh and Status Bar.
+
+Next slice: v0.6 closeout.
 
 Reason: the Workbench can already chat, approve, inspect files, edit a text
-file, view diffs, and restore snapshots. The next small usability gap is making
-run/file state refresh predictably and exposing provider/model/session/API-key
-status in one stable strip.
+file, view diffs, restore snapshots, and keep status visible. The next useful
+move is freezing the Workbench MVP docs and smoke checklist before adding new
+UI surfaces.
 
 ## Guardrails
 

@@ -10,6 +10,9 @@ const els = {
   workspace: document.querySelector("#workspace-pill"),
   provider: document.querySelector("#provider-chip"),
   model: document.querySelector("#model-chip"),
+  apiKey: document.querySelector("#api-key-chip"),
+  lastRefresh: document.querySelector("#last-refresh-chip"),
+  refreshButton: document.querySelector("#refresh-button"),
   runList: document.querySelector("#run-list"),
   summary: document.querySelector("#summary-view"),
   fileEditor: document.querySelector("#file-editor"),
@@ -67,6 +70,7 @@ async function boot() {
     renderTools(tools.tools);
     state.runs = runs.runs;
     renderRuns();
+    renderLastRefresh();
     if (state.runs.length > 0) {
       await selectRun(state.runs[0].run_id);
     } else {
@@ -84,6 +88,36 @@ function renderHealth(health) {
   els.workspace.textContent = health.workspace;
   els.provider.textContent = `provider: ${health.provider}`;
   els.model.textContent = `model: ${health.model}`;
+  els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"}`;
+  els.apiKey.title = `DeepSeek key env: ${health.deepseek_api_key_env}`;
+}
+
+function renderLastRefresh(date = new Date()) {
+  els.lastRefresh.textContent = `Last refresh: ${date.toLocaleTimeString()}`;
+}
+
+async function refreshWorkbench({ refreshSelectedRun = true, log = false } = {}) {
+  try {
+    const [health, runs] = await Promise.all([loadJson("/api/health"), loadJson("/api/runs")]);
+    renderHealth(health);
+    state.runs = runs.runs;
+    renderRuns();
+    renderLastRefresh();
+    if (refreshSelectedRun && shouldRefreshSelectedRun()) {
+      await selectRun(state.selectedRunId);
+    }
+    if (log) {
+      addActivityEvent("Workbench refreshed", "Health and runs updated.");
+    }
+  } catch (error) {
+    if (log) {
+      addActivityEvent("Refresh failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+}
+
+function shouldRefreshSelectedRun() {
+  return Boolean(state.selectedRunId) && !(state.openFilePath || state.pendingApproval);
 }
 
 function renderTools(tools) {
@@ -442,5 +476,7 @@ els.chatForm.addEventListener("submit", submitChatTurn);
 els.approveButton.addEventListener("click", approvePendingAction);
 els.denyButton.addEventListener("click", denyPendingAction);
 els.saveFileButton.addEventListener("click", saveOpenFile);
+els.refreshButton.addEventListener("click", () => refreshWorkbench({ log: true }));
 
 boot();
+setInterval(() => refreshWorkbench(), 10000);

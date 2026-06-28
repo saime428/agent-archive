@@ -169,6 +169,7 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
 def build_health_payload(workspace: Path) -> dict[str, Any]:
     config_payload = build_config_payload(workspace)
     config = config_payload["config"]
+    api_key_env = str(config["deepseek_api_key_env"])
     return {
         "status": "ok",
         "app": "agent-workbench",
@@ -176,6 +177,8 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "provider": config["provider"],
         "model": config["model"],
         "mode": config["mode"],
+        "deepseek_api_key_env": api_key_env,
+        "deepseek_api_key_present": bool(os.environ.get(api_key_env)),
     }
 
 

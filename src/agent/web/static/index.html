@@ -38,7 +38,15 @@
             <div class="eyebrow">Local workspace</div>
             <h1>Agent Workbench</h1>
           </div>
-          <div id="workspace-pill" class="workspace-pill">Loading workspace</div>
+          <div id="status-bar" class="status-bar" aria-label="Workbench status">
+            <span id="workspace-pill" class="workspace-pill">Loading workspace</span>
+            <span id="provider-chip" class="pill">provider</span>
+            <span id="model-chip" class="pill">model</span>
+            <span id="api-key-chip" class="pill muted">DeepSeek key</span>
+            <span id="session-chip" class="pill muted">new browser session</span>
+            <span id="last-refresh-chip" class="pill muted">Last refresh: never</span>
+            <button id="refresh-button" class="refresh-button" type="button">Refresh</button>
+          </div>
         </header>
 
         <section class="conversation-panel" aria-label="Run summary and Diff Viewer">
@@ -59,9 +67,6 @@
         <form id="chat-form" class="input-dock" aria-label="Chat entry">
           <textarea id="message-input" name="message" placeholder="Ask the local agent to inspect, summarize, or plan..."></textarea>
           <div class="dock-actions">
-            <span id="provider-chip" class="pill">provider</span>
-            <span id="model-chip" class="pill">model</span>
-            <span id="session-chip" class="pill muted">new browser session</span>
             <button id="send-button" class="send-button" type="submit">Send</button>
           </div>
         </form>

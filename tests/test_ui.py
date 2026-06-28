@@ -4,6 +4,7 @@ from pathlib import Path
 
 from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
+    build_health_payload,
     build_chat_turn_payload,
     build_config_payload,
     build_diff_payload,
@@ -30,6 +31,29 @@ def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path)
     assert payload["config"]["provider"] == "fake"
     assert payload["config"]["mode"] == "auto"
     assert str(config_path.resolve()) in payload["diagnostics"]["loaded_files"]
+
+
+def test_build_health_payload_reports_deepseek_key_presence_without_leaking_value(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-secret-value")
+
+    payload = build_health_payload(workspace)
+
+    assert payload["deepseek_api_key_env"] == "DEEPSEEK_API_KEY"
+    assert payload["deepseek_api_key_present"] is True
+    assert "sk-test-secret-value" not in repr(payload)
+
+
+def test_build_health_payload_reports_missing_deepseek_key(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    payload = build_health_payload(workspace)
+
+    assert payload["deepseek_api_key_env"] == "DEEPSEEK_API_KEY"
+    assert payload["deepseek_api_key_present"] is False
 
 
 def test_build_tools_payload_reuses_policy_categories() -> None:
@@ -437,6 +461,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
 
     assert "Agent Workbench" in index
     assert "message-input" in index
+    assert "status-bar" in index
+    assert "api-key-chip" in index
+    assert "last-refresh-chip" in index
+    assert "refresh-button" in index
     assert "/api/health" in script
     assert "/api/runs" in script
     assert "/api/files" in script
@@ -456,6 +484,12 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "Restore" in script
     assert "activity-log" in index
     assert "addActivityEvent" in script
+    assert "refreshWorkbench" in script
+    assert "setInterval" in script
+    assert "10000" in script
+    assert "state.openFilePath || state.pendingApproval" in script
+    assert "DeepSeek key" in script
+    assert "Last refresh" in script
     assert "Waiting for agent core" in script
     assert "Waiting for approval" in script
     assert "Snapshots" in index

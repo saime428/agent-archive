@@ -197,6 +197,15 @@ textarea {
   border-bottom: 1px solid #dde4e6;
 }
 
+.status-bar {
+  display: flex;
+  max-width: min(920px, 68%);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -215,7 +224,8 @@ h2 {
 
 .workspace-pill,
 .pill,
-.state-chip {
+.state-chip,
+.refresh-button {
   max-width: 420px;
   overflow: hidden;
   border-radius: 8px;
@@ -226,6 +236,11 @@ h2 {
   color: #387d7b;
   font-size: 12px;
   font-weight: 700;
+}
+
+.refresh-button {
+  border: 1px solid #cbdcde;
+  cursor: pointer;
 }
 
 .state-chip {
