@@ -154,6 +154,36 @@ def test_build_run_detail_payload_includes_workflow_hints(tmp_path: Path) -> Non
     assert payload["workflow"]["mode"] == "read-only"
 
 
+def test_build_run_detail_payload_includes_failure_summary(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_test"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_test\n\n- status: error\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        '{"action":{"action":{"name":"write_file"}},"observation":{"status":"error","summary":"Approval required.","error":{"code":"APPROVAL_REQUIRED","message":"Action requires approval."}}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_run_detail_payload(workspace, "run_test")
+
+    assert payload["failure"] == {
+        "status": "failed",
+        "failure_count": 1,
+        "latest_failure": {
+            "line_number": 1,
+            "action": "write_file",
+            "status": "error",
+            "summary": "Approval required.",
+            "error_code": "APPROVAL_REQUIRED",
+        },
+        "next_checks": [
+            "Read the failed observation summary.",
+            "Inspect the trace around the failed action.",
+            "Use Workflow Hints before changing code.",
+        ],
+    }
+
+
 def test_build_files_payload_lists_workspace_directory(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     (workspace / "src").mkdir(parents=True)
@@ -554,6 +584,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "workflow-hint-list" in index
     assert "renderWorkflowHints" in script
     assert "verification_commands" in script
+    assert "Failure Summary" in index
+    assert "failure-summary-list" in index
+    assert "renderFailureSummary" in script
+    assert "latest_failure" in script
     assert "DeepSeek key" in script
     assert "Last refresh" in script
     assert "Waiting for agent core" in script

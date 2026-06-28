@@ -73,6 +73,10 @@ v0.8 starts with a read-only Workflow Hints panel in the Workbench. The selected
 run now includes `workflow.verification_commands` and review steps derived from
 Task Review changed files. The panel suggests commands such as targeted pytest
 runs and `git diff --check`; it does not execute commands or create commits.
+
+The Workbench also includes a read-only Failure Summary panel. It reads failed
+observations from the selected run, shows `latest_failure`, and suggests next
+checks. It does not retry tools, edit files, or infer a fix on its own.
 Acceptance notes live in `docs/v0.8-acceptance.md`.
 
 ## v0.6 Visual Workbench

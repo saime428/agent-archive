@@ -471,6 +471,7 @@ def _approve_once_handler():
 def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
     detail = RunStore(workspace.resolve()).show_run(run_id)
     review = _build_task_review(detail.tool_calls, detail.snapshots)
+    failure = _build_failure_summary(detail.tool_calls)
     return {
         "run_id": detail.run_id,
         "run_dir": str(detail.run_dir),
@@ -488,6 +489,7 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
         "snapshots": detail.snapshots,
         "review": review,
         "workflow": _build_workflow_hints(review),
+        "failure": failure,
     }
 
 
@@ -552,6 +554,73 @@ def _build_workflow_hints(review: dict[str, Any]) -> dict[str, Any]:
             "Open changed files from Task Review.",
             "Run the suggested verification commands before committing.",
         ],
+    }
+
+
+def _build_failure_summary(tool_calls: list[Any]) -> dict[str, Any]:
+    failures = []
+    for call in tool_calls:
+        failure = _failure_from_tool_call(call)
+        if failure is not None:
+            failures.append(failure)
+
+    if not failures:
+        return {
+            "status": "clear",
+            "failure_count": 0,
+            "latest_failure": None,
+            "next_checks": ["No failed observations recorded for this run."],
+        }
+
+    return {
+        "status": "failed",
+        "failure_count": len(failures),
+        "latest_failure": failures[-1],
+        "next_checks": [
+            "Read the failed observation summary.",
+            "Inspect the trace around the failed action.",
+            "Use Workflow Hints before changing code.",
+        ],
+    }
+
+
+def _failure_from_tool_call(call: Any) -> dict[str, Any] | None:
+    if not call.valid or not call.data:
+        return {
+            "line_number": call.line_number,
+            "action": "invalid",
+            "status": "invalid",
+            "summary": call.error or "Invalid tool call log record.",
+            "error_code": "INVALID_LOG_RECORD",
+        }
+
+    action = call.data.get("action")
+    action_name = "unknown"
+    if isinstance(action, dict):
+        inner_action = action.get("action")
+        if isinstance(inner_action, dict):
+            action_name = str(inner_action.get("name") or action_name)
+
+    observation = call.data.get("observation")
+    if not isinstance(observation, dict):
+        return None
+    status = str(observation.get("status") or "")
+    if status == "ok":
+        return None
+
+    error = observation.get("error")
+    error_code = ""
+    error_message = ""
+    if isinstance(error, dict):
+        error_code = str(error.get("code") or "")
+        error_message = str(error.get("message") or "")
+    summary = str(observation.get("summary") or error_message or "No failure summary.")
+    return {
+        "line_number": call.line_number,
+        "action": action_name,
+        "status": status or "error",
+        "summary": summary,
+        "error_code": error_code,
     }
 
 

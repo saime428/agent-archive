@@ -28,6 +28,7 @@ const els = {
   denyButton: document.querySelector("#deny-button"),
   taskReviewList: document.querySelector("#task-review-list"),
   workflowHintList: document.querySelector("#workflow-hint-list"),
+  failureSummaryList: document.querySelector("#failure-summary-list"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -170,6 +171,7 @@ function renderEmptyRuns() {
   showSummary("Run `agent run` or `agent chat` to create durable logs, then refresh this page.");
   els.taskReviewList.innerHTML = '<div class="empty-state">No task review yet.</div>';
   els.workflowHintList.innerHTML = '<div class="empty-state">No workflow hints yet.</div>';
+  els.failureSummaryList.innerHTML = '<div class="empty-state">No failure summary yet.</div>';
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -228,6 +230,7 @@ async function selectRun(runId) {
   els.runState.textContent = lastCall?.data?.observation?.status || "loaded";
   renderTaskReview(detail.review);
   renderWorkflowHints(detail.workflow);
+  renderFailureSummary(detail.failure);
   renderToolCalls(detail.tool_calls);
   renderSnapshots(detail.snapshots);
 }
@@ -272,6 +275,36 @@ function renderWorkflowHints(workflow) {
     ["Review steps", workflow.review_steps?.join(" ") || "Review the summary and trace."],
   ];
   els.workflowHintList.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = label;
+      item.querySelector(".trace-meta").textContent = value;
+      return item;
+    }),
+  );
+}
+
+function renderFailureSummary(failure) {
+  if (!failure) {
+    els.failureSummaryList.innerHTML = '<div class="empty-state">No failure summary recorded.</div>';
+    return;
+  }
+  const latest = failure.latest_failure;
+  const latestText = latest
+    ? `${latest.action || "unknown"} (${latest.error_code || latest.status || "error"}) - ${latest.summary || "No failure summary."}`
+    : "none";
+  const rows = [
+    ["Status", failure.status || "clear"],
+    ["Failure count", `${failure.failure_count || 0}`],
+    ["Latest failure", latestText],
+    ["Next checks", failure.next_checks?.join(" ") || "Review the summary and trace."],
+  ];
+  els.failureSummaryList.replaceChildren(
     ...rows.map(([label, value]) => {
       const item = document.createElement("article");
       item.className = "trace-item";
