@@ -99,6 +99,16 @@ python -m pytest -q
 git diff --check
 ```
 
+workbench success criteria:
+
+- Runs Dashboard loads recent runs and selecting a run shows summary, trace, and snapshots.
+- Status Bar shows workspace, provider, model, session, DeepSeek key presence, and last refresh.
+- Browser chat turn creates a durable run and shows status/final output.
+- Approval panel handles confirmation-required chat retries, file saves, and snapshot restores.
+- Files panel opens text files in the file editor; Save button writes through `/api/file/save` with a snapshot.
+- Diff Viewer shows `/api/diff` output and Snapshots panel shows restore hints.
+- Refresh does not overwrite an open file editor or pending approval.
+
 ## v0.5 Interactive Chat
 
 v0.5 adds an interactive terminal loop on top of the same structured action

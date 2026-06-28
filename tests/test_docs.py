@@ -187,12 +187,18 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "Refresh button" in readme
     assert "DeepSeek key presence" in readme
     assert "Runs Dashboard" in readme
+    assert "workbench success criteria" in readme
+    assert "Status Bar shows workspace, provider, model, session, DeepSeek key presence, and last refresh" in readme
+    assert "Refresh does not overwrite an open file editor or pending approval" in readme
+    assert "Snapshots panel shows restore hints" in readme
 
 
 def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     checklist = (ROOT / "docs" / "v0.6-acceptance.md").read_text(encoding="utf-8")
 
     assert "v0.6 Acceptance Checklist" in checklist
+    assert "v0.6 freeze status" in checklist
+    assert "Visual Workbench MVP is frozen" in checklist
     assert "Visual Workbench" in checklist
     assert "agent ui" in checklist
     assert "browser chat turn" in checklist
@@ -207,6 +213,8 @@ def test_v06_acceptance_checklist_records_workbench_slice() -> None:
     assert "Activity panel" in checklist
     assert "Auto-refresh and Status Bar" in checklist
     assert "DeepSeek key presence" in checklist
+    assert "workbench success criteria" in checklist
+    assert "Refresh does not overwrite open editors or approvals" in checklist
     assert "health/config/tools/runs" in checklist
     assert "Implemented / Tested" in checklist
     assert "Deferred" in checklist
@@ -220,5 +228,7 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "v0.6 Browser Live Events" in roadmap
     assert "Activity panel" in roadmap
     assert "v0.6 Auto-refresh and Status Bar" in roadmap
+    assert "Completed slice: v0.6 closeout" in roadmap
+    assert "Next slice: v0.7 Product shell decision" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap

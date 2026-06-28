@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-06-26
+Last updated: 2026-06-28
 
 ## Product Goal
 
@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 45% | Usable shell with files, diffs, restore, and browser chat |
-| Overall final goal | 60-65% | Past "can it run", now improving "is it pleasant and safe to use" |
+| Visual Workbench product | 55% | v0.6 Workbench MVP frozen; product shell choices come next |
+| Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -63,6 +63,8 @@ These percentages are product estimates, not exact engineering metrics.
 
 5. v0.6 closeout
    - Freeze Workbench MVP docs, manual smoke steps, and acceptance checklist.
+   - Done: v0.6 freeze status, success criteria, and next-step roadmap are
+     documented.
 
 ## Later Roadmap
 
@@ -79,12 +81,14 @@ Completed slice: v0.6 Browser Live Events.
 
 Completed slice: v0.6 Auto-refresh and Status Bar.
 
-Next slice: v0.6 closeout.
+Completed slice: v0.6 closeout.
+
+Next slice: v0.7 Product shell decision.
 
 Reason: the Workbench can already chat, approve, inspect files, edit a text
 file, view diffs, restore snapshots, and keep status visible. The next useful
-move is freezing the Workbench MVP docs and smoke checklist before adding new
-UI surfaces.
+move is deciding whether the static UI is still enough or whether the project
+should graduate to Vue/Vite and a desktop shell.
 
 ## Guardrails
 
