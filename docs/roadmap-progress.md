@@ -17,7 +17,7 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 62% | v0.7 Workbench shell is frozen with acceptance docs |
+| Visual Workbench product | 64% | v0.8 read-only workflow hints are implemented |
 | Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
 
 These percentages are product estimates, not exact engineering metrics.
@@ -33,6 +33,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.5 | Terminal agent | `agent chat`, session history, resume, interactive approval, `@file`/`@dir`, slash commands, DeepSeek streaming preview |
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
+| v0.8 | Stronger coding workflow | Read-only Workflow Hints panel with suggested verification commands |
 
 ## Active v0.6 Plan
 
@@ -85,6 +86,18 @@ These percentages are product estimates, not exact engineering metrics.
    - Freeze v0.7 docs, manual smoke, and deferred shell work.
    - Done: `docs/v0.7-acceptance.md` records v0.7 freeze status and v0.8 next step.
 
+## Active v0.8 Plan
+
+1. Workflow Hints panel
+   - Derive suggested verification commands from the selected run's changed
+     files and Task Review metadata.
+   - Done: run detail payload exposes `workflow.verification_commands`, and the
+     static Workbench renders the read-only Workflow Hints panel.
+
+2. Failure summary
+   - Summarize failed observations and likely next checks without retrying tools.
+   - Keep it read-only and log-backed.
+
 ## Later Roadmap
 
 | Version | Goal | Notes |
@@ -112,10 +125,13 @@ Reason: the Workbench can already chat, approve, inspect files, edit a text
 file, view diffs, restore snapshots, keep status visible, and summarize the
 selected run in a read-only review panel.
 
-Next slice: v0.8 stronger coding workflow.
+Completed slice: v0.8 Workflow Hints panel.
 
-Reason: the next useful move is a small review/test helper layer over existing
-runs, diffs, snapshots, and task review instead of changing the Workbench shell.
+Next slice: v0.8 failure summary.
+
+Reason: the Workflow Hints panel now suggests verification commands without
+executing them. The next useful helper is a failure summary over existing
+observations and run logs.
 
 ## Guardrails
 

@@ -233,7 +233,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.7 Product shell decision" in roadmap
     assert "Completed slice: v0.7 Workbench task review panel" in roadmap
     assert "Completed slice: v0.7 closeout" in roadmap
-    assert "Next slice: v0.8 stronger coding workflow" in roadmap
+    assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
+    assert "Next slice: v0.8 failure summary" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -276,4 +277,25 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "v0.7 manual smoke" in readme
     assert "docs/v0.7-acceptance.md" in readme
     assert "Completed slice: v0.7 closeout" in roadmap
-    assert "Next slice: v0.8 stronger coding workflow" in roadmap
+    assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
+    assert "Next slice: v0.8 failure summary" in roadmap
+
+
+def test_v08_acceptance_records_workflow_hints_slice() -> None:
+    checklist = (ROOT / "docs" / "v0.8-acceptance.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "v0.8 Acceptance Checklist" in checklist
+    assert "Workflow Hints panel" in checklist
+    assert "verification_commands" in checklist
+    assert "read-only" in checklist
+    assert "does not execute commands" in checklist
+    assert "git checkpoint UI" in checklist
+    assert "Implemented / Tested" in checklist
+    assert "Deferred" in checklist
+    assert "v0.8 Stronger Coding Workflow" in readme
+    assert "Workflow Hints panel" in readme
+    assert "docs/v0.8-acceptance.md" in readme
+    assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
+    assert "Next slice: v0.8 failure summary" in roadmap

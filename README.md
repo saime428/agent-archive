@@ -67,6 +67,14 @@ python -m pytest -q
 git diff --check
 ```
 
+## v0.8 Stronger Coding Workflow
+
+v0.8 starts with a read-only Workflow Hints panel in the Workbench. The selected
+run now includes `workflow.verification_commands` and review steps derived from
+Task Review changed files. The panel suggests commands such as targeted pytest
+runs and `git diff --check`; it does not execute commands or create commits.
+Acceptance notes live in `docs/v0.8-acceptance.md`.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It

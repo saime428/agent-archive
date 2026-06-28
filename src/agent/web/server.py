@@ -470,6 +470,7 @@ def _approve_once_handler():
 
 def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
     detail = RunStore(workspace.resolve()).show_run(run_id)
+    review = _build_task_review(detail.tool_calls, detail.snapshots)
     return {
         "run_id": detail.run_id,
         "run_dir": str(detail.run_dir),
@@ -485,7 +486,8 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
             for call in detail.tool_calls
         ],
         "snapshots": detail.snapshots,
-        "review": _build_task_review(detail.tool_calls, detail.snapshots),
+        "review": review,
+        "workflow": _build_workflow_hints(review),
     }
 
 
@@ -526,6 +528,30 @@ def _build_task_review(tool_calls: list[Any], snapshots: list[dict[str, str]]) -
         "changed_files": unique_changed_files,
         "snapshot_count": len(snapshots),
         "manual_checks": manual_checks,
+    }
+
+
+def _build_workflow_hints(review: dict[str, Any]) -> dict[str, Any]:
+    changed_files = [str(path) for path in review.get("changed_files", []) if path]
+    commands: list[str] = []
+    if any(path.startswith("src/agent/web/") or path == "tests/test_ui.py" for path in changed_files):
+        commands.append("python -m pytest tests/test_ui.py -q")
+    if any(path == "README.md" or path.startswith("docs/") or path == "tests/test_docs.py" for path in changed_files):
+        commands.append("python -m pytest tests/test_docs.py -q")
+    if any(path.endswith(".py") for path in changed_files):
+        commands.append("python -m pytest -q")
+    if changed_files:
+        commands.append("git diff --check")
+    if not commands:
+        commands.append("Review the summary and trace before taking action.")
+
+    return {
+        "mode": "read-only",
+        "verification_commands": list(dict.fromkeys(commands)),
+        "review_steps": [
+            "Open changed files from Task Review.",
+            "Run the suggested verification commands before committing.",
+        ],
     }
 
 

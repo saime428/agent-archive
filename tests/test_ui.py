@@ -129,6 +129,31 @@ def test_build_run_detail_payload_includes_task_review(tmp_path: Path) -> None:
     }
 
 
+def test_build_run_detail_payload_includes_workflow_hints(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_test"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_test\n\n- status: ok\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        '{"action":{"action":{"name":"done","args":{"changed_files":["src/agent/web/server.py","tests/test_ui.py","README.md"]}}},"observation":{"status":"ok","summary":"Finished."}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_run_detail_payload(workspace, "run_test")
+
+    assert payload["workflow"]["verification_commands"] == [
+        "python -m pytest tests/test_ui.py -q",
+        "python -m pytest tests/test_docs.py -q",
+        "python -m pytest -q",
+        "git diff --check",
+    ]
+    assert payload["workflow"]["review_steps"] == [
+        "Open changed files from Task Review.",
+        "Run the suggested verification commands before committing.",
+    ]
+    assert payload["workflow"]["mode"] == "read-only"
+
+
 def test_build_files_payload_lists_workspace_directory(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     (workspace / "src").mkdir(parents=True)
@@ -525,6 +550,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "task-review-list" in index
     assert "renderTaskReview" in script
     assert "manual_checks" in script
+    assert "Workflow Hints" in index
+    assert "workflow-hint-list" in index
+    assert "renderWorkflowHints" in script
+    assert "verification_commands" in script
     assert "DeepSeek key" in script
     assert "Last refresh" in script
     assert "Waiting for agent core" in script

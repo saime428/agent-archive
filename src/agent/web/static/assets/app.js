@@ -27,6 +27,7 @@ const els = {
   approveButton: document.querySelector("#approve-button"),
   denyButton: document.querySelector("#deny-button"),
   taskReviewList: document.querySelector("#task-review-list"),
+  workflowHintList: document.querySelector("#workflow-hint-list"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -168,6 +169,7 @@ function renderEmptyRuns() {
   els.runState.textContent = "waiting";
   showSummary("Run `agent run` or `agent chat` to create durable logs, then refresh this page.");
   els.taskReviewList.innerHTML = '<div class="empty-state">No task review yet.</div>';
+  els.workflowHintList.innerHTML = '<div class="empty-state">No workflow hints yet.</div>';
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -225,6 +227,7 @@ async function selectRun(runId) {
   const lastCall = detail.tool_calls[detail.tool_calls.length - 1];
   els.runState.textContent = lastCall?.data?.observation?.status || "loaded";
   renderTaskReview(detail.review);
+  renderWorkflowHints(detail.workflow);
   renderToolCalls(detail.tool_calls);
   renderSnapshots(detail.snapshots);
 }
@@ -244,6 +247,31 @@ function renderTaskReview(review) {
     ["Manual checks", checks],
   ];
   els.taskReviewList.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = label;
+      item.querySelector(".trace-meta").textContent = value;
+      return item;
+    }),
+  );
+}
+
+function renderWorkflowHints(workflow) {
+  if (!workflow) {
+    els.workflowHintList.innerHTML = '<div class="empty-state">No workflow hints recorded.</div>';
+    return;
+  }
+  const rows = [
+    ["Mode", workflow.mode || "read-only"],
+    ["Verification commands", workflow.verification_commands?.join("  |  ") || "none"],
+    ["Review steps", workflow.review_steps?.join(" ") || "Review the summary and trace."],
+  ];
+  els.workflowHintList.replaceChildren(
     ...rows.map(([label, value]) => {
       const item = document.createElement("article");
       item.className = "trace-item";
