@@ -232,7 +232,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.6 closeout" in roadmap
     assert "Completed slice: v0.7 Product shell decision" in roadmap
     assert "Completed slice: v0.7 Workbench task review panel" in roadmap
-    assert "Next slice: v0.7 closeout" in roadmap
+    assert "Completed slice: v0.7 closeout" in roadmap
+    assert "Next slice: v0.8 stronger coding workflow" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -254,3 +255,25 @@ def test_v07_shell_decision_keeps_static_workbench_until_needed() -> None:
     assert "docs/v0.7-shell-decision.md" in readme
     assert "Completed slice: v0.7 Product shell decision" in roadmap
     assert "Completed slice: v0.7 Workbench task review panel" in roadmap
+
+
+def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
+    checklist = (ROOT / "docs" / "v0.7-acceptance.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "v0.7 Acceptance Checklist" in checklist
+    assert "v0.7 freeze status" in checklist
+    assert "Visual Workbench product shell is frozen" in checklist
+    assert "Task Review panel" in checklist
+    assert "static Workbench shell" in checklist
+    assert "manual smoke" in checklist
+    assert "Implemented / Tested" in checklist
+    assert "Deferred" in checklist
+    assert "Vue/Vite migration" in checklist
+    assert "Electron/Tauri packaging" in checklist
+    assert "v0.8 stronger coding workflow" in checklist
+    assert "v0.7 manual smoke" in readme
+    assert "docs/v0.7-acceptance.md" in readme
+    assert "Completed slice: v0.7 closeout" in roadmap
+    assert "Next slice: v0.8 stronger coding workflow" in roadmap

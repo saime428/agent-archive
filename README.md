@@ -55,6 +55,18 @@ frontend or desktop shell. The Workbench also has a Task Review panel for the
 selected run: latest action, last observation, changed files, snapshot count,
 and suggested manual checks.
 
+v0.7 closeout is recorded in `docs/v0.7-acceptance.md`. v0.7 manual smoke:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m agent.cli ui --cwd F:\agent
+Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
+python -m pytest -q
+git diff --check
+```
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It
