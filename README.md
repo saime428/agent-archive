@@ -90,6 +90,10 @@ post-v1.0 Manual Smoke Checklist is recorded in
 `docs/post-v1.0-manual-smoke.md` for release readiness, DeepSeek terminal chat,
 and Workbench browser chat.
 
+post-v1.0 Polish Closeout is recorded in
+`docs/post-v1.0-polish-closeout.md`; speculative polish is frozen until there
+is user-directed feature work.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

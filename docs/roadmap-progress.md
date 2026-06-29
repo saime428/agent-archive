@@ -18,7 +18,7 @@ workflow is actually useful.
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
 | Visual Workbench product | 82% | v1.0 local visual agent release prep is frozen |
-| Overall final goal | 86% | Local visual agent is usable; first accessibility pass is done |
+| Overall final goal | 88% | Local visual agent is usable; speculative polish is frozen |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -274,15 +274,18 @@ Completed slice: post-v1.0 manual smoke checklist.
 
 Completed slice: post-v1.0 accessibility pass.
 
+Completed slice: post-v1.0 closeout.
+
 Reason: after v1.0, the cheapest way to keep momentum is to order polish work
 instead of adding speculative UI. The backlog separates immediate copy/manual
 smoke/accessibility work from later secret flow, packaged executable, and
 desktop-shell work. The first polish pass tightens Workbench copy and empty
 states without changing behavior. The manual smoke checklist fixes the real
 DeepSeek and browser-chat validation path without adding automation debt. The
-accessibility pass adds basic labels to the existing static controls.
+accessibility pass adds basic labels to the existing static controls. The
+closeout freezes speculative polish until a user-directed feature needs it.
 
-Next slice: post-v1.0 closeout.
+Next slice: hold for user-directed feature work.
 
 ## Guardrails
 

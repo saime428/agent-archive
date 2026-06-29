@@ -254,7 +254,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -318,7 +319,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -374,7 +376,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -429,7 +432,8 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v10_release_prep_documents_start_command() -> None:
@@ -450,7 +454,8 @@ def test_v10_release_prep_documents_start_command() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v10_settings_page_decision_keeps_settings_read_only() -> None:
@@ -473,7 +478,8 @@ def test_v10_settings_page_decision_keeps_settings_read_only() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v10_release_readiness_doctor_is_documented() -> None:
@@ -490,7 +496,8 @@ def test_v10_release_readiness_doctor_is_documented() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v10_packaging_decision_defers_binary_packaging() -> None:
@@ -510,7 +517,8 @@ def test_v10_packaging_decision_defers_binary_packaging() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_v10_acceptance_closeout_records_release_freeze() -> None:
@@ -534,7 +542,8 @@ def test_v10_acceptance_closeout_records_release_freeze() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_post_v10_polish_backlog_records_priorities() -> None:
@@ -556,7 +565,8 @@ def test_post_v10_polish_backlog_records_priorities() -> None:
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
 
 
 def test_post_v10_manual_smoke_checklist_is_documented() -> None:
@@ -573,4 +583,22 @@ def test_post_v10_manual_smoke_checklist_is_documented() -> None:
     assert "docs/post-v1.0-manual-smoke.md" in readme
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
-    assert "Next slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
+
+
+def test_post_v10_polish_closeout_records_freeze() -> None:
+    closeout = (ROOT / "docs" / "post-v1.0-polish-closeout.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "post-v1.0 Polish Closeout" in closeout
+    assert "Polish pass is frozen" in closeout
+    assert "copy and empty states" in closeout
+    assert "manual smoke checklist" in closeout
+    assert "accessibility labels" in closeout
+    assert "safe secret flow" in closeout
+    assert "post-v1.0 Polish Closeout" in readme
+    assert "docs/post-v1.0-polish-closeout.md" in readme
+    assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Next slice: hold for user-directed feature work" in roadmap
