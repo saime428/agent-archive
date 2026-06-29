@@ -5,7 +5,7 @@ This backlog keeps polish work ordered after the local visual agent release prep
 ## Do next
 
 1. Tighten Workbench copy and empty states. Done.
-2. Add a small manual smoke checklist for real DeepSeek chat and browser chat.
+2. Add a small manual smoke checklist for real DeepSeek chat and browser chat. Done.
 3. Review accessibility basics for buttons, labels, and panel headings.
 
 ## Do later

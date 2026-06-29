@@ -86,6 +86,10 @@ post-v1.0 Polish Backlog is recorded in
 `docs/post-v1.0-polish-backlog.md`; it keeps copy, manual smoke, accessibility,
 safe secret flow, and packaged executable work ordered after v1.0.
 
+post-v1.0 Manual Smoke Checklist is recorded in
+`docs/post-v1.0-manual-smoke.md` for release readiness, DeepSeek terminal chat,
+and Workbench browser chat.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or
