@@ -86,7 +86,18 @@ The Patch Review Helper completes the read-only coding workflow. It combines
 Task Review, Workflow Hints, Failure Summary, and snapshots into one checklist
 with `risk_level`, checks, verification commands, and a next action. It does
 not run tests, create commits, or generate patches.
-Acceptance notes live in `docs/v0.8-acceptance.md`.
+
+v0.8 closeout is recorded in `docs/v0.8-acceptance.md`. v0.8 manual smoke:
+
+```powershell
+$env:PYTHONPATH="src"
+python -m agent.cli ui --cwd F:\agent
+Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
+python -m pytest -q
+git diff --check
+```
 
 ## v0.6 Visual Workbench
 

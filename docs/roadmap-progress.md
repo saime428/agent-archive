@@ -113,6 +113,10 @@ These percentages are product estimates, not exact engineering metrics.
    - Kept advisory only; no browser-side command
      execution or automatic patching.
 
+5. v0.8 closeout
+   - Done: `docs/v0.8-acceptance.md` records frozen read-only coding workflow
+     status and v0.9 audit/resilience as the next track.
+
 ## Later Roadmap
 
 | Version | Goal | Notes |
@@ -148,12 +152,17 @@ Completed slice: v0.8 Workbench provider notice.
 
 Completed slice: v0.8 patch review helper.
 
-Next slice: v0.8 closeout.
+Completed slice: v0.8 closeout.
 
 Reason: the Workbench can now suggest verification commands, explain failed
 observations, say plainly whether it is using FakeLLM or DeepSeek, and present
-a read-only patch review checklist. The next useful step is a short closeout
-that freezes v0.8 and points v0.9 at audit and resilience work.
+a read-only patch review checklist.
+
+Next slice: v0.9 audit and resilience.
+
+Reason: v0.8 is frozen as a read-only coding workflow. The next useful track is
+audit and resilience: run replay, log filters, workspace risk hints, memory
+review UI, and stronger failure recovery.
 
 ## Guardrails
 
