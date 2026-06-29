@@ -46,6 +46,16 @@ Runs write durable files under `.agent/runs/<run-id>/`. Write tools create
 snapshot records before changing files; `agent runs show <run-id>` displays
 snapshot paths and restore hints when a run changed files.
 
+## v1.0 Release Prep
+
+`agent start` is the one-command Workbench startup alias. It reuses `agent ui`
+and starts the same local stdlib Workbench without a new server layer:
+
+```powershell
+agent start --cwd F:\agent
+python -m agent.cli start --cwd F:\agent
+```
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

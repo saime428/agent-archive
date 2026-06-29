@@ -158,6 +158,21 @@ def ui(
 ) -> None:
     """Start the local read-only web workbench."""
     workspace = (cwd or Path.cwd()).resolve()
+    _start_workbench(workspace, host, port)
+
+
+@app.command()
+def start(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
+    port: int = typer.Option(8765, "--port", help="Port for the local workbench."),
+) -> None:
+    """Start Agent Workbench."""
+    workspace = (cwd or Path.cwd()).resolve()
+    _start_workbench(workspace, host, port)
+
+
+def _start_workbench(workspace: Path, host: str, port: int) -> None:
     try:
         load_config(workspace)
     except ConfigError as exc:

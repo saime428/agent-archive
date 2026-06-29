@@ -95,6 +95,28 @@ def test_ui_command_invokes_workbench_server(monkeypatch, tmp_path) -> None:
     assert calls[0]["port"] == 8766
 
 
+def test_start_command_is_workbench_start_alias(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(
+        app,
+        ["start", "--cwd", str(workspace), "--host", "127.0.0.1", "--port", "8767"],
+    )
+
+    assert result.exit_code == 0
+    assert calls[0]["workspace"] == workspace.resolve()
+    assert calls[0]["host"] == "127.0.0.1"
+    assert calls[0]["port"] == 8767
+
+
 def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"

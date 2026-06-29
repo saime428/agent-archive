@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 77% | v0.9 audit/resilience is frozen for the current stdlib Workbench |
-| Overall final goal | 76% | Core and visual shell are usable; settings, one-command startup, and packaging remain |
+| Visual Workbench product | 78% | v1.0 release prep now has a one-command Workbench startup alias |
+| Overall final goal | 77% | Core and visual shell are usable; settings readiness and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -35,6 +35,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
 | v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
+| v1.0 | Release prep | One-command startup alias |
 
 ## Active v0.6 Plan
 
@@ -159,6 +160,16 @@ These percentages are product estimates, not exact engineering metrics.
    - Done: `docs/v0.9-acceptance.md` records freeze status, manual smoke, and
      v1.0 deferrals.
 
+## Active v1.0 Plan
+
+1. One-command startup
+   - Done: `agent start` is a thin alias for `agent ui`, reusing the same
+     config validation and Workbench server path.
+
+2. Settings readiness
+   - Next: expose current provider/model/config state clearly before adding any
+     browser-side settings writes.
+
 ## Current Recommendation
 
 Completed slice: v0.6 Browser Live Events.
@@ -213,7 +224,15 @@ visible without browser-side writes. Failure Recovery now gives a read-only path
 for failed runs by pointing to Trace, Failure Summary, rollback availability,
 and terminal verification. v0.9 closeout freezes this audit/resilience layer.
 
-Next slice: v1.0 release prep.
+v1.0 release prep has started.
+
+Completed slice: v1.0 one-command startup alias.
+
+Reason: v1.0 should first reduce startup friction without changing the stable
+Workbench internals. `agent start` gives the product a clear launch command
+while keeping `agent ui` intact for compatibility.
+
+Next slice: v1.0 settings readiness.
 
 ## Guardrails
 
