@@ -18,7 +18,7 @@ workflow is actually useful.
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
 | Visual Workbench product | 82% | v1.0 local visual agent release prep is frozen |
-| Overall final goal | 82% | Local visual agent is usable; post-v1.0 polish and packaging remain |
+| Overall final goal | 83% | Local visual agent is usable; polish backlog is ordered |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -36,6 +36,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
 | v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
 | v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision, release readiness doctor, packaging decision, closeout |
+| post-v1.0 | Polish | Ordered polish backlog |
 
 ## Active v0.6 Plan
 
@@ -265,7 +266,14 @@ doctor gives a concise terminal check before packaging work. Packaging is
 deferred because `agent start` covers local startup without build artifacts.
 v1.0 closeout freezes the local visual agent release prep.
 
-Next slice: post-v1.0 polish backlog.
+Completed slice: post-v1.0 polish backlog.
+
+Reason: after v1.0, the cheapest way to keep momentum is to order polish work
+instead of adding speculative UI. The backlog separates immediate copy/manual
+smoke/accessibility work from later secret flow, packaged executable, and
+desktop-shell work.
+
+Next slice: post-v1.0 first polish item.
 
 ## Guardrails
 

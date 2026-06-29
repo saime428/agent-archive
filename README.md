@@ -82,6 +82,10 @@ v1.0 closeout is recorded in `docs/v1.0-acceptance.md`. The local visual agent
 release prep is frozen around `agent start`, Settings Readiness, release
 readiness doctor, and deferred binary packaging.
 
+post-v1.0 Polish Backlog is recorded in
+`docs/post-v1.0-polish-backlog.md`; it keeps copy, manual smoke, accessibility,
+safe secret flow, and packaged executable work ordered after v1.0.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or
