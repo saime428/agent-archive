@@ -249,7 +249,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -308,7 +309,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -359,7 +361,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -409,7 +412,8 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
 
 
 def test_v10_release_prep_documents_start_command() -> None:
@@ -425,7 +429,8 @@ def test_v10_release_prep_documents_start_command() -> None:
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
 
 
 def test_v10_settings_page_decision_keeps_settings_read_only() -> None:
@@ -443,7 +448,8 @@ def test_v10_settings_page_decision_keeps_settings_read_only() -> None:
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
 
 
 def test_v10_release_readiness_doctor_is_documented() -> None:
@@ -455,7 +461,8 @@ def test_v10_release_readiness_doctor_is_documented() -> None:
     assert "startup command: agent start" in readme
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
 
 
 def test_v10_packaging_decision_defers_binary_packaging() -> None:
@@ -470,4 +477,25 @@ def test_v10_packaging_decision_defers_binary_packaging() -> None:
     assert "v1.0 Packaging Decision" in readme
     assert "docs/v1.0-packaging-decision.md" in readme
     assert "Completed slice: v1.0 packaging decision" in roadmap
-    assert "Next slice: v1.0 closeout" in roadmap
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap
+
+
+def test_v10_acceptance_closeout_records_release_freeze() -> None:
+    checklist = (ROOT / "docs" / "v1.0-acceptance.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "v1.0 Acceptance Checklist" in checklist
+    assert "v1.0 freeze status" in checklist
+    assert "Local visual agent release prep is frozen" in checklist
+    assert "agent start" in checklist
+    assert "Settings Readiness" in checklist
+    assert "release readiness doctor" in checklist
+    assert "packaging deferred" in checklist
+    assert "Implemented / Tested" in checklist
+    assert "Deferred" in checklist
+    assert "v1.0 closeout" in readme
+    assert "docs/v1.0-acceptance.md" in readme
+    assert "Completed slice: v1.0 closeout" in roadmap
+    assert "Next slice: post-v1.0 polish backlog" in roadmap

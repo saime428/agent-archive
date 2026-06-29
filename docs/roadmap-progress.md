@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 80% | v1.0 release prep now has startup, settings readiness, and release readiness diagnostics |
-| Overall final goal | 80% | Core and visual shell are usable; v1.0 closeout remains |
+| Visual Workbench product | 82% | v1.0 local visual agent release prep is frozen |
+| Overall final goal | 82% | Local visual agent is usable; post-v1.0 polish and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -35,7 +35,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
 | v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
-| v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision, release readiness doctor, packaging decision |
+| v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision, release readiness doctor, packaging decision, closeout |
 
 ## Active v0.6 Plan
 
@@ -184,8 +184,8 @@ These percentages are product estimates, not exact engineering metrics.
      there is a clear executable distribution need.
 
 6. v1.0 closeout
-   - Next: freeze release-prep docs, manual smoke, and remaining deferred
-     productization items.
+   - Done: `docs/v1.0-acceptance.md` records freeze status, manual smoke, and
+     post-v1.0 deferrals.
 
 ## Current Recommendation
 
@@ -253,6 +253,8 @@ Completed slice: v1.0 release readiness doctor.
 
 Completed slice: v1.0 packaging decision.
 
+Completed slice: v1.0 closeout.
+
 Reason: v1.0 should first reduce startup friction without changing the stable
 Workbench internals. `agent start` gives the product a clear launch command
 while keeping `agent ui` intact for compatibility. Settings Readiness makes the
@@ -261,8 +263,9 @@ write path. The settings page decision keeps those settings read-only for v1.0
 instead of adding a fragile browser-side config writer. Release readiness
 doctor gives a concise terminal check before packaging work. Packaging is
 deferred because `agent start` covers local startup without build artifacts.
+v1.0 closeout freezes the local visual agent release prep.
 
-Next slice: v1.0 closeout.
+Next slice: post-v1.0 polish backlog.
 
 ## Guardrails
 

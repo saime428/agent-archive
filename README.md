@@ -78,6 +78,10 @@ commands to run manually.
 v1.0 Packaging Decision is recorded in `docs/v1.0-packaging-decision.md`:
 binary packaging is deferred; `agent start` remains the release startup path.
 
+v1.0 closeout is recorded in `docs/v1.0-acceptance.md`. The local visual agent
+release prep is frozen around `agent start`, Settings Readiness, release
+readiness doctor, and deferred binary packaging.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or
