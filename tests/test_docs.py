@@ -235,7 +235,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.7 closeout" in roadmap
     assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
     assert "Completed slice: v0.8 failure summary" in roadmap
-    assert "Next slice: v0.8 patch review helper" in roadmap
+    assert "Completed slice: v0.8 patch review helper" in roadmap
+    assert "Next slice: v0.8 closeout" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -280,7 +281,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v0.7 closeout" in roadmap
     assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
     assert "Completed slice: v0.8 failure summary" in roadmap
-    assert "Next slice: v0.8 patch review helper" in roadmap
+    assert "Completed slice: v0.8 patch review helper" in roadmap
+    assert "Next slice: v0.8 closeout" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -295,6 +297,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "latest_failure" in checklist
     assert "Provider Notice" in checklist
     assert "provider_notice" in checklist
+    assert "Patch Review Helper" in checklist
+    assert "v0.8 freeze status" in checklist
     assert "failed observations" in checklist
     assert "does not retry tools" in checklist
     assert "read-only" in checklist
@@ -306,8 +310,11 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Workflow Hints panel" in readme
     assert "Failure Summary panel" in readme
     assert "Provider Notice" in readme
+    assert "Patch Review Helper" in readme
+    assert "read-only coding workflow" in readme
     assert "docs/v0.8-acceptance.md" in readme
     assert "Completed slice: v0.8 Workflow Hints panel" in roadmap
     assert "Completed slice: v0.8 failure summary" in roadmap
     assert "Completed slice: v0.8 Workbench provider notice" in roadmap
-    assert "Next slice: v0.8 patch review helper" in roadmap
+    assert "Completed slice: v0.8 patch review helper" in roadmap
+    assert "Next slice: v0.8 closeout" in roadmap

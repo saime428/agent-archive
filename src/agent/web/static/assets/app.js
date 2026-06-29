@@ -30,6 +30,7 @@ const els = {
   taskReviewList: document.querySelector("#task-review-list"),
   workflowHintList: document.querySelector("#workflow-hint-list"),
   failureSummaryList: document.querySelector("#failure-summary-list"),
+  patchReviewList: document.querySelector("#patch-review-list"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -178,6 +179,7 @@ function renderEmptyRuns() {
   els.taskReviewList.innerHTML = '<div class="empty-state">No task review yet.</div>';
   els.workflowHintList.innerHTML = '<div class="empty-state">No workflow hints yet.</div>';
   els.failureSummaryList.innerHTML = '<div class="empty-state">No failure summary yet.</div>';
+  els.patchReviewList.innerHTML = '<div class="empty-state">No patch review yet.</div>';
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -237,6 +239,7 @@ async function selectRun(runId) {
   renderTaskReview(detail.review);
   renderWorkflowHints(detail.workflow);
   renderFailureSummary(detail.failure);
+  renderPatchReview(detail.patch_review);
   renderToolCalls(detail.tool_calls);
   renderSnapshots(detail.snapshots);
 }
@@ -311,6 +314,33 @@ function renderFailureSummary(failure) {
     ["Next checks", failure.next_checks?.join(" ") || "Review the summary and trace."],
   ];
   els.failureSummaryList.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = label;
+      item.querySelector(".trace-meta").textContent = value;
+      return item;
+    }),
+  );
+}
+
+function renderPatchReview(patchReview) {
+  if (!patchReview) {
+    els.patchReviewList.innerHTML = '<div class="empty-state">No patch review recorded.</div>';
+    return;
+  }
+  const rows = [
+    ["Risk", patchReview.risk_level || "low"],
+    ["Summary", patchReview.summary || "No patch review summary."],
+    ["Checks", patchReview.checks?.join(" ") || "Review the summary and trace."],
+    ["Verification", patchReview.verification_commands?.join("  |  ") || "none"],
+    ["Next action", patchReview.next_action || "No action suggested."],
+  ];
+  els.patchReviewList.replaceChildren(
     ...rows.map(([label, value]) => {
       const item = document.createElement("article");
       item.className = "trace-item";

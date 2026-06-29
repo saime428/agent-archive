@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-06-28
+Last updated: 2026-06-29
 
 ## Product Goal
 
@@ -17,7 +17,7 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 67% | v0.8 read-only workflow hints, failure summary, and provider notice are implemented |
+| Visual Workbench product | 69% | v0.8 read-only coding workflow is implemented |
 | Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
 
 These percentages are product estimates, not exact engineering metrics.
@@ -33,7 +33,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.5 | Terminal agent | `agent chat`, session history, resume, interactive approval, `@file`/`@dir`, slash commands, DeepSeek streaming preview |
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
-| v0.8 | Stronger coding workflow | Read-only Workflow Hints panel, Failure Summary panel, Provider Notice banner |
+| v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
 
 ## Active v0.6 Plan
 
@@ -108,7 +108,9 @@ These percentages are product estimates, not exact engineering metrics.
 4. Patch review helper
    - Build a read-only review checklist over diffs, snapshots, workflow hints,
      and failure summary.
-   - Next: keep the first version advisory only; no browser-side command
+   - Done: run detail payload exposes `patch_review`, and the static Workbench
+     renders the read-only Patch Review Helper panel.
+   - Kept advisory only; no browser-side command
      execution or automatic patching.
 
 ## Later Roadmap
@@ -144,12 +146,14 @@ Completed slice: v0.8 failure summary.
 
 Completed slice: v0.8 Workbench provider notice.
 
-Next slice: v0.8 patch review helper.
+Completed slice: v0.8 patch review helper.
+
+Next slice: v0.8 closeout.
 
 Reason: the Workbench can now suggest verification commands, explain failed
-observations, and say plainly whether it is using FakeLLM or DeepSeek. The next
-useful helper is a read-only patch review checklist that ties together diffs,
-snapshots, workflow hints, and failure summary.
+observations, say plainly whether it is using FakeLLM or DeepSeek, and present
+a read-only patch review checklist. The next useful step is a short closeout
+that freezes v0.8 and points v0.9 at audit and resilience work.
 
 ## Guardrails
 

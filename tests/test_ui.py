@@ -177,6 +177,9 @@ def test_build_run_detail_payload_includes_workflow_hints(tmp_path: Path) -> Non
         "Run the suggested verification commands before committing.",
     ]
     assert payload["workflow"]["mode"] == "read-only"
+    assert payload["patch_review"]["risk_level"] == "medium"
+    assert payload["patch_review"]["verification_commands"] == payload["workflow"]["verification_commands"]
+    assert payload["patch_review"]["mode"] == "read-only"
 
 
 def test_build_run_detail_payload_includes_failure_summary(tmp_path: Path) -> None:
@@ -206,6 +209,30 @@ def test_build_run_detail_payload_includes_failure_summary(tmp_path: Path) -> No
             "Inspect the trace around the failed action.",
             "Use Workflow Hints before changing code.",
         ],
+    }
+    assert payload["patch_review"]["risk_level"] == "attention"
+    assert "Read Failure Summary before changing code." in payload["patch_review"]["checks"]
+
+
+def test_build_run_detail_payload_includes_low_risk_patch_review(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_test"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_test\n\n- status: ok\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        '{"action":{"action":{"name":"done"}},"observation":{"status":"ok","summary":"Finished."}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_run_detail_payload(workspace, "run_test")
+
+    assert payload["patch_review"] == {
+        "mode": "read-only",
+        "risk_level": "low",
+        "summary": "No failed observations or changed files recorded.",
+        "checks": ["Review the summary and trace before taking action."],
+        "verification_commands": ["Review the summary and trace before taking action."],
+        "next_action": "No patch review action needed.",
     }
 
 
@@ -294,6 +321,9 @@ def test_build_save_file_payload_writes_text_and_records_snapshot(tmp_path: Path
     assert detail["review"]["changed_files"] == ["notes.txt"]
     assert detail["review"]["snapshot_count"] == 1
     assert "Show diff" in detail["review"]["manual_checks"][1]
+    assert detail["patch_review"]["risk_level"] == "medium"
+    assert "Open changed files from Task Review." in detail["patch_review"]["checks"]
+    assert "Use Show diff before Restore when checking snapshots." in detail["patch_review"]["checks"]
     assert "Workbench file editor" in detail["summary"]
 
 
@@ -614,6 +644,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "failure-summary-list" in index
     assert "renderFailureSummary" in script
     assert "latest_failure" in script
+    assert "Patch Review" in index
+    assert "patch-review-list" in index
+    assert "renderPatchReview" in script
+    assert "risk_level" in script
     assert "DeepSeek key" in script
     assert "provider_notice" in script
     assert ".provider-notice" in styles

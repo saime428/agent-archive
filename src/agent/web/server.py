@@ -482,6 +482,7 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
     detail = RunStore(workspace.resolve()).show_run(run_id)
     review = _build_task_review(detail.tool_calls, detail.snapshots)
     failure = _build_failure_summary(detail.tool_calls)
+    workflow = _build_workflow_hints(review)
     return {
         "run_id": detail.run_id,
         "run_dir": str(detail.run_dir),
@@ -498,8 +499,9 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
         ],
         "snapshots": detail.snapshots,
         "review": review,
-        "workflow": _build_workflow_hints(review),
+        "workflow": workflow,
         "failure": failure,
+        "patch_review": _build_patch_review(review, workflow, failure),
     }
 
 
@@ -591,6 +593,53 @@ def _build_failure_summary(tool_calls: list[Any]) -> dict[str, Any]:
             "Inspect the trace around the failed action.",
             "Use Workflow Hints before changing code.",
         ],
+    }
+
+
+def _build_patch_review(
+    review: dict[str, Any],
+    workflow: dict[str, Any],
+    failure: dict[str, Any],
+) -> dict[str, Any]:
+    commands = list(workflow.get("verification_commands", []))
+    changed_files = list(review.get("changed_files", []))
+    snapshot_count = int(review.get("snapshot_count") or 0)
+
+    if failure.get("failure_count"):
+        return {
+            "mode": "read-only",
+            "risk_level": "attention",
+            "summary": "Failed observations need review before patching.",
+            "checks": [
+                "Read Failure Summary before changing code.",
+                "Inspect the trace around the failed action.",
+                "Run verification commands only from a terminal.",
+            ],
+            "verification_commands": commands,
+            "next_action": "Resolve or explain the failed observation before patching.",
+        }
+
+    if changed_files or snapshot_count:
+        checks = ["Open changed files from Task Review."]
+        if snapshot_count:
+            checks.append("Use Show diff before Restore when checking snapshots.")
+        checks.append("Run suggested verification commands from Workflow Hints.")
+        return {
+            "mode": "read-only",
+            "risk_level": "medium",
+            "summary": f"{len(changed_files)} changed file(s), {snapshot_count} snapshot(s), no failed observations.",
+            "checks": checks,
+            "verification_commands": commands,
+            "next_action": "Review changes and run suggested verification commands from a terminal.",
+        }
+
+    return {
+        "mode": "read-only",
+        "risk_level": "low",
+        "summary": "No failed observations or changed files recorded.",
+        "checks": ["Review the summary and trace before taking action."],
+        "verification_commands": commands,
+        "next_action": "No patch review action needed.",
     }
 
 

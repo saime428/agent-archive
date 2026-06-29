@@ -81,6 +81,11 @@ checks. It does not retry tools, edit files, or infer a fix on its own.
 The Provider Notice banner shows whether the Workbench is using FakeLLM or
 DeepSeek. It reports `provider_notice` from `/api/health`; it does not write
 config files or store API keys.
+
+The Patch Review Helper completes the read-only coding workflow. It combines
+Task Review, Workflow Hints, Failure Summary, and snapshots into one checklist
+with `risk_level`, checks, verification commands, and a next action. It does
+not run tests, create commits, or generate patches.
 Acceptance notes live in `docs/v0.8-acceptance.md`.
 
 ## v0.6 Visual Workbench
