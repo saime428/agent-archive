@@ -183,6 +183,7 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "deepseek_api_key_env": api_key_env,
         "deepseek_api_key_present": api_key_present,
         "provider_notice": _provider_notice(str(config["provider"]), api_key_env, api_key_present),
+        "settings_readiness": _build_settings_readiness(config_payload, api_key_present),
         "workspace_risk": _build_workspace_risk(workspace.resolve()),
         "memory_review": _build_memory_review(workspace.resolve()),
     }
@@ -194,6 +195,34 @@ def _provider_notice(provider: str, api_key_env: str, api_key_present: bool) -> 
     if not api_key_present:
         return f"DeepSeek provider is selected, but {api_key_env} is missing."
     return "DeepSeek provider is selected."
+
+
+def _build_settings_readiness(config_payload: dict[str, Any], api_key_present: bool) -> dict[str, Any]:
+    config = config_payload["config"]
+    diagnostics = config_payload["diagnostics"]
+    provider = str(config["provider"])
+    warnings = list(diagnostics.get("warnings", []))
+    checks: list[str] = []
+    if provider == "deepseek" and not api_key_present:
+        status = "needs-api-key"
+        checks.append("Set DEEPSEEK_API_KEY before live DeepSeek runs.")
+    elif warnings:
+        status = "warnings"
+        checks.append("Review config warnings before relying on live settings.")
+    else:
+        status = "ready"
+        checks.append("Settings are readable.")
+    return {
+        "mode": "read-only",
+        "status": status,
+        "provider": provider,
+        "model": str(config["model"]),
+        "deepseek_api_key_env": str(config["deepseek_api_key_env"]),
+        "deepseek_api_key_present": api_key_present,
+        "loaded_files": list(diagnostics.get("loaded_files", [])),
+        "warnings": warnings,
+        "checks": checks,
+    }
 
 
 def _build_workspace_risk(workspace: Path) -> dict[str, Any]:

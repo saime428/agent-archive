@@ -56,6 +56,10 @@ agent start --cwd F:\agent
 python -m agent.cli start --cwd F:\agent
 ```
 
+Settings Readiness is a read-only Workbench panel backed by `/api/health`. It
+shows provider, model, DeepSeek key presence, loaded config files, warnings, and
+checks before any browser-side settings writes exist.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

@@ -17,7 +17,7 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 78% | v1.0 release prep now has a one-command Workbench startup alias |
+| Visual Workbench product | 79% | v1.0 release prep now has startup and settings readiness visibility |
 | Overall final goal | 77% | Core and visual shell are usable; settings readiness and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
@@ -35,7 +35,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
 | v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
-| v1.0 | Release prep | One-command startup alias |
+| v1.0 | Release prep | One-command startup alias, Settings Readiness |
 
 ## Active v0.6 Plan
 
@@ -167,8 +167,12 @@ These percentages are product estimates, not exact engineering metrics.
      config validation and Workbench server path.
 
 2. Settings readiness
-   - Next: expose current provider/model/config state clearly before adding any
-     browser-side settings writes.
+   - Done: `/api/health` exposes read-only `settings_readiness`, and the
+     Workbench renders provider/model/key/config checks without writing config.
+
+3. Settings page decision
+   - Next: decide whether browser-side settings writes are worth the risk, or
+     whether CLI/config-file editing covers v1.0.
 
 ## Current Recommendation
 
@@ -228,11 +232,15 @@ v1.0 release prep has started.
 
 Completed slice: v1.0 one-command startup alias.
 
+Completed slice: v1.0 settings readiness.
+
 Reason: v1.0 should first reduce startup friction without changing the stable
 Workbench internals. `agent start` gives the product a clear launch command
-while keeping `agent ui` intact for compatibility.
+while keeping `agent ui` intact for compatibility. Settings Readiness makes the
+current provider/model/API-key/config state visible before adding any browser
+write path.
 
-Next slice: v1.0 settings readiness.
+Next slice: v1.0 settings page decision.
 
 ## Guardrails
 

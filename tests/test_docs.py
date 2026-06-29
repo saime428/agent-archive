@@ -245,7 +245,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
     assert "v1.0 release prep has started" in roadmap
-    assert "Next slice: v1.0 settings readiness" in roadmap
+    assert "Completed slice: v1.0 settings readiness" in roadmap
+    assert "Next slice: v1.0 settings page decision" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -300,7 +301,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
     assert "v1.0 release prep has started" in roadmap
-    assert "Next slice: v1.0 settings readiness" in roadmap
+    assert "Completed slice: v1.0 settings readiness" in roadmap
+    assert "Next slice: v1.0 settings page decision" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -347,7 +349,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
     assert "v1.0 release prep has started" in roadmap
-    assert "Next slice: v1.0 settings readiness" in roadmap
+    assert "Completed slice: v1.0 settings readiness" in roadmap
+    assert "Next slice: v1.0 settings page decision" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -393,7 +396,8 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
     assert "v1.0 release prep has started" in roadmap
-    assert "Next slice: v1.0 settings readiness" in roadmap
+    assert "Completed slice: v1.0 settings readiness" in roadmap
+    assert "Next slice: v1.0 settings page decision" in roadmap
 
 
 def test_v10_release_prep_documents_start_command() -> None:
@@ -403,5 +407,7 @@ def test_v10_release_prep_documents_start_command() -> None:
     assert "v1.0 Release Prep" in readme
     assert "agent start --cwd F:\\agent" in readme
     assert "python -m agent.cli start --cwd F:\\agent" in readme
+    assert "Settings Readiness" in readme
     assert "Completed slice: v1.0 one-command startup alias" in roadmap
-    assert "Next slice: v1.0 settings readiness" in roadmap
+    assert "Completed slice: v1.0 settings readiness" in roadmap
+    assert "Next slice: v1.0 settings page decision" in roadmap

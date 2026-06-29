@@ -28,6 +28,7 @@ const els = {
   activityLog: document.querySelector("#activity-log"),
   workspaceRiskList: document.querySelector("#workspace-risk-list"),
   memoryReviewList: document.querySelector("#memory-review-list"),
+  settingsReadinessList: document.querySelector("#settings-readiness-list"),
   approvalPanel: document.querySelector("#approval-panel"),
   approvalAction: document.querySelector("#approval-action"),
   approvalDetail: document.querySelector("#approval-detail"),
@@ -113,6 +114,7 @@ function renderHealth(health) {
       : "provider-notice warning";
   renderWorkspaceRisk(health.workspace_risk);
   renderMemoryReview(health.memory_review);
+  renderSettingsReadiness(health.settings_readiness);
 }
 
 function renderWorkspaceRisk(workspaceRisk) {
@@ -163,6 +165,23 @@ function renderMemoryReview(memoryReview) {
     items.push(traceItem(`entry ${entry.entry_id}`, `${entry.source_run_id}: ${entry.source_excerpt}`));
   }
   els.memoryReviewList.replaceChildren(...items);
+}
+
+function renderSettingsReadiness(settingsReadiness) {
+  if (!settingsReadiness) {
+    els.settingsReadinessList.innerHTML = '<div class="empty-state">No settings readiness recorded.</div>';
+    return;
+  }
+  const rows = [
+    ["Status", settingsReadiness.status || "ready"],
+    ["Provider", settingsReadiness.provider || "fake"],
+    ["Model", settingsReadiness.model || "unknown"],
+    ["DeepSeek key", settingsReadiness.deepseek_api_key_present ? "present" : "missing"],
+    ["Loaded files", settingsReadiness.loaded_files?.join(", ") || "none"],
+    ["Warnings", settingsReadiness.warnings?.join(" ") || "none"],
+    ["Checks", settingsReadiness.checks?.join(" ") || "Settings are readable."],
+  ];
+  els.settingsReadinessList.replaceChildren(...rows.map(([label, value]) => traceItem(label, value)));
 }
 
 function traceItem(label, value) {

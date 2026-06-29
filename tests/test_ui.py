@@ -82,6 +82,23 @@ def test_build_health_payload_reports_deepseek_provider_status(monkeypatch, tmp_
     assert payload["provider_notice"] == "DeepSeek provider is selected, but DEEPSEEK_API_KEY is missing."
 
 
+def test_build_health_payload_includes_read_only_settings_readiness(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('provider = "deepseek"\nmodel = "deepseek-v4-flash"\n', encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    payload = build_health_payload(workspace)
+
+    assert payload["settings_readiness"]["mode"] == "read-only"
+    assert payload["settings_readiness"]["status"] == "needs-api-key"
+    assert payload["settings_readiness"]["provider"] == "deepseek"
+    assert payload["settings_readiness"]["model"] == "deepseek-v4-flash"
+    assert payload["settings_readiness"]["deepseek_api_key_present"] is False
+    assert "Set DEEPSEEK_API_KEY before live DeepSeek runs." in payload["settings_readiness"]["checks"]
+
+
 def test_build_health_payload_includes_workspace_risk_from_recent_runs(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     run_dir = workspace / ".agent" / "runs" / "run_failed"
@@ -796,6 +813,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "memory-review-list" in index
     assert "memory_review" in script
     assert "renderMemoryReview" in script
+    assert "Settings Readiness" in index
+    assert "settings-readiness-list" in index
+    assert "settings_readiness" in script
+    assert "renderSettingsReadiness" in script
     assert "Last refresh" in script
     assert "Waiting for agent core" in script
     assert "Waiting for approval" in script
