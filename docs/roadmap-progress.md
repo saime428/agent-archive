@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 ## Product Goal
 
@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 75% | v0.9 now has run risk filtering, replay, log filters, workspace risk, and memory review |
-| Overall final goal | 74% | Core and visual shell are usable; failure recovery, settings, and packaging remain |
+| Visual Workbench product | 76% | v0.9 now has run risk filtering, replay, log filters, workspace risk, memory review, and failure recovery |
+| Overall final goal | 75% | Core and visual shell are usable; v0.9 closeout, settings, and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -34,7 +34,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
-| v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review |
+| v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
 
 ## Active v0.6 Plan
 
@@ -124,7 +124,7 @@ These percentages are product estimates, not exact engineering metrics.
 | --- | --- | --- |
 | v0.7 | Product shell decision | Move to Vue/Vite only when static UI state becomes painful; package with Electron/Tauri only after browser UI stabilizes |
 | v0.8 | Stronger coding workflow | Test suggestions, failure reading, patch review, git checkpoint UI, branch/commit helpers |
-| v0.9 | Audit and resilience | Stronger failure recovery |
+| v0.9 | Audit and resilience | v0.9 closeout |
 | v1.0 | Local product release | One-command startup, settings page, model switching, desktop packaging, stable docs and smoke tests |
 
 ## Active v0.9 Plan
@@ -152,8 +152,12 @@ These percentages are product estimates, not exact engineering metrics.
      renders pending memory candidates and active entries without accept/undo.
 
 6. Stronger failure recovery
-   - Next: add read-only recovery guidance for failed runs without automatic
-     rollback or retry.
+   - Done: run detail payload exposes read-only `recovery`, and the Workbench
+     renders Failure Recovery guidance without automatic rollback or retry.
+
+7. v0.9 closeout
+   - Next: freeze audit/resilience docs, manual smoke steps, and acceptance
+     status.
 
 ## Current Recommendation
 
@@ -197,14 +201,17 @@ Completed slice: v0.9 workspace risk hints.
 
 Completed slice: v0.9 memory review UI.
 
+Completed slice: v0.9 stronger failure recovery.
+
 Reason: run list filtering surfaces risky or failed runs quickly, Run Replay
 shows the stored timeline without rerunning anything, and Log Filters tame noisy
 trace detail. Workspace Risk now summarizes uncommitted files, snapshots, and
 failed recent runs. Memory Review makes pending candidates and active entries
-visible without browser-side writes. The next useful resilience feature is
-read-only failure recovery guidance.
+visible without browser-side writes. Failure Recovery now gives a read-only path
+for failed runs by pointing to Trace, Failure Summary, rollback availability,
+and terminal verification.
 
-Next slice: v0.9 stronger failure recovery.
+Next slice: v0.9 closeout.
 
 ## Guardrails
 

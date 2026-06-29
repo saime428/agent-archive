@@ -654,6 +654,7 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
         "workflow": workflow,
         "failure": failure,
         "patch_review": _build_patch_review(review, workflow, failure),
+        "recovery": _build_failure_recovery(review, workflow, failure),
         "replay": _build_run_replay(detail.tool_calls),
     }
 
@@ -793,6 +794,66 @@ def _build_patch_review(
         "checks": ["Review the summary and trace before taking action."],
         "verification_commands": commands,
         "next_action": "No patch review action needed.",
+    }
+
+
+def _build_failure_recovery(
+    review: dict[str, Any],
+    workflow: dict[str, Any],
+    failure: dict[str, Any],
+) -> dict[str, Any]:
+    commands = list(workflow.get("verification_commands", []))
+    snapshot_count = int(review.get("snapshot_count") or 0)
+    rollback_available = snapshot_count > 0
+    latest_failure = failure.get("latest_failure")
+
+    if failure.get("failure_count"):
+        steps = [
+            "Inspect the failed action in Trace.",
+            "Read Failure Summary before changing files.",
+        ]
+        if rollback_available:
+            steps.append("Use Show diff before Restore when checking snapshots.")
+        else:
+            steps.append("Check the workspace manually before retrying.")
+        return {
+            "mode": "read-only",
+            "status": "needs-attention",
+            "rollback_available": rollback_available,
+            "summary": "Failed observations need a recovery decision before more changes.",
+            "latest_failure": latest_failure,
+            "steps": steps,
+            "checks": [
+                "Do not retry tools from the browser.",
+                "Run verification from a terminal after patching.",
+            ],
+            "verification_commands": commands,
+            "next_action": "Inspect the failure, then patch or retry from a terminal workflow.",
+        }
+
+    if rollback_available:
+        return {
+            "mode": "read-only",
+            "status": "snapshot-review",
+            "rollback_available": True,
+            "summary": f"{snapshot_count} snapshot(s) are available for manual review.",
+            "latest_failure": None,
+            "steps": ["Open Snapshots and use Show diff before any restore."],
+            "checks": ["Restore only after confirming the diff."],
+            "verification_commands": commands,
+            "next_action": "Review snapshots before making further file changes.",
+        }
+
+    return {
+        "mode": "read-only",
+        "status": "clear",
+        "rollback_available": False,
+        "summary": "No failed observations or rollback snapshots recorded.",
+        "latest_failure": None,
+        "steps": ["No recovery action needed."],
+        "checks": ["Review the summary and trace before taking action."],
+        "verification_commands": commands,
+        "next_action": "No recovery action needed.",
     }
 
 

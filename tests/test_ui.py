@@ -312,6 +312,27 @@ def test_build_run_detail_payload_includes_failure_summary(tmp_path: Path) -> No
     assert "Read Failure Summary before changing code." in payload["patch_review"]["checks"]
 
 
+def test_build_run_detail_payload_includes_read_only_failure_recovery(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_failed"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_failed\n\n- status: error\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        '{"action":{"action":{"name":"run_command"}},"observation":{"status":"error","summary":"Command failed.","error":{"code":"TOOL_FAILED","message":"Command failed."}},"trace":{"phase":"action","terminal":true,"policy_decision":"allow"}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_run_detail_payload(workspace, "run_failed")
+
+    assert payload["recovery"]["mode"] == "read-only"
+    assert payload["recovery"]["status"] == "needs-attention"
+    assert payload["recovery"]["rollback_available"] is False
+    assert payload["recovery"]["latest_failure"]["action"] == "run_command"
+    assert "Inspect the failed action in Trace." in payload["recovery"]["steps"]
+    assert "Do not retry tools from the browser." in payload["recovery"]["checks"]
+    assert payload["recovery"]["next_action"] == "Inspect the failure, then patch or retry from a terminal workflow."
+
+
 def test_build_run_detail_payload_includes_low_risk_patch_review(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     run_dir = workspace / ".agent" / "runs" / "run_test"
@@ -749,6 +770,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "patch-review-list" in index
     assert "renderPatchReview" in script
     assert "risk_level" in script
+    assert "Failure Recovery" in index
+    assert "failure-recovery-list" in index
+    assert "renderFailureRecovery" in script
+    assert "rollback_available" in script
     assert "Log Filters" in index
     assert "log-filter-text" in index
     assert "log-filter-terminal" in index

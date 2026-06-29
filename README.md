@@ -124,6 +124,11 @@ Memory Review shows pending memory candidates and active accepted entries in
 the Workbench. It is read-only; accepting and undoing memory still happens
 through explicit `agent memory ...` commands.
 
+Failure Recovery adds read-only recovery guidance for failed runs. It reports
+whether `rollback_available` is true, points to Trace and Failure Summary, and
+keeps retry, patching, and rollback decisions in terminal/manual flows instead
+of browser automation.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It
