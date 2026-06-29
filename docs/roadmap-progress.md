@@ -18,7 +18,7 @@ workflow is actually useful.
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
 | Visual Workbench product | 82% | v1.0 local visual agent release prep is frozen |
-| Overall final goal | 83% | Local visual agent is usable; polish backlog is ordered |
+| Overall final goal | 84% | Local visual agent is usable; first Workbench polish pass is done |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -268,12 +268,15 @@ v1.0 closeout freezes the local visual agent release prep.
 
 Completed slice: post-v1.0 polish backlog.
 
+Completed slice: post-v1.0 first polish item.
+
 Reason: after v1.0, the cheapest way to keep momentum is to order polish work
 instead of adding speculative UI. The backlog separates immediate copy/manual
 smoke/accessibility work from later secret flow, packaged executable, and
-desktop-shell work.
+desktop-shell work. The first polish pass tightens Workbench copy and empty
+states without changing behavior.
 
-Next slice: post-v1.0 first polish item.
+Next slice: post-v1.0 manual smoke checklist.
 
 ## Guardrails
 

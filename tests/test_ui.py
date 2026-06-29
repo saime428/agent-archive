@@ -740,6 +740,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
 
     assert "Agent Workbench" in index
     assert "message-input" in index
+    assert "Ask the agent what to inspect or change next..." in index
+    assert "Start terminal chat" in index
+    assert "Waiting for runs..." in index
     assert "status-bar" in index
     assert "provider-notice" in index
     assert "run-risk-filter" in index
@@ -813,6 +816,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "memory-review-list" in index
     assert "memory_review" in script
     assert "renderMemoryReview" in script
+    assert "No runs match the current search or risk filter." in script
+    assert "No runs yet" in script
+    assert "Use the chat box or run agent start from a terminal to create the first run." in script
+    assert "No snapshots recorded for this run." in script
     assert "Settings Readiness" in index
     assert "settings-readiness-list" in index
     assert "settings_readiness" in script

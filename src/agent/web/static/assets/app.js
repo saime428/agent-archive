@@ -250,7 +250,7 @@ function renderRuns() {
     return matchesQuery && matchesRisk;
   });
   if (runs.length === 0) {
-    els.runList.innerHTML = '<div class="empty-state">No matching runs.</div>';
+    els.runList.innerHTML = '<div class="empty-state">No runs match the current search or risk filter.</div>';
     return;
   }
   els.runList.replaceChildren(
@@ -276,15 +276,15 @@ function renderEmptyRuns() {
   state.selectedDetail = null;
   els.selectedRunTitle.textContent = "No runs yet";
   els.runState.textContent = "waiting";
-  showSummary("Run `agent run` or `agent chat` to create durable logs, then refresh this page.");
-  els.taskReviewList.innerHTML = '<div class="empty-state">No task review yet.</div>';
-  els.workflowHintList.innerHTML = '<div class="empty-state">No workflow hints yet.</div>';
-  els.failureSummaryList.innerHTML = '<div class="empty-state">No failure summary yet.</div>';
-  els.patchReviewList.innerHTML = '<div class="empty-state">No patch review yet.</div>';
-  els.failureRecoveryList.innerHTML = '<div class="empty-state">No failure recovery yet.</div>';
-  els.runReplayList.innerHTML = '<div class="empty-state">No replay steps yet.</div>';
-  els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
-  els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
+  showSummary("Use the chat box or run agent start from a terminal to create the first run.");
+  els.taskReviewList.innerHTML = '<div class="empty-state">Task Review appears after a run is selected.</div>';
+  els.workflowHintList.innerHTML = '<div class="empty-state">Workflow Hints appear after a run is selected.</div>';
+  els.failureSummaryList.innerHTML = '<div class="empty-state">Failure Summary appears after a run is selected.</div>';
+  els.patchReviewList.innerHTML = '<div class="empty-state">Patch Review appears after a run is selected.</div>';
+  els.failureRecoveryList.innerHTML = '<div class="empty-state">Failure Recovery appears after a run is selected.</div>';
+  els.runReplayList.innerHTML = '<div class="empty-state">Run Replay appears after a run is selected.</div>';
+  els.toolCallList.innerHTML = '<div class="empty-state">Trace appears after a run is selected.</div>';
+  els.snapshotList.innerHTML = '<div class="empty-state">No snapshots recorded for this run.</div>';
 }
 
 function addActivityEvent(title, detail) {

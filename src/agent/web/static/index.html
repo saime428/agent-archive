@@ -27,7 +27,7 @@
           <option value="medium">Medium</option>
           <option value="low">Low</option>
         </select>
-        <button class="new-run-button" type="button">Open terminal chat</button>
+        <button class="new-run-button" type="button">Start terminal chat</button>
         <section>
           <div class="section-label">Recent runs</div>
           <div id="run-list" class="run-list"></div>
@@ -67,12 +67,12 @@
               <div id="run-state" class="state-chip">read-only</div>
             </div>
           </div>
-          <pre id="summary-view" class="summary-view">Loading run history...</pre>
+          <pre id="summary-view" class="summary-view">Waiting for runs...</pre>
           <textarea id="file-editor" class="summary-view hidden" spellcheck="false"></textarea>
         </section>
 
         <form id="chat-form" class="input-dock" aria-label="Chat entry">
-          <textarea id="message-input" name="message" placeholder="Ask the local agent to inspect, summarize, or plan..."></textarea>
+          <textarea id="message-input" name="message" placeholder="Ask the agent what to inspect or change next..."></textarea>
           <div class="dock-actions">
             <button id="send-button" class="send-button" type="submit">Send</button>
           </div>
