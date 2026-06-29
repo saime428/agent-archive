@@ -528,6 +528,7 @@ def build_run_detail_payload(workspace: Path, run_id: str) -> dict[str, Any]:
         "workflow": workflow,
         "failure": failure,
         "patch_review": _build_patch_review(review, workflow, failure),
+        "replay": _build_run_replay(detail.tool_calls),
     }
 
 
@@ -666,6 +667,42 @@ def _build_patch_review(
         "checks": ["Review the summary and trace before taking action."],
         "verification_commands": commands,
         "next_action": "No patch review action needed.",
+    }
+
+
+def _build_run_replay(tool_calls: list[Any]) -> dict[str, Any]:
+    steps = [_replay_step_from_tool_call(call) for call in tool_calls]
+    return {
+        "mode": "read-only",
+        "step_count": len(steps),
+        "steps": steps,
+    }
+
+
+def _replay_step_from_tool_call(call: Any) -> dict[str, Any]:
+    if not call.valid or not call.data:
+        return {
+            "line_number": call.line_number,
+            "phase": "parse",
+            "action": "invalid",
+            "status": "invalid",
+            "summary": call.error or "Invalid tool call log record.",
+            "terminal": True,
+            "policy_decision": "",
+        }
+
+    action = call.data.get("action")
+    inner_action = action.get("action") if isinstance(action, dict) else None
+    observation = call.data.get("observation")
+    trace = call.data.get("trace")
+    return {
+        "line_number": call.line_number,
+        "phase": str(trace.get("phase") or "action") if isinstance(trace, dict) else "action",
+        "action": str(inner_action.get("name") or "unknown") if isinstance(inner_action, dict) else "unknown",
+        "status": str(observation.get("status") or "unknown") if isinstance(observation, dict) else "unknown",
+        "summary": str(observation.get("summary") or "No observation summary.") if isinstance(observation, dict) else "No observation summary.",
+        "terminal": bool(trace.get("terminal")) if isinstance(trace, dict) else False,
+        "policy_decision": str(trace.get("policy_decision") or "") if isinstance(trace, dict) else "",
     }
 
 

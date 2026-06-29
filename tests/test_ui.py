@@ -142,6 +142,50 @@ def test_build_run_detail_payload_includes_summary_and_tool_calls(tmp_path: Path
     assert payload["tool_calls"][0]["data"]["action"]["action"]["name"] == "done"
 
 
+def test_build_run_detail_payload_includes_read_only_replay(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_test"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_test\n\n- status: ok\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        "\n".join(
+            [
+                '{"action":{"action":{"name":"list_dir"}},"observation":{"status":"ok","summary":"Listed workspace."},"trace":{"phase":"action","terminal":false,"policy_decision":"allow"}}',
+                '{"action":{"action":{"name":"done"}},"observation":{"status":"ok","summary":"Finished."},"trace":{"phase":"action","terminal":true,"policy_decision":"allow"}}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    payload = build_run_detail_payload(workspace, "run_test")
+
+    assert payload["replay"] == {
+        "mode": "read-only",
+        "step_count": 2,
+        "steps": [
+            {
+                "line_number": 1,
+                "phase": "action",
+                "action": "list_dir",
+                "status": "ok",
+                "summary": "Listed workspace.",
+                "terminal": False,
+                "policy_decision": "allow",
+            },
+            {
+                "line_number": 2,
+                "phase": "action",
+                "action": "done",
+                "status": "ok",
+                "summary": "Finished.",
+                "terminal": True,
+                "policy_decision": "allow",
+            },
+        ],
+    }
+
+
 def test_build_run_detail_payload_includes_task_review(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     run_dir = workspace / ".agent" / "runs" / "run_test"
@@ -669,6 +713,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "patch-review-list" in index
     assert "renderPatchReview" in script
     assert "risk_level" in script
+    assert "Run Replay" in index
+    assert "run-replay-list" in index
+    assert "renderRunReplay" in script
+    assert "step_count" in script
     assert "DeepSeek key" in script
     assert "provider_notice" in script
     assert ".provider-notice" in styles

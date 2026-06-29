@@ -104,8 +104,13 @@ git diff --check
 v0.9 starts with a read-only Run Risk Filter in the Workbench. The run list now
 shows each run's `status` and `risk_level`, and the sidebar can filter by low,
 medium, or attention runs. This improves visual agent progress from a useful
-Workbench toward a more dependable visual agent without replaying runs or
-executing commands from the browser.
+Workbench toward a more dependable visual agent without executing commands from
+the browser.
+
+The Workbench also includes a read-only Run Replay panel. It reconstructs the
+selected run from stored `tool_calls.jsonl` records, showing each action,
+observation status, summary, policy decision, and terminal step. It does not
+call the model again, execute tools, or mutate workspace files.
 
 ## v0.6 Visual Workbench
 

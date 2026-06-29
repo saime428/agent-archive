@@ -32,6 +32,7 @@ const els = {
   workflowHintList: document.querySelector("#workflow-hint-list"),
   failureSummaryList: document.querySelector("#failure-summary-list"),
   patchReviewList: document.querySelector("#patch-review-list"),
+  runReplayList: document.querySelector("#run-replay-list"),
   toolCallList: document.querySelector("#tool-call-list"),
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
@@ -188,6 +189,7 @@ function renderEmptyRuns() {
   els.workflowHintList.innerHTML = '<div class="empty-state">No workflow hints yet.</div>';
   els.failureSummaryList.innerHTML = '<div class="empty-state">No failure summary yet.</div>';
   els.patchReviewList.innerHTML = '<div class="empty-state">No patch review yet.</div>';
+  els.runReplayList.innerHTML = '<div class="empty-state">No replay steps yet.</div>';
   els.toolCallList.innerHTML = '<div class="empty-state">No tool calls yet.</div>';
   els.snapshotList.innerHTML = '<div class="empty-state">No snapshots yet.</div>';
 }
@@ -248,6 +250,7 @@ async function selectRun(runId) {
   renderWorkflowHints(detail.workflow);
   renderFailureSummary(detail.failure);
   renderPatchReview(detail.patch_review);
+  renderRunReplay(detail.replay);
   renderToolCalls(detail.tool_calls);
   renderSnapshots(detail.snapshots);
 }
@@ -358,6 +361,38 @@ function renderPatchReview(patchReview) {
       `;
       item.querySelector(".tool-name").textContent = label;
       item.querySelector(".trace-meta").textContent = value;
+      return item;
+    }),
+  );
+}
+
+function renderRunReplay(replay) {
+  if (!replay || !replay.steps?.length) {
+    els.runReplayList.innerHTML = '<div class="empty-state">No replay steps recorded.</div>';
+    return;
+  }
+  const countItem = document.createElement("article");
+  countItem.className = "trace-item";
+  countItem.innerHTML = `
+    <div class="tool-name">Steps</div>
+    <div class="trace-meta"></div>
+  `;
+  countItem.querySelector(".trace-meta").textContent = `${replay.step_count || replay.steps.length}`;
+  els.runReplayList.replaceChildren(
+    countItem,
+    ...replay.steps.map((step) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = `${step.line_number}. ${step.action}`;
+      item.querySelectorAll(".trace-meta")[0].textContent =
+        `${step.phase} - ${step.status} - terminal: ${step.terminal}`;
+      item.querySelectorAll(".trace-meta")[1].textContent =
+        `${step.summary} ${step.policy_decision ? `policy: ${step.policy_decision}` : ""}`.trim();
       return item;
     }),
   );
