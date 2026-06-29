@@ -65,6 +65,16 @@ v1.0 Settings Page Decision is recorded in
 and configuration changes continue through `agent config show`, `agent config
 doctor`, and explicit config-file edits.
 
+Check release readiness without running tests or network calls:
+
+```powershell
+agent release doctor --cwd F:\agent
+```
+
+The output includes `release readiness`, `startup command: agent start`,
+provider/model, settings write policy, packaging status, and the verification
+commands to run manually.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

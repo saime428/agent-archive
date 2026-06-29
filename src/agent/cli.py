@@ -28,12 +28,14 @@ config_app = typer.Typer(help="Inspect agent configuration.")
 skills_app = typer.Typer(help="Inspect and load agent skills.")
 memory_app = typer.Typer(help="Review and manage agent memory.")
 provider_app = typer.Typer(help="Inspect and smoke-test LLM providers.")
+release_app = typer.Typer(help="Inspect release readiness.")
 app.add_typer(runs_app, name="runs")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(provider_app, name="provider")
+app.add_typer(release_app, name="release")
 console = Console(highlight=False)
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
@@ -81,6 +83,33 @@ def _print_doctor(cwd: Path) -> None:
         console.print(f"document dependency {package_name}: {'present' if present else 'missing'}")
     console.print(f"config global: {diagnostics.global_config_path}")
     console.print(f"config project: {diagnostics.project_config_path}")
+    for warning in diagnostics.warnings:
+        console.print(f"config warning: {warning}")
+
+
+@release_app.command("doctor")
+def release_doctor(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for release readiness."),
+) -> None:
+    """Report release readiness without running tests or network checks."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        config, diagnostics = load_config(workspace)
+    except ConfigError as exc:
+        console.print(f"config readable: false")
+        console.print(f"config error: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print("release readiness:")
+    console.print("startup command: agent start")
+    console.print("config readable: true")
+    console.print(f"provider: {config.provider}")
+    console.print(f"model: {config.model}")
+    console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
+    console.print("settings writes: read-only")
+    console.print("packaging: pending")
+    console.print("test command: python -m pytest -q")
+    console.print("check command: git diff --check")
     for warning in diagnostics.warnings:
         console.print(f"config warning: {warning}")
 

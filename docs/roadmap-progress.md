@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 79% | v1.0 release prep now has startup and settings readiness visibility |
-| Overall final goal | 78% | Core and visual shell are usable; release readiness and packaging remain |
+| Visual Workbench product | 80% | v1.0 release prep now has startup, settings readiness, and release readiness diagnostics |
+| Overall final goal | 79% | Core and visual shell are usable; packaging remains |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -35,7 +35,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
 | v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
-| v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision |
+| v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision, release readiness doctor |
 
 ## Active v0.6 Plan
 
@@ -175,8 +175,13 @@ These percentages are product estimates, not exact engineering metrics.
      read-only for v1.0 and defers config writes until a safe secret flow exists.
 
 4. Release readiness doctor
-   - Next: add a concise readiness view over startup, provider config, docs,
-     tests, and remaining packaging gaps.
+   - Done: `agent release doctor` prints startup, provider/model, key
+     presence, settings write policy, packaging status, and verification
+     commands without running tests or network checks.
+
+5. Packaging decision
+   - Next: decide whether v1.0 needs PyInstaller/Nuitka packaging now, or
+     whether `python -m agent.cli start` and `agent start` are enough.
 
 ## Current Recommendation
 
@@ -240,14 +245,17 @@ Completed slice: v1.0 settings readiness.
 
 Completed slice: v1.0 settings page decision.
 
+Completed slice: v1.0 release readiness doctor.
+
 Reason: v1.0 should first reduce startup friction without changing the stable
 Workbench internals. `agent start` gives the product a clear launch command
 while keeping `agent ui` intact for compatibility. Settings Readiness makes the
 current provider/model/API-key/config state visible before adding any browser
 write path. The settings page decision keeps those settings read-only for v1.0
-instead of adding a fragile browser-side config writer.
+instead of adding a fragile browser-side config writer. Release readiness
+doctor gives a concise terminal check before packaging work.
 
-Next slice: v1.0 release readiness doctor.
+Next slice: v1.0 packaging decision.
 
 ## Guardrails
 

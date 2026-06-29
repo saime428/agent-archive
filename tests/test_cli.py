@@ -58,6 +58,24 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "document dependency python-pptx:" in result.output
 
 
+def test_release_doctor_reports_release_readiness(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["release", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "release readiness:" in result.output
+    assert "startup command: agent start" in result.output
+    assert "config readable: true" in result.output
+    assert "provider: fake" in result.output
+    assert "model: deepseek-v4-flash" in result.output
+    assert "settings writes: read-only" in result.output
+    assert "packaging: pending" in result.output
+    assert "test command: python -m pytest -q" in result.output
+
+
 def test_run_reports_fake_llm_result() -> None:
     runner = CliRunner()
 
