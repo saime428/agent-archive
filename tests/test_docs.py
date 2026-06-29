@@ -241,7 +241,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.9 run replay" in roadmap
     assert "Completed slice: v0.9 log filters" in roadmap
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
-    assert "Next slice: v0.9 memory review UI" in roadmap
+    assert "Completed slice: v0.9 memory review UI" in roadmap
+    assert "Next slice: v0.9 stronger failure recovery" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -292,7 +293,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v0.9 run replay" in roadmap
     assert "Completed slice: v0.9 log filters" in roadmap
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
-    assert "Next slice: v0.9 memory review UI" in roadmap
+    assert "Completed slice: v0.9 memory review UI" in roadmap
+    assert "Next slice: v0.9 stronger failure recovery" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -335,7 +337,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: v0.9 run replay" in roadmap
     assert "Completed slice: v0.9 log filters" in roadmap
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
-    assert "Next slice: v0.9 memory review UI" in roadmap
+    assert "Completed slice: v0.9 memory review UI" in roadmap
+    assert "Next slice: v0.9 stronger failure recovery" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -354,15 +357,19 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Trace and Run Replay" in checklist
     assert "Workspace Risk" in checklist
     assert "workspace_risk" in checklist
+    assert "Memory Review" in checklist
+    assert "memory_review" in checklist
     assert "read-only" in checklist
     assert "v0.9 Audit and Resilience" in readme
     assert "Run Risk Filter" in readme
     assert "Run Replay" in readme
     assert "Log Filters" in readme
     assert "Workspace Risk" in readme
+    assert "Memory Review" in readme
     assert "visual agent progress" in readme
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap
     assert "Completed slice: v0.9 log filters" in roadmap
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
-    assert "Next slice: v0.9 memory review UI" in roadmap
+    assert "Completed slice: v0.9 memory review UI" in roadmap
+    assert "Next slice: v0.9 stronger failure recovery" in roadmap

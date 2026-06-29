@@ -27,6 +27,7 @@ const els = {
   toolList: document.querySelector("#tool-list"),
   activityLog: document.querySelector("#activity-log"),
   workspaceRiskList: document.querySelector("#workspace-risk-list"),
+  memoryReviewList: document.querySelector("#memory-review-list"),
   approvalPanel: document.querySelector("#approval-panel"),
   approvalAction: document.querySelector("#approval-action"),
   approvalDetail: document.querySelector("#approval-detail"),
@@ -110,6 +111,7 @@ function renderHealth(health) {
       ? "provider-notice ok"
       : "provider-notice warning";
   renderWorkspaceRisk(health.workspace_risk);
+  renderMemoryReview(health.memory_review);
 }
 
 function renderWorkspaceRisk(workspaceRisk) {
@@ -140,6 +142,38 @@ function renderWorkspaceRisk(workspaceRisk) {
       return item;
     }),
   );
+}
+
+function renderMemoryReview(memoryReview) {
+  if (!memoryReview) {
+    els.memoryReviewList.innerHTML = '<div class="empty-state">No memory review recorded.</div>';
+    return;
+  }
+  const rows = [
+    ["Pending candidates", `${memoryReview.pending_count || 0}`],
+    ["Active entries", `${memoryReview.active_count || 0}`],
+    ["Checks", memoryReview.checks?.join(" ") || "No memory review action needed"],
+  ];
+  const items = rows.map(([label, value]) => traceItem(label, value));
+  for (const candidate of memoryReview.candidates || []) {
+    items.push(traceItem(`candidate ${candidate.candidate_id}`, `${candidate.source_run_id}: ${candidate.source_excerpt}`));
+  }
+  for (const entry of memoryReview.entries || []) {
+    items.push(traceItem(`entry ${entry.entry_id}`, `${entry.source_run_id}: ${entry.source_excerpt}`));
+  }
+  els.memoryReviewList.replaceChildren(...items);
+}
+
+function traceItem(label, value) {
+  const item = document.createElement("article");
+  item.className = "trace-item";
+  item.innerHTML = `
+    <div class="tool-name"></div>
+    <div class="trace-meta"></div>
+  `;
+  item.querySelector(".tool-name").textContent = label;
+  item.querySelector(".trace-meta").textContent = value;
+  return item;
 }
 
 function renderLastRefresh(date = new Date()) {

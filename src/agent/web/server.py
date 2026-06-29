@@ -18,6 +18,7 @@ from agent.core.actions import ActionCall, InternalAction, make_observation
 from agent.core.budget import ContextBudget, truncate_text
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.context import RunContext
+from agent.core.memory import MemoryCandidate, MemoryEntry, MemoryStore
 from agent.core.redaction import redact_record, redact_value
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
@@ -183,6 +184,7 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "deepseek_api_key_present": api_key_present,
         "provider_notice": _provider_notice(str(config["provider"]), api_key_env, api_key_present),
         "workspace_risk": _build_workspace_risk(workspace.resolve()),
+        "memory_review": _build_memory_review(workspace.resolve()),
     }
 
 
@@ -260,6 +262,60 @@ def _git_status_short(workspace: Path) -> list[str]:
     if completed.returncode != 0:
         return []
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _build_memory_review(workspace: Path) -> dict[str, Any]:
+    try:
+        store = MemoryStore(workspace)
+        candidates = [item for item in store.list_candidates() if item.status == "pending"]
+        entries = store.list_entries()
+    except (OSError, TypeError, ValueError):
+        return {
+            "mode": "read-only",
+            "pending_count": 0,
+            "active_count": 0,
+            "candidates": [],
+            "entries": [],
+            "checks": ["Memory store could not be read."],
+        }
+
+    checks: list[str] = []
+    if candidates:
+        checks.append("Review pending memory candidates")
+    if entries:
+        checks.append("Review active memory entries before relying on memory")
+    if not checks:
+        checks.append("No memory review action needed")
+
+    return {
+        "mode": "read-only",
+        "pending_count": len(candidates),
+        "active_count": len(entries),
+        "candidates": [_memory_candidate_payload(item) for item in candidates[:10]],
+        "entries": [_memory_entry_payload(item) for item in entries[:10]],
+        "checks": checks,
+    }
+
+
+def _memory_candidate_payload(candidate: MemoryCandidate) -> dict[str, str]:
+    return {
+        "candidate_id": candidate.candidate_id,
+        "source_run_id": candidate.source_run_id,
+        "source_excerpt": truncate_text(candidate.source_excerpt, 300).value,
+        "created_at": candidate.created_at,
+        "status": candidate.status,
+    }
+
+
+def _memory_entry_payload(entry: MemoryEntry) -> dict[str, str | None]:
+    return {
+        "entry_id": entry.entry_id,
+        "source_run_id": entry.source_run_id,
+        "source_excerpt": truncate_text(entry.source_excerpt, 300).value,
+        "created_at": entry.created_at,
+        "status": entry.status,
+        "supersedes": entry.supersedes,
+    }
 
 
 def build_config_payload(workspace: Path) -> dict[str, Any]:

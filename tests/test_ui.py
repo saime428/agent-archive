@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
     build_health_payload,
@@ -97,6 +98,23 @@ def test_build_health_payload_includes_workspace_risk_from_recent_runs(tmp_path:
     assert payload["workspace_risk"]["risk_level"] == "attention"
     assert payload["workspace_risk"]["signals"]["failed_runs"] == 1
     assert "Review failed recent runs." in payload["workspace_risk"]["checks"]
+
+
+def test_build_health_payload_includes_read_only_memory_review(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    store = MemoryStore(workspace)
+    pending = store.add_candidate(source_run_id="run_1", source_excerpt="Remember pytest workflow.")
+    accepted = store.add_candidate(source_run_id="run_2", source_excerpt="Remember review workflow.")
+    entry = store.accept_candidate(accepted.candidate_id)
+
+    payload = build_health_payload(workspace)
+
+    assert payload["memory_review"]["mode"] == "read-only"
+    assert payload["memory_review"]["pending_count"] == 1
+    assert payload["memory_review"]["active_count"] == 1
+    assert payload["memory_review"]["candidates"][0]["candidate_id"] == pending.candidate_id
+    assert payload["memory_review"]["entries"][0]["entry_id"] == entry.entry_id
+    assert "Review pending memory candidates" in payload["memory_review"]["checks"]
 
 
 def test_build_tools_payload_reuses_policy_categories() -> None:
@@ -749,6 +767,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "workspace-risk-list" in index
     assert "workspace_risk" in script
     assert "renderWorkspaceRisk" in script
+    assert "Memory Review" in index
+    assert "memory-review-list" in index
+    assert "memory_review" in script
+    assert "renderMemoryReview" in script
     assert "Last refresh" in script
     assert "Waiting for agent core" in script
     assert "Waiting for approval" in script

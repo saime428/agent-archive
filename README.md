@@ -120,6 +120,10 @@ Workspace Risk shows a read-only health hint for uncommitted files, failed
 recent runs, and snapshots. It uses the existing `/api/health` refresh path and
 does not execute tests, restore files, or mutate the workspace.
 
+Memory Review shows pending memory candidates and active accepted entries in
+the Workbench. It is read-only; accepting and undoing memory still happens
+through explicit `agent memory ...` commands.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It
