@@ -18,8 +18,8 @@
 
       <aside class="sidebar">
         <div class="sidebar-header">
-          <button class="collapse-button" type="button" title="Toggle sidebar">=</button>
-          <input id="run-search" type="search" placeholder="Search runs" />
+          <button class="collapse-button" type="button" title="Toggle sidebar" aria-label="Toggle sidebar">=</button>
+          <input id="run-search" type="search" placeholder="Search runs" aria-label="Search runs" />
         </div>
         <select id="run-risk-filter" aria-label="Run risk filter">
           <option value="all">All risks</option>
@@ -27,7 +27,7 @@
           <option value="medium">Medium</option>
           <option value="low">Low</option>
         </select>
-        <button class="new-run-button" type="button">Start terminal chat</button>
+        <button class="new-run-button" type="button" aria-label="Start terminal chat">Start terminal chat</button>
         <section>
           <div class="section-label">Recent runs</div>
           <div id="run-list" class="run-list"></div>
@@ -68,11 +68,11 @@
             </div>
           </div>
           <pre id="summary-view" class="summary-view">Waiting for runs...</pre>
-          <textarea id="file-editor" class="summary-view hidden" spellcheck="false"></textarea>
+          <textarea id="file-editor" class="summary-view hidden" spellcheck="false" aria-label="File editor"></textarea>
         </section>
 
         <form id="chat-form" class="input-dock" aria-label="Chat entry">
-          <textarea id="message-input" name="message" placeholder="Ask the agent what to inspect or change next..."></textarea>
+          <textarea id="message-input" name="message" placeholder="Ask the agent what to inspect or change next..." aria-label="Agent message"></textarea>
           <div class="dock-actions">
             <button id="send-button" class="send-button" type="submit">Send</button>
           </div>

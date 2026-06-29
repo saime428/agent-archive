@@ -740,6 +740,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
 
     assert "Agent Workbench" in index
     assert "message-input" in index
+    assert 'aria-label="Agent message"' in index
+    assert 'aria-label="Search runs"' in index
+    assert 'aria-label="Start terminal chat"' in index
+    assert 'aria-label="File editor"' in index
     assert "Ask the agent what to inspect or change next..." in index
     assert "Start terminal chat" in index
     assert "Waiting for runs..." in index
