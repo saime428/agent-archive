@@ -104,6 +104,24 @@ def test_build_runs_payload_lists_recent_runs(tmp_path: Path) -> None:
     assert payload["workspace"] == str(workspace.resolve())
     assert payload["runs"][0]["run_id"] == "run_test"
     assert payload["runs"][0]["summary_path"].endswith("summary.md")
+    assert payload["runs"][0]["status"] == "ok"
+    assert payload["runs"][0]["risk_level"] == "low"
+
+
+def test_build_runs_payload_marks_failed_runs_attention(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_failed"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_failed\n\n- status: error\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        '{"action":{"action":{"name":"write_file"}},"observation":{"status":"error","summary":"Approval required."}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_runs_payload(workspace, limit=5)
+
+    assert payload["runs"][0]["status"] == "error"
+    assert payload["runs"][0]["risk_level"] == "attention"
 
 
 def test_build_run_detail_payload_includes_summary_and_tool_calls(tmp_path: Path) -> None:
@@ -606,6 +624,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "message-input" in index
     assert "status-bar" in index
     assert "provider-notice" in index
+    assert "run-risk-filter" in index
     assert "api-key-chip" in index
     assert "last-refresh-chip" in index
     assert "refresh-button" in index
@@ -631,6 +650,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "refreshWorkbench" in script
     assert "setInterval" in script
     assert "10000" in script
+    assert "risk_level" in script
+    assert "state.runRiskFilter" in script
     assert "state.openFilePath || state.pendingApproval" in script
     assert "Task Review" in index
     assert "task-review-list" in index

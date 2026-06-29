@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 69% | v0.8 read-only coding workflow is implemented |
-| Overall final goal | 65-70% | Core and first visual shell are usable; packaging and stronger coding workflow remain |
+| Visual Workbench product | 71% | v0.9 run risk filtering starts audit/resilience |
+| Overall final goal | 70% | Core and visual shell are usable; run replay, settings, and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -34,6 +34,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
+| v0.9 | Audit and resilience | Run Risk Filter |
 
 ## Active v0.6 Plan
 
@@ -126,6 +127,17 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.9 | Audit and resilience | Run replay, log filters, workspace risk hints, memory review UI, stronger failure recovery |
 | v1.0 | Local product release | One-command startup, settings page, model switching, desktop packaging, stable docs and smoke tests |
 
+## Active v0.9 Plan
+
+1. Run risk filters
+   - Add `status` and `risk_level` to `/api/runs`.
+   - Render status/risk on the sidebar run list.
+   - Done: Run Risk Filter can show all, low, medium, or attention runs.
+
+2. Run replay
+   - Next: read stored tool calls and reconstruct a replay timeline without
+     executing tools.
+
 ## Current Recommendation
 
 Completed slice: v0.6 Browser Live Events.
@@ -158,11 +170,12 @@ Reason: the Workbench can now suggest verification commands, explain failed
 observations, say plainly whether it is using FakeLLM or DeepSeek, and present
 a read-only patch review checklist.
 
-Next slice: v0.9 audit and resilience.
+Completed slice: v0.9 run risk filters.
 
-Reason: v0.8 is frozen as a read-only coding workflow. The next useful track is
-audit and resilience: run replay, log filters, workspace risk hints, memory
-review UI, and stronger failure recovery.
+Next slice: v0.9 run replay.
+
+Reason: run list filtering now surfaces risky or failed runs quickly. The next
+useful resilience feature is read-only run replay over stored tool calls.
 
 ## Guardrails
 

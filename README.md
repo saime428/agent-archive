@@ -99,6 +99,14 @@ python -m pytest -q
 git diff --check
 ```
 
+## v0.9 Audit and Resilience
+
+v0.9 starts with a read-only Run Risk Filter in the Workbench. The run list now
+shows each run's `status` and `risk_level`, and the sidebar can filter by low,
+medium, or attention runs. This improves visual agent progress from a useful
+Workbench toward a more dependable visual agent without replaying runs or
+executing commands from the browser.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It

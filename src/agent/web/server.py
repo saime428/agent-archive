@@ -214,21 +214,47 @@ def build_tools_payload() -> dict[str, Any]:
 
 
 def build_runs_payload(workspace: Path, *, limit: int = 20) -> dict[str, Any]:
-    runs = RunStore(workspace.resolve()).list_runs(limit=limit)
+    store = RunStore(workspace.resolve())
+    runs = store.list_runs(limit=limit)
     return {
         "workspace": str(workspace.resolve()),
         "runs": [
-            {
-                "run_id": run.run_id,
-                "run_dir": str(run.run_dir),
-                "summary_path": str(run.summary_path),
-                "tool_calls_path": str(run.tool_calls_path),
-                "created_at": run.created_at.isoformat(),
-                "updated_at": run.updated_at.isoformat(),
-            }
+            _build_run_list_item(store, run)
             for run in runs
         ],
     }
+
+
+def _build_run_list_item(store: RunStore, run: Any) -> dict[str, Any]:
+    item = {
+        "run_id": run.run_id,
+        "run_dir": str(run.run_dir),
+        "summary_path": str(run.summary_path),
+        "tool_calls_path": str(run.tool_calls_path),
+        "created_at": run.created_at.isoformat(),
+        "updated_at": run.updated_at.isoformat(),
+        "status": "unknown",
+        "risk_level": "attention",
+    }
+    try:
+        detail = store.show_run(run.run_id)
+    except RunStoreError:
+        return item
+
+    review = _build_task_review(detail.tool_calls, detail.snapshots)
+    failure = _build_failure_summary(detail.tool_calls)
+    workflow = _build_workflow_hints(review)
+    item["status"] = _summary_field(detail.summary, "status") or "unknown"
+    item["risk_level"] = _build_patch_review(review, workflow, failure)["risk_level"]
+    return item
+
+
+def _summary_field(summary: str, name: str) -> str | None:
+    prefix = f"- {name}: "
+    for line in summary.splitlines():
+        if line.startswith(prefix):
+            return line.removeprefix(prefix).strip()
+    return None
 
 
 def build_files_payload(workspace: Path, path: str | None = None) -> dict[str, Any]:

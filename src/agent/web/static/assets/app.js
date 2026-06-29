@@ -4,6 +4,7 @@ const state = {
   sessionId: null,
   pendingApproval: null,
   openFilePath: null,
+  runRiskFilter: "all",
 };
 
 const els = {
@@ -35,6 +36,7 @@ const els = {
   snapshotList: document.querySelector("#snapshot-list"),
   fileList: document.querySelector("#file-list"),
   runSearch: document.querySelector("#run-search"),
+  runRiskFilter: document.querySelector("#run-risk-filter"),
   chatForm: document.querySelector("#chat-form"),
   messageInput: document.querySelector("#message-input"),
   sendButton: document.querySelector("#send-button"),
@@ -150,7 +152,11 @@ function renderTools(tools) {
 
 function renderRuns() {
   const query = els.runSearch.value.trim().toLowerCase();
-  const runs = query ? state.runs.filter((run) => run.run_id.toLowerCase().includes(query)) : state.runs;
+  const runs = state.runs.filter((run) => {
+    const matchesQuery = !query || run.run_id.toLowerCase().includes(query);
+    const matchesRisk = state.runRiskFilter === "all" || run.risk_level === state.runRiskFilter;
+    return matchesQuery && matchesRisk;
+  });
   if (runs.length === 0) {
     els.runList.innerHTML = '<div class="empty-state">No matching runs.</div>';
     return;
@@ -162,9 +168,11 @@ function renderRuns() {
       button.className = `run-item${run.run_id === state.selectedRunId ? " selected" : ""}`;
       button.innerHTML = `
         <div class="run-id"></div>
+        <div class="run-risk"></div>
         <div class="run-meta"></div>
       `;
       button.querySelector(".run-id").textContent = run.run_id;
+      button.querySelector(".run-risk").textContent = `${run.status || "unknown"} / ${run.risk_level || "attention"}`;
       button.querySelector(".run-meta").textContent = new Date(run.updated_at).toLocaleString();
       button.addEventListener("click", () => selectRun(run.run_id));
       return button;
@@ -601,6 +609,10 @@ function denyPendingAction() {
 }
 
 els.runSearch.addEventListener("input", renderRuns);
+els.runRiskFilter.addEventListener("change", () => {
+  state.runRiskFilter = els.runRiskFilter.value;
+  renderRuns();
+});
 els.chatForm.addEventListener("submit", submitChatTurn);
 els.approveButton.addEventListener("click", approvePendingAction);
 els.denyButton.addEventListener("click", denyPendingAction);
