@@ -75,6 +75,9 @@ The output includes `release readiness`, `startup command: agent start`,
 provider/model, settings write policy, packaging status, and the verification
 commands to run manually.
 
+v1.0 Packaging Decision is recorded in `docs/v1.0-packaging-decision.md`:
+binary packaging is deferred; `agent start` remains the release startup path.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or
