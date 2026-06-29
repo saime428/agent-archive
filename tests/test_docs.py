@@ -243,7 +243,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
-    assert "Next slice: v0.9 closeout" in roadmap
+    assert "Completed slice: v0.9 closeout" in roadmap
+    assert "Next slice: v1.0 release prep" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -296,7 +297,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
-    assert "Next slice: v0.9 closeout" in roadmap
+    assert "Completed slice: v0.9 closeout" in roadmap
+    assert "Next slice: v1.0 release prep" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -341,7 +343,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
-    assert "Next slice: v0.9 closeout" in roadmap
+    assert "Completed slice: v0.9 closeout" in roadmap
+    assert "Next slice: v1.0 release prep" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -364,6 +367,9 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "memory_review" in checklist
     assert "Failure Recovery" in checklist
     assert "rollback_available" in checklist
+    assert "v0.9 freeze status" in checklist
+    assert "Audit and Resilience Workbench is frozen" in checklist
+    assert "v0.9 manual smoke" in checklist
     assert "read-only" in checklist
     assert "v0.9 Audit and Resilience" in readme
     assert "Run Risk Filter" in readme
@@ -372,6 +378,9 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Workspace Risk" in readme
     assert "Memory Review" in readme
     assert "Failure Recovery" in readme
+    assert "v0.9 closeout" in readme
+    assert "docs/v0.9-acceptance.md" in readme
+    assert "python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q" in readme
     assert "visual agent progress" in readme
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap
@@ -379,4 +388,5 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Completed slice: v0.9 workspace risk hints" in roadmap
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
-    assert "Next slice: v0.9 closeout" in roadmap
+    assert "Completed slice: v0.9 closeout" in roadmap
+    assert "Next slice: v1.0 release prep" in roadmap

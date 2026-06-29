@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 76% | v0.9 now has run risk filtering, replay, log filters, workspace risk, memory review, and failure recovery |
-| Overall final goal | 75% | Core and visual shell are usable; v0.9 closeout, settings, and packaging remain |
+| Visual Workbench product | 77% | v0.9 audit/resilience is frozen for the current stdlib Workbench |
+| Overall final goal | 76% | Core and visual shell are usable; settings, one-command startup, and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -156,8 +156,8 @@ These percentages are product estimates, not exact engineering metrics.
      renders Failure Recovery guidance without automatic rollback or retry.
 
 7. v0.9 closeout
-   - Next: freeze audit/resilience docs, manual smoke steps, and acceptance
-     status.
+   - Done: `docs/v0.9-acceptance.md` records freeze status, manual smoke, and
+     v1.0 deferrals.
 
 ## Current Recommendation
 
@@ -203,15 +203,17 @@ Completed slice: v0.9 memory review UI.
 
 Completed slice: v0.9 stronger failure recovery.
 
+Completed slice: v0.9 closeout.
+
 Reason: run list filtering surfaces risky or failed runs quickly, Run Replay
 shows the stored timeline without rerunning anything, and Log Filters tame noisy
 trace detail. Workspace Risk now summarizes uncommitted files, snapshots, and
 failed recent runs. Memory Review makes pending candidates and active entries
 visible without browser-side writes. Failure Recovery now gives a read-only path
 for failed runs by pointing to Trace, Failure Summary, rollback availability,
-and terminal verification.
+and terminal verification. v0.9 closeout freezes this audit/resilience layer.
 
-Next slice: v0.9 closeout.
+Next slice: v1.0 release prep.
 
 ## Guardrails
 
