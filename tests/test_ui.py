@@ -81,6 +81,24 @@ def test_build_health_payload_reports_deepseek_provider_status(monkeypatch, tmp_
     assert payload["provider_notice"] == "DeepSeek provider is selected, but DEEPSEEK_API_KEY is missing."
 
 
+def test_build_health_payload_includes_workspace_risk_from_recent_runs(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    run_dir = workspace / ".agent" / "runs" / "run_failed"
+    run_dir.mkdir(parents=True)
+    (run_dir / "summary.md").write_text("# Run run_failed\n\n- status: error\n", encoding="utf-8")
+    (run_dir / "tool_calls.jsonl").write_text(
+        '{"action":{"action":{"name":"run_command"}},"observation":{"status":"error","summary":"Command failed."}}\n',
+        encoding="utf-8",
+    )
+
+    payload = build_health_payload(workspace)
+
+    assert payload["workspace_risk"]["mode"] == "read-only"
+    assert payload["workspace_risk"]["risk_level"] == "attention"
+    assert payload["workspace_risk"]["signals"]["failed_runs"] == 1
+    assert "Review failed recent runs." in payload["workspace_risk"]["checks"]
+
+
 def test_build_tools_payload_reuses_policy_categories() -> None:
     payload = build_tools_payload()
     tools = {tool["name"]: tool for tool in payload["tools"]}
@@ -727,6 +745,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "DeepSeek key" in script
     assert "provider_notice" in script
     assert ".provider-notice" in styles
+    assert "Workspace Risk" in index
+    assert "workspace-risk-list" in index
+    assert "workspace_risk" in script
+    assert "renderWorkspaceRisk" in script
     assert "Last refresh" in script
     assert "Waiting for agent core" in script
     assert "Waiting for approval" in script

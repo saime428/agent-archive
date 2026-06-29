@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import shutil
+import subprocess
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -181,6 +182,7 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "deepseek_api_key_env": api_key_env,
         "deepseek_api_key_present": api_key_present,
         "provider_notice": _provider_notice(str(config["provider"]), api_key_env, api_key_present),
+        "workspace_risk": _build_workspace_risk(workspace.resolve()),
     }
 
 
@@ -190,6 +192,74 @@ def _provider_notice(provider: str, api_key_env: str, api_key_present: bool) -> 
     if not api_key_present:
         return f"DeepSeek provider is selected, but {api_key_env} is missing."
     return "DeepSeek provider is selected."
+
+
+def _build_workspace_risk(workspace: Path) -> dict[str, Any]:
+    uncommitted_files = _git_status_short(workspace)
+    failed_runs = 0
+    snapshot_count = 0
+    try:
+        store = RunStore(workspace)
+        for run in store.list_runs(limit=20):
+            detail = store.show_run(run.run_id)
+            failed_runs += int(bool(_build_failure_summary(detail.tool_calls)["failure_count"]))
+            snapshot_count += len(detail.snapshots)
+    except RunStoreError:
+        pass
+
+    signals = {
+        "uncommitted_files": len(uncommitted_files),
+        "failed_runs": failed_runs,
+        "snapshots": snapshot_count,
+    }
+    checks: list[str] = []
+    if failed_runs:
+        checks.append("Review failed recent runs.")
+    if uncommitted_files:
+        checks.append("Review uncommitted files before running or approving writes.")
+    if snapshot_count:
+        checks.append("Review snapshots before restoring or overwriting files.")
+
+    if failed_runs:
+        risk_level = "attention"
+        summary = f"{failed_runs} failed recent run(s), {len(uncommitted_files)} uncommitted file(s), {snapshot_count} snapshot(s)."
+    elif uncommitted_files or snapshot_count:
+        risk_level = "medium"
+        summary = f"{len(uncommitted_files)} uncommitted file(s), {snapshot_count} snapshot(s), no failed recent runs."
+    else:
+        risk_level = "low"
+        summary = "No failed recent runs, uncommitted files, or snapshots detected."
+        checks.append("No workspace risk action needed.")
+
+    return {
+        "mode": "read-only",
+        "risk_level": risk_level,
+        "summary": summary,
+        "signals": signals,
+        "uncommitted_files": uncommitted_files[:20],
+        "checks": checks,
+    }
+
+
+def _git_status_short(workspace: Path) -> list[str]:
+    if shutil.which("git") is None:
+        return []
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=workspace,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
 def build_config_payload(workspace: Path) -> dict[str, Any]:

@@ -116,6 +116,10 @@ Log Filters narrow the selected run's Trace and Run Replay panels by action,
 status, summary text, or terminal/non-terminal steps. Filtering is local and
 read-only; it does not change durable logs.
 
+Workspace Risk shows a read-only health hint for uncommitted files, failed
+recent runs, and snapshots. It uses the existing `/api/health` refresh path and
+does not execute tests, restore files, or mutate the workspace.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It

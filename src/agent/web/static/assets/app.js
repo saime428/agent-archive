@@ -26,6 +26,7 @@ const els = {
   runState: document.querySelector("#run-state"),
   toolList: document.querySelector("#tool-list"),
   activityLog: document.querySelector("#activity-log"),
+  workspaceRiskList: document.querySelector("#workspace-risk-list"),
   approvalPanel: document.querySelector("#approval-panel"),
   approvalAction: document.querySelector("#approval-action"),
   approvalDetail: document.querySelector("#approval-detail"),
@@ -108,6 +109,37 @@ function renderHealth(health) {
     health.provider === "deepseek" && health.deepseek_api_key_present
       ? "provider-notice ok"
       : "provider-notice warning";
+  renderWorkspaceRisk(health.workspace_risk);
+}
+
+function renderWorkspaceRisk(workspaceRisk) {
+  if (!workspaceRisk) {
+    els.workspaceRiskList.innerHTML = '<div class="empty-state">No workspace risk hints recorded.</div>';
+    return;
+  }
+  const signals = workspaceRisk.signals || {};
+  const rows = [
+    ["Risk", workspaceRisk.risk_level || "low"],
+    ["Summary", workspaceRisk.summary || "No workspace risk summary."],
+    [
+      "Signals",
+      `${signals.uncommitted_files || 0} uncommitted, ${signals.failed_runs || 0} failed run(s), ${signals.snapshots || 0} snapshot(s)`,
+    ],
+    ["Checks", workspaceRisk.checks?.join(" ") || "No workspace risk action needed."],
+  ];
+  els.workspaceRiskList.replaceChildren(
+    ...rows.map(([label, value]) => {
+      const item = document.createElement("article");
+      item.className = "trace-item";
+      item.innerHTML = `
+        <div class="tool-name"></div>
+        <div class="trace-meta"></div>
+      `;
+      item.querySelector(".tool-name").textContent = label;
+      item.querySelector(".trace-meta").textContent = value;
+      return item;
+    }),
+  );
 }
 
 function renderLastRefresh(date = new Date()) {
