@@ -5,6 +5,9 @@ const state = {
   pendingApproval: null,
   openFilePath: null,
   runRiskFilter: "all",
+  selectedDetail: null,
+  logFilterText: "",
+  logFilterTerminal: "all",
 };
 
 const els = {
@@ -38,6 +41,8 @@ const els = {
   fileList: document.querySelector("#file-list"),
   runSearch: document.querySelector("#run-search"),
   runRiskFilter: document.querySelector("#run-risk-filter"),
+  logFilterText: document.querySelector("#log-filter-text"),
+  logFilterTerminal: document.querySelector("#log-filter-terminal"),
   chatForm: document.querySelector("#chat-form"),
   messageInput: document.querySelector("#message-input"),
   sendButton: document.querySelector("#send-button"),
@@ -182,6 +187,7 @@ function renderRuns() {
 }
 
 function renderEmptyRuns() {
+  state.selectedDetail = null;
   els.selectedRunTitle.textContent = "No runs yet";
   els.runState.textContent = "waiting";
   showSummary("Run `agent run` or `agent chat` to create durable logs, then refresh this page.");
@@ -242,6 +248,7 @@ async function selectRun(runId) {
   state.selectedRunId = runId;
   renderRuns();
   const detail = await loadJson(`/api/runs/${encodeURIComponent(runId)}`);
+  state.selectedDetail = detail;
   els.selectedRunTitle.textContent = detail.run_id;
   showSummary(detail.summary || "(summary is empty)");
   const lastCall = detail.tool_calls[detail.tool_calls.length - 1];
@@ -250,9 +257,18 @@ async function selectRun(runId) {
   renderWorkflowHints(detail.workflow);
   renderFailureSummary(detail.failure);
   renderPatchReview(detail.patch_review);
-  renderRunReplay(detail.replay);
-  renderToolCalls(detail.tool_calls);
+  renderSelectedRunLogs();
   renderSnapshots(detail.snapshots);
+}
+
+function renderSelectedRunLogs() {
+  if (!state.selectedDetail) {
+    renderRunReplay(null);
+    renderToolCalls([]);
+    return;
+  }
+  renderRunReplay(state.selectedDetail.replay);
+  renderToolCalls(state.selectedDetail.tool_calls);
 }
 
 function renderTaskReview(review) {
@@ -371,16 +387,33 @@ function renderRunReplay(replay) {
     els.runReplayList.innerHTML = '<div class="empty-state">No replay steps recorded.</div>';
     return;
   }
+  const steps = replay.steps.filter((step) =>
+    matchesLogFilter({
+      action: step.action,
+      status: step.status,
+      summary: step.summary,
+      phase: step.phase,
+      policy: step.policy_decision,
+      terminal: step.terminal,
+    }),
+  );
   const countItem = document.createElement("article");
   countItem.className = "trace-item";
   countItem.innerHTML = `
     <div class="tool-name">Steps</div>
     <div class="trace-meta"></div>
   `;
-  countItem.querySelector(".trace-meta").textContent = `${replay.step_count || replay.steps.length}`;
+  countItem.querySelector(".trace-meta").textContent = `${steps.length}/${replay.step_count || replay.steps.length}`;
+  if (steps.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "No replay steps match filters.";
+    els.runReplayList.replaceChildren(countItem, empty);
+    return;
+  }
   els.runReplayList.replaceChildren(
     countItem,
-    ...replay.steps.map((step) => {
+    ...steps.map((step) => {
       const item = document.createElement("article");
       item.className = "trace-item";
       item.innerHTML = `
@@ -399,15 +432,36 @@ function renderRunReplay(replay) {
 }
 
 function renderToolCalls(toolCalls) {
+  const rows = toolCalls
+    .map((call) => ({
+      action: call.data?.action?.action?.name || "invalid",
+      observation: call.data?.observation?.summary || call.error || "No summary.",
+      phase: call.data?.trace?.phase || "action",
+      policy: call.data?.trace?.policy_decision || "",
+      status: call.data?.observation?.status || (call.valid ? "ok" : "invalid"),
+      terminal: Boolean(call.data?.trace?.terminal),
+      lineNumber: call.line_number,
+    }))
+    .filter((row) =>
+      matchesLogFilter({
+        action: row.action,
+        status: row.status,
+        summary: row.observation,
+        phase: row.phase,
+        policy: row.policy,
+        terminal: row.terminal,
+      }),
+    );
   if (!toolCalls.length) {
     els.toolCallList.innerHTML = '<div class="empty-state">No tool calls recorded.</div>';
     return;
   }
+  if (!rows.length) {
+    els.toolCallList.innerHTML = '<div class="empty-state">No trace rows match filters.</div>';
+    return;
+  }
   els.toolCallList.replaceChildren(
-    ...toolCalls.map((call) => {
-      const action = call.data?.action?.action?.name || "invalid";
-      const observation = call.data?.observation?.summary || call.error || "No summary.";
-      const status = call.data?.observation?.status || (call.valid ? "ok" : "invalid");
+    ...rows.map((row) => {
       const item = document.createElement("article");
       item.className = "trace-item";
       item.innerHTML = `
@@ -415,12 +469,31 @@ function renderToolCalls(toolCalls) {
         <div class="trace-meta"></div>
         <div class="trace-meta"></div>
       `;
-      item.querySelector(".tool-name").textContent = action;
-      item.querySelectorAll(".trace-meta")[0].textContent = `line ${call.line_number} - ${status}`;
-      item.querySelectorAll(".trace-meta")[1].textContent = observation;
+      item.querySelector(".tool-name").textContent = row.action;
+      item.querySelectorAll(".trace-meta")[0].textContent = `line ${row.lineNumber} - ${row.status}`;
+      item.querySelectorAll(".trace-meta")[1].textContent = row.observation;
       return item;
     }),
   );
+}
+
+function matchesLogFilter(row) {
+  const terminal = state.logFilterTerminal;
+  if (terminal === "terminal" && !row.terminal) {
+    return false;
+  }
+  if (terminal === "non-terminal" && row.terminal) {
+    return false;
+  }
+
+  const query = state.logFilterText.trim().toLowerCase();
+  if (!query) {
+    return true;
+  }
+  return [row.action, row.status, row.summary, row.phase, row.policy]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
 }
 
 function renderSnapshots(snapshots) {
@@ -647,6 +720,14 @@ els.runSearch.addEventListener("input", renderRuns);
 els.runRiskFilter.addEventListener("change", () => {
   state.runRiskFilter = els.runRiskFilter.value;
   renderRuns();
+});
+els.logFilterText.addEventListener("input", () => {
+  state.logFilterText = els.logFilterText.value;
+  renderSelectedRunLogs();
+});
+els.logFilterTerminal.addEventListener("change", () => {
+  state.logFilterTerminal = els.logFilterTerminal.value;
+  renderSelectedRunLogs();
 });
 els.chatForm.addEventListener("submit", submitChatTurn);
 els.approveButton.addEventListener("click", approvePendingAction);

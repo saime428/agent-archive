@@ -239,7 +239,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.8 closeout" in roadmap
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap
-    assert "Next slice: v0.9 log filters" in roadmap
+    assert "Completed slice: v0.9 log filters" in roadmap
+    assert "Next slice: v0.9 workspace risk hints" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -288,7 +289,8 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v0.8 closeout" in roadmap
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap
-    assert "Next slice: v0.9 log filters" in roadmap
+    assert "Completed slice: v0.9 log filters" in roadmap
+    assert "Next slice: v0.9 workspace risk hints" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -329,7 +331,8 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: v0.8 closeout" in roadmap
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap
-    assert "Next slice: v0.9 log filters" in roadmap
+    assert "Completed slice: v0.9 log filters" in roadmap
+    assert "Next slice: v0.9 workspace risk hints" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -344,11 +347,15 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Run Replay" in checklist
     assert "stored tool calls" in checklist
     assert "does not execute tools" in checklist
+    assert "Log Filters" in checklist
+    assert "Trace and Run Replay" in checklist
     assert "read-only" in checklist
     assert "v0.9 Audit and Resilience" in readme
     assert "Run Risk Filter" in readme
     assert "Run Replay" in readme
+    assert "Log Filters" in readme
     assert "visual agent progress" in readme
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap
-    assert "Next slice: v0.9 log filters" in roadmap
+    assert "Completed slice: v0.9 log filters" in roadmap
+    assert "Next slice: v0.9 workspace risk hints" in roadmap

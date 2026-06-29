@@ -105,6 +105,17 @@
           <div id="patch-review-list" class="trace-list"></div>
         </section>
         <section class="detail-section">
+          <div class="section-label">Log Filters</div>
+          <div class="log-filter-controls">
+            <input id="log-filter-text" type="search" placeholder="Filter action, status, summary" />
+            <select id="log-filter-terminal" aria-label="Terminal step filter">
+              <option value="all">All steps</option>
+              <option value="terminal">Terminal only</option>
+              <option value="non-terminal">Non-terminal</option>
+            </select>
+          </div>
+        </section>
+        <section class="detail-section">
           <div class="section-label">Run Replay</div>
           <div id="run-replay-list" class="trace-list"></div>
         </section>

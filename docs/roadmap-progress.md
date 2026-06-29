@@ -17,8 +17,8 @@ workflow is actually useful.
 | Track | Estimate | Status |
 | --- | ---: | --- |
 | Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 72% | v0.9 now has run risk filtering and read-only replay |
-| Overall final goal | 71% | Core and visual shell are usable; log filtering, settings, and packaging remain |
+| Visual Workbench product | 73% | v0.9 now has run risk filtering, replay, and log filtering |
+| Overall final goal | 72% | Core and visual shell are usable; workspace hints, settings, and packaging remain |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -34,7 +34,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.6 | Visual Workbench | Local web UI, browser chat, browser confirmation, run trace, file tree, file preview, file editor, snapshots, diff viewer, snapshot restore |
 | v0.7 | Product shell and review | Static shell decision, migration triggers, read-only task review panel, acceptance closeout |
 | v0.8 | Stronger coding workflow | Read-only Workflow Hints, Failure Summary, Provider Notice, Patch Review Helper |
-| v0.9 | Audit and resilience | Run Risk Filter, Run Replay |
+| v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters |
 
 ## Active v0.6 Plan
 
@@ -124,7 +124,7 @@ These percentages are product estimates, not exact engineering metrics.
 | --- | --- | --- |
 | v0.7 | Product shell decision | Move to Vue/Vite only when static UI state becomes painful; package with Electron/Tauri only after browser UI stabilizes |
 | v0.8 | Stronger coding workflow | Test suggestions, failure reading, patch review, git checkpoint UI, branch/commit helpers |
-| v0.9 | Audit and resilience | Log filters, workspace risk hints, memory review UI, stronger failure recovery |
+| v0.9 | Audit and resilience | Workspace risk hints, memory review UI, stronger failure recovery |
 | v1.0 | Local product release | One-command startup, settings page, model switching, desktop packaging, stable docs and smoke tests |
 
 ## Active v0.9 Plan
@@ -139,8 +139,12 @@ These percentages are product estimates, not exact engineering metrics.
      renders a Run Replay panel from stored tool calls without executing tools.
 
 3. Log filters
-   - Next: filter trace/replay detail by status, action name, and terminal
-     state without changing logs.
+   - Done: Log Filters narrow Trace and Run Replay by text and terminal state
+     without changing logs.
+
+4. Workspace risk hints
+   - Next: show read-only workspace-level hints for uncommitted files,
+     snapshots, and failed recent runs.
 
 ## Current Recommendation
 
@@ -178,11 +182,14 @@ Completed slice: v0.9 run risk filters.
 
 Completed slice: v0.9 run replay.
 
-Next slice: v0.9 log filters.
+Completed slice: v0.9 log filters.
 
-Reason: run list filtering surfaces risky or failed runs quickly, and Run Replay
-shows the stored timeline without rerunning anything. The next useful
-resilience feature is filtering noisy trace/replay details.
+Next slice: v0.9 workspace risk hints.
+
+Reason: run list filtering surfaces risky or failed runs quickly, Run Replay
+shows the stored timeline without rerunning anything, and Log Filters tame noisy
+trace detail. The next useful resilience feature is a read-only workspace risk
+summary.
 
 ## Guardrails
 

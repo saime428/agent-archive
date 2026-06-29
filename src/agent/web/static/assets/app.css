@@ -391,6 +391,23 @@ h2 {
   font-weight: 700;
 }
 
+.log-filter-controls {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+#log-filter-text,
+#log-filter-terminal {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #e1e6e7;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #ffffff;
+  color: #455154;
+}
+
 .trace-item {
   display: grid;
   gap: 6px;

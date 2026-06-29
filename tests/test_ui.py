@@ -713,6 +713,13 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "patch-review-list" in index
     assert "renderPatchReview" in script
     assert "risk_level" in script
+    assert "Log Filters" in index
+    assert "log-filter-text" in index
+    assert "log-filter-terminal" in index
+    assert "state.logFilterText" in script
+    assert "state.logFilterTerminal" in script
+    assert "renderSelectedRunLogs" in script
+    assert "matchesLogFilter" in script
     assert "Run Replay" in index
     assert "run-replay-list" in index
     assert "renderRunReplay" in script

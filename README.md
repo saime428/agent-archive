@@ -112,6 +112,10 @@ selected run from stored `tool_calls.jsonl` records, showing each action,
 observation status, summary, policy decision, and terminal step. It does not
 call the model again, execute tools, or mutate workspace files.
 
+Log Filters narrow the selected run's Trace and Run Replay panels by action,
+status, summary text, or terminal/non-terminal steps. Filtering is local and
+read-only; it does not change durable logs.
+
 ## v0.6 Visual Workbench
 
 v0.6 starts the Apix-style visual direction with a local web workbench. It
