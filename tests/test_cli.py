@@ -77,10 +77,12 @@ def test_release_doctor_reports_release_readiness(tmp_path) -> None:
     assert "test command: python -m pytest -q" in result.output
 
 
-def test_run_reports_fake_llm_result() -> None:
+def test_run_reports_fake_llm_result(tmp_path) -> None:
     runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
 
-    result = runner.invoke(app, ["run", "inspect project"])
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
 
     assert result.exit_code == 0
     assert "inspect project" in result.output

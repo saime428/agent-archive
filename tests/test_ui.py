@@ -847,4 +847,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "Snapshots" in index
     assert "Diff Viewer" in index
     assert ".activity-list" in styles
+    assert "height: 100vh" in styles
+    assert "overflow: hidden" in styles
+    assert "grid-template-rows: auto auto minmax(0, 1fr) auto" in styles
     assert ".workbench-shell" in styles

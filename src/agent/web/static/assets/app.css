@@ -22,8 +22,9 @@
 body {
   margin: 0;
   min-width: 980px;
-  min-height: 100vh;
+  height: 100vh;
   background: #eef1f3;
+  overflow: hidden;
 }
 
 button,
@@ -35,7 +36,7 @@ textarea {
 .workbench-shell {
   display: grid;
   grid-template-columns: 56px 260px minmax(460px, 1fr) 340px;
-  min-height: 100vh;
+  height: 100vh;
   gap: 0;
   background: #f7f8f9;
 }
@@ -187,10 +188,11 @@ textarea {
 }
 
 .main-stage {
-  position: relative;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100vh;
   min-width: 0;
+  min-height: 0;
   background: #f3f5f6;
 }
 
@@ -278,9 +280,10 @@ h2 {
 }
 
 .conversation-panel {
-  margin: 28px auto 130px;
   width: min(860px, calc(100% - 56px));
-  min-height: 460px;
+  min-height: 0;
+  margin: 20px auto;
+  overflow: auto;
 }
 
 .conversation-header {
@@ -299,7 +302,8 @@ h2 {
 
 .summary-view {
   width: 100%;
-  min-height: 420px;
+  min-height: 0;
+  max-height: 100%;
   margin: 0;
   overflow: auto;
   border: 1px solid #d9e1e3;
@@ -313,12 +317,9 @@ h2 {
 }
 
 .input-dock {
-  position: absolute;
-  right: 28px;
-  bottom: 26px;
-  left: 28px;
   max-width: 860px;
-  margin: 0 auto;
+  width: min(860px, calc(100% - 56px));
+  margin: 0 auto 18px;
   border: 1px solid #dfe7e8;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
