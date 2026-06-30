@@ -10,10 +10,15 @@ const state = {
   sessionId: null,
   openFilePath: null,
   pendingApproval: null,
+  chatQuery: "",
+  fileQuery: "",
+  fileEntries: [],
+  fileCurrentPath: ".",
 };
 
 const els = {
-  navButtons: [...document.querySelectorAll(".nav-button")],
+  navButtons: [...document.querySelectorAll(".nav-button[data-view]")],
+  contextPanels: [...document.querySelectorAll(".context-panel")],
   views: [...document.querySelectorAll(".app-view")],
   workspace: document.querySelector("#workspace-pill"),
   provider: document.querySelector("#provider-chip"),
@@ -22,10 +27,13 @@ const els = {
   sessionChip: document.querySelector("#session-chip"),
   providerNotice: document.querySelector("#provider-notice"),
   refreshButton: document.querySelector("#refresh-button"),
+  railDiagnosticsToggle: document.querySelector("#rail-diagnostics-toggle"),
+  backToChatButton: document.querySelector("#back-to-chat-button"),
   diagnosticsToggle: document.querySelector("#diagnostics-toggle"),
   diagnosticsClose: document.querySelector("#diagnostics-close"),
   diagnosticsDrawer: document.querySelector("#diagnostics-drawer"),
   chatList: document.querySelector("#chat-list"),
+  chatSearch: document.querySelector("#chat-search"),
   resourceChatList: document.querySelector("#resource-chat-list"),
   chatThread: document.querySelector("#chat-thread"),
   chatForm: document.querySelector("#chat-form"),
@@ -42,6 +50,7 @@ const els = {
   selectedRunTitle: document.querySelector("#selected-run-title"),
   runState: document.querySelector("#run-state"),
   fileList: document.querySelector("#file-list"),
+  fileSearch: document.querySelector("#file-search"),
   selectedFileTitle: document.querySelector("#selected-file-title"),
   summary: document.querySelector("#summary-view"),
   fileEditor: document.querySelector("#file-editor"),
@@ -101,8 +110,18 @@ function bindEvents() {
   }
   els.refreshButton.addEventListener("click", () => refreshWorkbench());
   els.diagnosticsToggle.addEventListener("click", () => els.diagnosticsDrawer.classList.toggle("hidden"));
+  els.railDiagnosticsToggle.addEventListener("click", () => els.diagnosticsDrawer.classList.toggle("hidden"));
   els.diagnosticsClose.addEventListener("click", () => els.diagnosticsDrawer.classList.add("hidden"));
+  els.backToChatButton.addEventListener("click", () => activateView("chat"));
   els.newChatButton.addEventListener("click", startNewChat);
+  els.chatSearch.addEventListener("input", () => {
+    state.chatQuery = els.chatSearch.value.trim().toLowerCase();
+    renderChats();
+  });
+  els.fileSearch.addEventListener("input", () => {
+    state.fileQuery = els.fileSearch.value.trim().toLowerCase();
+    renderFileEntries();
+  });
   els.chatForm.addEventListener("submit", submitChatTurn);
   els.approveButton.addEventListener("click", approvePendingAction);
   els.denyButton.addEventListener("click", denyPendingAction);
@@ -117,6 +136,9 @@ function activateView(view) {
   }
   for (const section of els.views) {
     section.classList.toggle("active", section.dataset.view === state.activeView);
+  }
+  for (const panel of els.contextPanels) {
+    panel.classList.toggle("active", panel.dataset.view === state.activeView);
   }
 }
 
@@ -179,7 +201,11 @@ function renderSettings() {
 }
 
 function renderChats() {
-  const items = state.chats.map((chat) => chatButton(chat));
+  const filtered = state.chats.filter((chat) => {
+    const haystack = `${chat.latest_user || ""} ${chat.latest_final || ""} ${chat.status || ""}`.toLowerCase();
+    return !state.chatQuery || haystack.includes(state.chatQuery);
+  });
+  const items = filtered.map((chat) => chatButton(chat));
   replaceOrEmpty(els.chatList, items, "No chat sessions yet.");
   replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
 }
@@ -217,7 +243,7 @@ function startNewChat() {
 
 function renderChatThread(turns) {
   if (!turns.length) {
-    els.chatThread.innerHTML = '<div class="empty-state">Ask the local agent to inspect, edit, or explain this workspace.</div>';
+    els.chatThread.innerHTML = '<div class="empty-state">New chat</div>';
     return;
   }
   const bubbles = [];
@@ -361,11 +387,22 @@ async function loadFiles(path) {
 }
 
 function renderFiles(entries, currentPath) {
+  state.fileEntries = entries;
+  state.fileCurrentPath = currentPath;
+  renderFileEntries();
+}
+
+function renderFileEntries() {
   const items = [];
+  const currentPath = state.fileCurrentPath;
   if (currentPath !== ".") {
     items.push(fileButton("..", parentPath(currentPath), "dir"));
   }
-  for (const entry of entries) {
+  for (const entry of state.fileEntries) {
+    const haystack = `${entry.name} ${entry.path}`.toLowerCase();
+    if (state.fileQuery && !haystack.includes(state.fileQuery)) {
+      continue;
+    }
     items.push(fileButton(entry.name, entry.path, entry.kind));
   }
   replaceOrEmpty(els.fileList, items, "No files found.");

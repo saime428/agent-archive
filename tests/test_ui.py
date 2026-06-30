@@ -884,11 +884,16 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "message-input" in index
     assert 'aria-label="Message"' in index
     assert 'aria-label="File editor"' in index
-    assert "Ask the local agent..." in index
+    assert "Inputs..." in index
     assert "chat-thread" in index
+    assert "context-column" in index
+    assert "stage-column" in index
+    assert "assistant-column" in index
+    assert "windows-title-bar" in index
+    assert "window-dot" not in index
     assert "diagnostics-drawer" in index
     assert "diagnostics-toggle" in index
-    assert "status-bar" in index
+    assert "rail-diagnostics-toggle" in index
     assert "api-key-chip" in index
     assert "/api/health" in script
     assert "/api/config" in script
@@ -922,6 +927,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "details-pane" not in index
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
-    assert ".workbench-shell" in styles
+    assert ".apix-shell" in styles
+    assert ".apix-body" in styles
     assert ".app-view.active" in styles
     assert ".diagnostics-drawer" in styles
+    assert ".windows-title-bar" in styles
