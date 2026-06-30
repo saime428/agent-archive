@@ -77,7 +77,7 @@ async function postJson(path, payload) {
 
 async function boot() {
   try {
-    addActivityEvent("Workbench boot", "Loading health, tools, runs, and files.");
+    addActivityEvent("Opening workspace", "Loading health, tools, runs, and files.");
     const [health, tools, runs] = await Promise.all([
       loadJson("/api/health"),
       loadJson("/api/tools"),
@@ -94,9 +94,9 @@ async function boot() {
       renderEmptyRuns();
     }
     await loadFiles(".");
-    addActivityEvent("Workbench ready", "Local state loaded.");
+    addActivityEvent("Workspace ready", "Local state loaded.");
   } catch (error) {
-    addActivityEvent("Workbench error", error instanceof Error ? error.message : String(error));
+    addActivityEvent("Workspace load failed", error instanceof Error ? error.message : String(error));
     showSummary(error instanceof Error ? error.message : String(error));
   }
 }
@@ -759,12 +759,12 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
   }
   els.sendButton.disabled = true;
   els.runState.textContent = approveOnce ? "approved" : "running";
-  showSummary(`${approveOnce ? "Submitting approved action" : "Submitting browser chat turn"}...\n\n${message}`);
-  addActivityEvent(approveOnce ? "Submitting approved action" : "Submitting browser chat turn", message);
-  addActivityEvent("Waiting for agent core", "Calling /api/chat/turn.");
+  showSummary(`${approveOnce ? "Submitting approved action" : "Submitting request"}...\n\n${message}`);
+  addActivityEvent(approveOnce ? "Submitting approved action" : "Submitting request", message);
+  addActivityEvent("Waiting for run engine", "Calling /api/chat/turn.");
   try {
     const turn = await postJson("/api/chat/turn", { session_id: state.sessionId, message, approve_once: approveOnce });
-    addActivityEvent("Run response received", `run_id: ${turn.run_id}`);
+    addActivityEvent("Run finished", `run_id: ${turn.run_id}`);
     state.sessionId = turn.session_id;
     els.sessionChip.textContent = `session: ${turn.session_id}`;
     els.selectedRunTitle.textContent = turn.run_id;

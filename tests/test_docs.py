@@ -255,6 +255,7 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 local secret flow" in roadmap
     assert "Next slice: hold for user-directed feature work" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
@@ -320,6 +321,7 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 local secret flow" in roadmap
     assert "Next slice: hold for user-directed feature work" in roadmap
 
 
@@ -557,15 +559,19 @@ def test_post_v10_polish_backlog_records_priorities() -> None:
     assert "Do not do yet" in backlog
     assert "Tighten Workbench copy and empty states. Done." in backlog
     assert "Review accessibility basics for buttons, labels, and panel headings. Done." in backlog
-    assert "safe secret flow" in backlog
+    assert "safe local secret flow" in backlog
+    assert ".agent/secrets.env" in backlog
     assert "packaged executable" in backlog
     assert "post-v1.0 Polish Backlog" in readme
     assert "docs/post-v1.0-polish-backlog.md" in readme
+    assert ".agent/secrets.env" in readme
+    assert "Do not put API keys in `.agent/config.toml`" in readme
     assert "Completed slice: post-v1.0 polish backlog" in roadmap
     assert "Completed slice: post-v1.0 first polish item" in roadmap
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 local secret flow" in roadmap
     assert "Next slice: hold for user-directed feature work" in roadmap
 
 
@@ -597,8 +603,10 @@ def test_post_v10_polish_closeout_records_freeze() -> None:
     assert "copy and empty states" in closeout
     assert "manual smoke checklist" in closeout
     assert "accessibility labels" in closeout
-    assert "safe secret flow" in closeout
+    assert "safe local secret flow" in closeout
+    assert ".agent/secrets.env" in closeout
     assert "post-v1.0 Polish Closeout" in readme
     assert "docs/post-v1.0-polish-closeout.md" in readme
     assert "Completed slice: post-v1.0 closeout" in roadmap
+    assert "Completed slice: post-v1.0 local secret flow" in roadmap
     assert "Next slice: hold for user-directed feature work" in roadmap

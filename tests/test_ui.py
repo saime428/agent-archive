@@ -46,6 +46,19 @@ def test_build_health_payload_reports_deepseek_key_presence_without_leaking_valu
     assert "sk-test-secret-value" not in repr(payload)
 
 
+def test_build_health_payload_reads_workspace_secrets_without_leaking_value(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    secrets_path = workspace / ".agent" / "secrets.env"
+    secrets_path.parent.mkdir(parents=True)
+    secrets_path.write_text("DEEPSEEK_API_KEY=local-secret\n", encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    payload = build_health_payload(workspace)
+
+    assert payload["deepseek_api_key_present"] is True
+    assert "local-secret" not in repr(payload)
+
+
 def test_build_health_payload_reports_missing_deepseek_key(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -740,11 +753,11 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
 
     assert "Agent Workbench" in index
     assert "message-input" in index
-    assert 'aria-label="Agent message"' in index
+    assert 'aria-label="Message"' in index
     assert 'aria-label="Search runs"' in index
     assert 'aria-label="Start terminal chat"' in index
     assert 'aria-label="File editor"' in index
-    assert "Ask the agent what to inspect or change next..." in index
+    assert "Describe the next inspection or change..." in index
     assert "Start terminal chat" in index
     assert "Waiting for runs..." in index
     assert "status-bar" in index
@@ -829,7 +842,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "settings_readiness" in script
     assert "renderSettingsReadiness" in script
     assert "Last refresh" in script
-    assert "Waiting for agent core" in script
+    assert "Waiting for run engine" in script
     assert "Waiting for approval" in script
     assert "Snapshots" in index
     assert "Diff Viewer" in index

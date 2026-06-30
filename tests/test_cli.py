@@ -581,6 +581,35 @@ def test_provider_smoke_deepseek_reports_success(monkeypatch, tmp_path) -> None:
     assert calls[0]["api_key_env"] == "DEEPSEEK_API_KEY"
 
 
+def test_provider_smoke_deepseek_uses_workspace_secrets_env(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    secrets_path = workspace / ".agent" / "secrets.env"
+    secrets_path.parent.mkdir(parents=True)
+    secrets_path.write_text("DEEPSEEK_API_KEY=local-secret\n", encoding="utf-8")
+    calls = []
+
+    def fake_smoke(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            api_key_env="DEEPSEEK_API_KEY",
+            status="ok",
+            action_name="done",
+            final="smoke ok",
+        )
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr("agent.cli.smoke_deepseek_provider", fake_smoke)
+
+    result = runner.invoke(app, ["provider", "smoke", "deepseek", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert calls[0]["api_key"] == "local-secret"
+    assert "local-secret" not in result.output
+
+
 def test_provider_smoke_deepseek_missing_key_returns_nonzero(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"

@@ -7,15 +7,16 @@ This backlog keeps polish work ordered after the local visual agent release prep
 1. Tighten Workbench copy and empty states. Done.
 2. Add a small manual smoke checklist for real DeepSeek chat and browser chat. Done.
 3. Review accessibility basics for buttons, labels, and panel headings. Done.
+4. Add a safe local secret flow with `.agent/secrets.env`. Done.
 
 ## Do later
 
-1. Add a safe secret flow before any browser-side provider settings writes.
+1. Add browser-side provider settings writes only after config rollback semantics exist.
 2. Build a packaged executable only when non-developer distribution is required.
 3. Consider a desktop shell only after the browser Workbench stops being enough.
 
 ## Do not do yet
 
-1. Do not store API keys in project config.
+1. Do not store API keys in project config; use environment variables or `.agent/secrets.env`.
 2. Do not add PyInstaller or Nuitka just to have a packaged executable.
 3. Do not migrate to Vue, Vite, Electron, or Tauri until static UI state becomes painful.

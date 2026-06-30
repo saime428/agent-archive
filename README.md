@@ -94,6 +94,17 @@ post-v1.0 Polish Closeout is recorded in
 `docs/post-v1.0-polish-closeout.md`; speculative polish is frozen until there
 is user-directed feature work.
 
+Local DeepSeek secrets can live in `.agent/secrets.env`, which is ignored by
+git:
+
+```text
+DEEPSEEK_API_KEY=...
+```
+
+`agent doctor`, `agent release doctor`, provider smoke, terminal chat, and the
+Workbench read this file before checking key presence. A real environment
+variable still wins if both are set. Do not put API keys in `.agent/config.toml`.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

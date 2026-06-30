@@ -24,6 +24,7 @@ from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.factory import make_llm
+from agent.secrets import load_workspace_secrets
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 from agent.tools.filesystem import create_snapshot
 
@@ -169,6 +170,7 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
 
 
 def build_health_payload(workspace: Path) -> dict[str, Any]:
+    load_workspace_secrets(workspace)
     config_payload = build_config_payload(workspace)
     config = config_payload["config"]
     api_key_env = str(config["deepseek_api_key_env"])
@@ -620,6 +622,7 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         raise ValueError("approve_once must be a boolean.")
 
     root = workspace.resolve()
+    load_workspace_secrets(root)
     config, diagnostics = load_config(root)
     state = ConversationState.load(root, session_id) if session_id else ConversationState.create(root)
     session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)

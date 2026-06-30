@@ -19,6 +19,7 @@ from agent.core.skills import SkillError, discover_skills, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekError, smoke_deepseek_provider
 from agent.llm.factory import make_llm as make_llm_client
+from agent.secrets import load_workspace_secrets
 from agent.web.server import serve_workbench
 
 app = typer.Typer(help="Minimal Python CLI agent.")
@@ -57,6 +58,7 @@ def doctor() -> None:
 
 
 def _print_doctor(cwd: Path) -> None:
+    load_workspace_secrets(cwd)
     try:
         config, diagnostics = load_config(cwd)
     except ConfigError as exc:
@@ -93,6 +95,7 @@ def release_doctor(
 ) -> None:
     """Report release readiness without running tests or network checks."""
     workspace = (cwd or Path.cwd()).resolve()
+    load_workspace_secrets(workspace)
     try:
         config, diagnostics = load_config(workspace)
     except ConfigError as exc:
@@ -128,6 +131,7 @@ def run(
 ) -> None:
     """Run an agent task."""
     workspace = (cwd or Path.cwd()).resolve()
+    load_workspace_secrets(workspace)
     try:
         config, diagnostics = load_config(
             workspace,
@@ -202,6 +206,7 @@ def start(
 
 
 def _start_workbench(workspace: Path, host: str, port: int) -> None:
+    load_workspace_secrets(workspace)
     try:
         load_config(workspace)
     except ConfigError as exc:
@@ -228,6 +233,7 @@ def chat(
 ) -> None:
     """Start an interactive agent chat."""
     workspace = (cwd or Path.cwd()).resolve()
+    load_workspace_secrets(workspace)
     try:
         config, diagnostics = load_config(
             workspace,
@@ -373,6 +379,7 @@ def provider_smoke(
         console.print(f"Unsupported provider smoke target: {provider_name}")
         raise typer.Exit(code=1)
     workspace = (cwd or Path.cwd()).resolve()
+    load_workspace_secrets(workspace)
     try:
         config, diagnostics = load_config(workspace, overrides=ConfigOverrides(model=model))
     except ConfigError as exc:
