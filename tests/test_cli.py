@@ -138,6 +138,17 @@ def test_start_command_is_workbench_start_alias(monkeypatch, tmp_path) -> None:
     assert calls[0]["port"] == 8767
 
 
+def test_start_agent_launcher_points_at_workbench() -> None:
+    launcher = Path(__file__).resolve().parents[1] / "start-agent.cmd"
+    script = launcher.read_text(encoding="utf-8")
+
+    assert 'cd /d "%~dp0"' in script
+    assert 'set "PYTHONPATH=src"' in script
+    assert 'set "AGENT_PORT=8765"' in script
+    assert "http://127.0.0.1:%AGENT_PORT%/" in script
+    assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' in script
+
+
 def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
