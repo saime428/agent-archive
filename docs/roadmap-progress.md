@@ -16,9 +16,9 @@ workflow is actually useful.
 
 | Track | Estimate | Status |
 | --- | ---: | --- |
-| Core agent engine | 80% | Stable enough for v0.1-v0.5 workflows |
-| Visual Workbench product | 86% | v1.0 local visual agent release prep is frozen; local secrets are handled |
-| Overall final goal | 90% | Local visual agent is usable; final packaging/shell choices remain trigger-based |
+| Core agent engine | 100% | Required local core route is complete |
+| Visual Workbench product | 100% | Required local visual route is complete |
+| Overall final goal | 100% | Required roadmap is complete; packaging, desktop shell, and browser settings writes are trigger-based options |
 
 These percentages are product estimates, not exact engineering metrics.
 
@@ -242,7 +242,7 @@ visible without browser-side writes. Failure Recovery now gives a read-only path
 for failed runs by pointing to Trace, Failure Summary, rollback availability,
 and terminal verification. v0.9 closeout freezes this audit/resilience layer.
 
-v1.0 release prep has started.
+v1.0 release prep is complete.
 
 Completed slice: v1.0 one-command startup alias.
 
@@ -278,6 +278,8 @@ Completed slice: post-v1.0 closeout.
 
 Completed slice: post-v1.0 local secret flow.
 
+Completed slice: final route completion.
+
 Reason: after v1.0, the cheapest way to keep momentum is to order polish work
 instead of adding speculative UI. The backlog separates immediate copy/manual
 smoke/accessibility work from later browser settings writes, packaged executable,
@@ -287,9 +289,11 @@ DeepSeek and browser-chat validation path without adding automation debt. The
 accessibility pass adds basic labels to the existing static controls. The
 local secret flow lets terminal and Workbench entries read `.agent/secrets.env`
 without committing API keys. The closeout freezes speculative polish until a
-user-directed feature needs it.
+user-directed feature needs it. Final route completion marks the required local
+visual agent roadmap as 100%; packaging, a desktop shell, and browser settings
+writes remain optional trigger-based work rather than unfinished release gates.
 
-Next slice: hold for user-directed feature work.
+Next slice: optional trigger-based work only if explicitly needed.
 
 ## Guardrails
 

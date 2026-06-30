@@ -1,6 +1,6 @@
 # post-v1.0 Polish Closeout
 
-Polish pass is frozen.
+Polish pass is frozen. The required local visual agent route is complete.
 
 Completed in this pass:
 

@@ -226,6 +226,7 @@ def test_roadmap_progress_records_overall_plan() -> None:
 
     assert "Product Goal" in roadmap
     assert "Current Progress Estimate" in roadmap
+    assert "| Overall final goal | 100%" in roadmap
     assert "v0.6 Browser Live Events" in roadmap
     assert "Activity panel" in roadmap
     assert "v0.6 Auto-refresh and Status Bar" in roadmap
@@ -244,7 +245,7 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
-    assert "v1.0 release prep has started" in roadmap
+    assert "v1.0 release prep is complete" in roadmap
     assert "Completed slice: v1.0 settings readiness" in roadmap
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
@@ -256,7 +257,8 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
     assert "Completed slice: post-v1.0 local secret flow" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Completed slice: final route completion" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
 
@@ -310,7 +312,7 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
-    assert "v1.0 release prep has started" in roadmap
+    assert "v1.0 release prep is complete" in roadmap
     assert "Completed slice: v1.0 settings readiness" in roadmap
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
@@ -322,7 +324,7 @@ def test_v07_acceptance_closeout_records_workbench_freeze() -> None:
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
     assert "Completed slice: post-v1.0 local secret flow" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v08_acceptance_records_workflow_hints_slice() -> None:
@@ -368,7 +370,7 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
-    assert "v1.0 release prep has started" in roadmap
+    assert "v1.0 release prep is complete" in roadmap
     assert "Completed slice: v1.0 settings readiness" in roadmap
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
@@ -379,7 +381,7 @@ def test_v08_acceptance_records_workflow_hints_slice() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v09_acceptance_records_run_risk_filters_slice() -> None:
@@ -424,7 +426,7 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Completed slice: v0.9 memory review UI" in roadmap
     assert "Completed slice: v0.9 stronger failure recovery" in roadmap
     assert "Completed slice: v0.9 closeout" in roadmap
-    assert "v1.0 release prep has started" in roadmap
+    assert "v1.0 release prep is complete" in roadmap
     assert "Completed slice: v1.0 settings readiness" in roadmap
     assert "Completed slice: v1.0 settings page decision" in roadmap
     assert "Completed slice: v1.0 release readiness doctor" in roadmap
@@ -435,7 +437,7 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v10_release_prep_documents_start_command() -> None:
@@ -457,7 +459,7 @@ def test_v10_release_prep_documents_start_command() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v10_settings_page_decision_keeps_settings_read_only() -> None:
@@ -481,7 +483,7 @@ def test_v10_settings_page_decision_keeps_settings_read_only() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v10_release_readiness_doctor_is_documented() -> None:
@@ -499,7 +501,7 @@ def test_v10_release_readiness_doctor_is_documented() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v10_packaging_decision_defers_binary_packaging() -> None:
@@ -520,7 +522,7 @@ def test_v10_packaging_decision_defers_binary_packaging() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_v10_acceptance_closeout_records_release_freeze() -> None:
@@ -545,7 +547,7 @@ def test_v10_acceptance_closeout_records_release_freeze() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_post_v10_polish_backlog_records_priorities() -> None:
@@ -572,7 +574,7 @@ def test_post_v10_polish_backlog_records_priorities() -> None:
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
     assert "Completed slice: post-v1.0 local secret flow" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_post_v10_manual_smoke_checklist_is_documented() -> None:
@@ -590,7 +592,7 @@ def test_post_v10_manual_smoke_checklist_is_documented() -> None:
     assert "Completed slice: post-v1.0 manual smoke checklist" in roadmap
     assert "Completed slice: post-v1.0 accessibility pass" in roadmap
     assert "Completed slice: post-v1.0 closeout" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
 
 
 def test_post_v10_polish_closeout_records_freeze() -> None:
@@ -609,4 +611,4 @@ def test_post_v10_polish_closeout_records_freeze() -> None:
     assert "docs/post-v1.0-polish-closeout.md" in readme
     assert "Completed slice: post-v1.0 closeout" in roadmap
     assert "Completed slice: post-v1.0 local secret flow" in roadmap
-    assert "Next slice: hold for user-directed feature work" in roadmap
+    assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap

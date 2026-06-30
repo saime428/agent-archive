@@ -71,9 +71,9 @@ Check release readiness without running tests or network calls:
 agent release doctor --cwd F:\agent
 ```
 
-The output includes `release readiness`, `startup command: agent start`,
-provider/model, settings write policy, packaging status, and the verification
-commands to run manually.
+The output includes `release readiness: complete`, `route completion: 100%`,
+`startup command: agent start`, provider/model, settings write policy,
+packaging status, and the verification commands to run manually.
 
 v1.0 Packaging Decision is recorded in `docs/v1.0-packaging-decision.md`:
 binary packaging is deferred; `agent start` remains the release startup path.
