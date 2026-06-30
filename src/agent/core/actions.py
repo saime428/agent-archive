@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 ACTION_PROTOCOL_VERSION = "agent-action-v1"
@@ -52,8 +52,8 @@ class DoneArgs(StrictModel):
 
 class AskUserArgs(StrictModel):
     question: str
-    options: list[str]
-    reason: str
+    options: list[str] = Field(default_factory=list)
+    reason: str = "The model requested more information."
 
 
 class ListDirArgs(StrictModel):
@@ -267,6 +267,13 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "read_pptx": ReadPptxArgs,
     "write_markdown_report": WriteMarkdownReportArgs,
 }
+ARG_ALIASES: dict[str, dict[str, str]] = {
+    "read_file": {"file_path": "path"},
+    "read_pdf": {"file_path": "path"},
+    "read_docx": {"file_path": "path"},
+    "read_xlsx": {"file_path": "path"},
+    "read_pptx": {"file_path": "path"},
+}
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}
 MODEL_METADATA_KEYS = {
@@ -330,7 +337,7 @@ def parse_model_action(
             {"tool": name},
         )
 
-    args = _validate_args(name, action_obj["args"])
+    args = _validate_args(name, _normalize_args(name, action_obj["args"]))
 
     return InternalAction(
         run_id=run_id,
@@ -475,6 +482,14 @@ def _validate_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
         ) from exc
 
     return parsed.model_dump()
+
+
+def _normalize_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(args)
+    for alias, target in ARG_ALIASES.get(name, {}).items():
+        if alias in normalized and target not in normalized:
+            normalized[target] = normalized.pop(alias)
+    return normalized
 
 
 def _format_action_id(action_index: int) -> str:

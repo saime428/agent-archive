@@ -506,6 +506,40 @@ def test_run_once_repairs_invalid_action_args_then_executes_done(tmp_path) -> No
     assert result.observation.data == {"final": "Args repaired."}
 
 
+def test_run_once_repair_prompt_includes_arg_schema_details(tmp_path) -> None:
+    llm = RepairLLM(
+        [
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "create_parents": False},
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {
+                        "final": "Schema repaired.",
+                        "changed_files": [],
+                        "next_steps": [],
+                    },
+                },
+            },
+        ]
+    )
+
+    result = run_once("repair args", llm, cwd=tmp_path, run_id="run_repair_schema")
+
+    repair_prompt = llm.messages_by_call[1][-1]["content"]
+    assert result.observation.status == "ok"
+    assert "Invalid args for action: write_file" in repair_prompt
+    assert "content" in repair_prompt
+    assert "Valid action args examples" in repair_prompt
+    assert '"write_file"' in repair_prompt
+
+
 def test_run_once_limits_repair_prompt_raw_response_excerpt(tmp_path) -> None:
     long_raw = "x" * 200
     llm = RepairLLM(

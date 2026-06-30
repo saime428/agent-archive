@@ -8,149 +8,231 @@
   </head>
   <body>
     <div class="workbench-shell">
-      <nav class="rail" aria-label="Workbench navigation">
+      <nav class="rail" aria-label="Primary navigation">
         <div class="brand-mark">A</div>
-        <button class="rail-button active" type="button" title="Chat">C</button>
-        <button class="rail-button" type="button" title="Runs">R</button>
-        <button class="rail-button" type="button" title="Tools">T</button>
-        <button class="rail-button" type="button" title="Config">S</button>
+        <button class="nav-button active" type="button" data-view="chat">Chat</button>
+        <button class="nav-button" type="button" data-view="editor">Editor</button>
+        <button class="nav-button" type="button" data-view="resources">Resources</button>
+        <button class="nav-button" type="button" data-view="settings">Settings</button>
       </nav>
 
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <button class="collapse-button" type="button" title="Toggle sidebar" aria-label="Toggle sidebar">=</button>
-          <input id="run-search" type="search" placeholder="Search runs" aria-label="Search runs" />
-        </div>
-        <select id="run-risk-filter" aria-label="Run risk filter">
-          <option value="all">All risks</option>
-          <option value="attention">Attention</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <button class="new-run-button" type="button" aria-label="Start terminal chat">Start terminal chat</button>
-        <section>
-          <div class="section-label">Recent runs</div>
-          <div id="run-list" class="run-list"></div>
-        </section>
-        <section class="sidebar-section">
-          <div class="section-label">Files</div>
-          <div id="file-list" class="file-list"></div>
-        </section>
-      </aside>
-
-      <main class="main-stage">
+      <main class="app-main">
         <header class="topbar">
           <div>
-            <div class="eyebrow">Local workspace</div>
+            <div class="eyebrow">Local agent</div>
             <h1>Agent Workbench</h1>
           </div>
           <div id="status-bar" class="status-bar" aria-label="Workbench status">
-            <span id="workspace-pill" class="workspace-pill">Loading workspace</span>
-            <span id="provider-chip" class="pill">provider</span>
-            <span id="model-chip" class="pill">model</span>
-            <span id="api-key-chip" class="pill muted">DeepSeek key</span>
-            <span id="session-chip" class="pill muted">new browser session</span>
-            <span id="last-refresh-chip" class="pill muted">Last refresh: never</span>
-            <button id="refresh-button" class="refresh-button" type="button">Refresh</button>
+            <span id="workspace-pill" class="status-pill">Loading workspace</span>
+            <span id="provider-chip" class="status-pill">provider</span>
+            <span id="model-chip" class="status-pill">model</span>
+            <span id="api-key-chip" class="status-pill muted">DeepSeek key</span>
+            <span id="session-chip" class="status-pill muted">new session</span>
+            <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+            <button id="diagnostics-toggle" class="ghost-button" type="button">Diagnostics</button>
           </div>
         </header>
+
         <div id="provider-notice" class="provider-notice" role="status">Checking provider...</div>
 
-        <section class="conversation-panel" aria-label="Run summary and Diff Viewer">
-          <div class="conversation-header">
-            <div>
-              <div class="eyebrow">Latest run</div>
-              <h2 id="selected-run-title">No run selected</h2>
+        <section id="view-chat" class="app-view active" data-view="chat" aria-label="Chat">
+          <aside class="list-panel">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">Sessions</div>
+                <h2>Chats</h2>
+              </div>
+              <button id="new-chat-button" class="ghost-button" type="button">New</button>
             </div>
-            <div class="conversation-actions">
-              <button id="save-file-button" class="diff-button hidden" type="button">Save</button>
-              <div id="run-state" class="state-chip">read-only</div>
+            <div id="chat-list" class="stack-list"></div>
+          </aside>
+
+          <section class="chat-panel">
+            <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
+            <form id="chat-form" class="input-dock" aria-label="Chat entry">
+              <textarea id="message-input" name="message" placeholder="Ask the local agent..." aria-label="Message"></textarea>
+              <button id="send-button" class="primary-button" type="submit">Send</button>
+            </form>
+          </section>
+
+          <aside class="list-panel">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">Runs</div>
+                <h2 id="selected-run-title">No run selected</h2>
+              </div>
+              <span id="run-state" class="state-chip">idle</span>
             </div>
-          </div>
-          <pre id="summary-view" class="summary-view">Waiting for runs...</pre>
-          <textarea id="file-editor" class="summary-view hidden" spellcheck="false" aria-label="File editor"></textarea>
+            <div id="run-list" class="stack-list"></div>
+          </aside>
         </section>
 
-        <form id="chat-form" class="input-dock" aria-label="Chat entry">
-          <textarea id="message-input" name="message" placeholder="Describe the next inspection or change..." aria-label="Message"></textarea>
-          <div class="dock-actions">
-            <button id="send-button" class="send-button" type="submit">Send</button>
-          </div>
-        </form>
+        <section id="view-editor" class="app-view" data-view="editor" aria-label="Editor">
+          <aside class="list-panel">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">Workspace</div>
+                <h2>Files</h2>
+              </div>
+            </div>
+            <div id="file-list" class="stack-list"></div>
+          </aside>
+          <section class="editor-panel">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">Editor</div>
+                <h2 id="selected-file-title">Select a file</h2>
+              </div>
+              <button id="save-file-button" class="primary-button hidden" type="button">Save file</button>
+            </div>
+            <pre id="summary-view" class="summary-view">Open a text file or select a run.</pre>
+            <textarea id="file-editor" class="file-editor hidden" spellcheck="false" aria-label="File editor"></textarea>
+          </section>
+        </section>
+
+        <section id="view-resources" class="app-view" data-view="resources" aria-label="Resources">
+          <section class="resource-grid">
+            <article class="resource-panel">
+              <div class="panel-header">
+                <div>
+                  <div class="eyebrow">Sessions</div>
+                  <h2>Conversation history</h2>
+                </div>
+              </div>
+              <div id="resource-chat-list" class="stack-list"></div>
+            </article>
+            <article class="resource-panel">
+              <div class="panel-header">
+                <div>
+                  <div class="eyebrow">Runs</div>
+                  <h2>Execution history</h2>
+                </div>
+              </div>
+              <div id="resource-run-list" class="stack-list"></div>
+            </article>
+            <article class="resource-panel">
+              <div class="panel-header">
+                <div>
+                  <div class="eyebrow">Memory</div>
+                  <h2>Memory review</h2>
+                </div>
+              </div>
+              <div id="resource-memory-list" class="trace-list"></div>
+            </article>
+            <article class="resource-panel">
+              <div class="panel-header">
+                <div>
+                  <div class="eyebrow">Rollback</div>
+                  <h2>Snapshots</h2>
+                </div>
+              </div>
+              <div id="snapshot-list" class="trace-list"></div>
+            </article>
+          </section>
+        </section>
+
+        <section id="view-settings" class="app-view" data-view="settings" aria-label="Settings">
+          <form id="settings-form" class="settings-panel">
+            <div class="panel-header">
+              <div>
+                <div class="eyebrow">Runtime</div>
+                <h2>Settings</h2>
+              </div>
+              <button class="primary-button" type="submit">Save settings</button>
+            </div>
+            <label>
+              Provider
+              <select id="settings-provider" name="provider">
+                <option value="deepseek">deepseek</option>
+                <option value="fake">fake</option>
+              </select>
+            </label>
+            <label>
+              Model
+              <input id="settings-model" name="model" type="text" />
+            </label>
+            <label>
+              Sandbox
+              <select id="settings-sandbox" name="sandbox">
+                <option value="workspace-write">workspace-write</option>
+                <option value="read-only">read-only</option>
+              </select>
+            </label>
+            <label>
+              Approval
+              <select id="settings-approval" name="approval">
+                <option value="risky-confirm">risky-confirm</option>
+                <option value="always">always</option>
+              </select>
+            </label>
+            <label>
+              Default skills
+              <input id="settings-skills" name="default_skills" type="text" />
+            </label>
+            <label class="check-row">
+              <input id="settings-dry-run" name="dry_run" type="checkbox" />
+              Dry run
+            </label>
+            <div id="settings-status" class="settings-status">Settings are read from local config.</div>
+          </form>
+        </section>
       </main>
 
-      <aside class="details-pane">
-        <section class="detail-section">
-          <div class="section-label">Tool catalog</div>
-          <div id="tool-list" class="tool-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Activity</div>
-          <div id="activity-log" class="activity-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Workspace Risk</div>
-          <div id="workspace-risk-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Memory Review</div>
-          <div id="memory-review-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Settings Readiness</div>
-          <div id="settings-readiness-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Task Review</div>
+      <section id="approval-panel" class="approval-panel hidden" aria-label="Approval">
+        <div>
+          <div class="eyebrow">Approval</div>
+          <h3 id="approval-action">No approval pending</h3>
+          <p id="approval-detail"></p>
+        </div>
+        <div class="approval-actions">
+          <button id="approve-button" class="primary-button" type="button">Approve</button>
+          <button id="deny-button" class="ghost-button" type="button">Deny</button>
+        </div>
+      </section>
+
+      <aside id="diagnostics-drawer" class="diagnostics-drawer hidden" aria-label="Run diagnostics">
+        <div class="panel-header">
+          <div>
+            <div class="eyebrow">Run diagnostics</div>
+            <h2>Details</h2>
+          </div>
+          <button id="diagnostics-close" class="ghost-button" type="button">Close</button>
+        </div>
+        <section class="diagnostic-section">
+          <h3>Task Review</h3>
           <div id="task-review-list" class="trace-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Workflow Hints</div>
+        <section class="diagnostic-section">
+          <h3>Workflow Hints</h3>
           <div id="workflow-hint-list" class="trace-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Failure Summary</div>
+        <section class="diagnostic-section">
+          <h3>Failure Summary</h3>
           <div id="failure-summary-list" class="trace-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Patch Review</div>
+        <section class="diagnostic-section">
+          <h3>Patch Review</h3>
           <div id="patch-review-list" class="trace-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Failure Recovery</div>
+        <section class="diagnostic-section">
+          <h3>Failure Recovery</h3>
           <div id="failure-recovery-list" class="trace-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Log Filters</div>
-          <div class="log-filter-controls">
-            <input id="log-filter-text" type="search" placeholder="Filter action, status, summary" />
-            <select id="log-filter-terminal" aria-label="Terminal step filter">
-              <option value="all">All steps</option>
-              <option value="terminal">Terminal only</option>
-              <option value="non-terminal">Non-terminal</option>
-            </select>
-          </div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Run Replay</div>
+        <section class="diagnostic-section">
+          <h3>Run Replay</h3>
           <div id="run-replay-list" class="trace-list"></div>
         </section>
-        <section id="approval-panel" class="detail-section approval-panel hidden">
-          <div class="section-label">Approval</div>
-          <div id="approval-action" class="tool-name">No approval pending</div>
-          <div id="approval-detail" class="trace-meta"></div>
-          <div class="approval-actions">
-            <button id="approve-button" class="approval-button" type="button">Approve</button>
-            <button id="deny-button" class="approval-button secondary" type="button">Deny</button>
-          </div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Trace</div>
+        <section class="diagnostic-section">
+          <h3>Trace</h3>
           <div id="tool-call-list" class="trace-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Snapshots</div>
-          <div id="snapshot-list" class="trace-list"></div>
+        <section class="diagnostic-section">
+          <h3>Workspace Risk</h3>
+          <div id="workspace-risk-list" class="trace-list"></div>
+        </section>
+        <section class="diagnostic-section">
+          <h3>Settings Readiness</h3>
+          <div id="settings-readiness-list" class="trace-list"></div>
         </section>
       </aside>
     </div>

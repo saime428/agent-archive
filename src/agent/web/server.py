@@ -6,6 +6,7 @@ import mimetypes
 import os
 import shutil
 import subprocess
+import tomllib
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -70,6 +71,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/config":
                     self._send_json(build_config_payload(root))
                     return
+                if path == "/api/chats":
+                    self._send_json(build_chats_payload(root))
+                    return
                 if path == "/api/tools":
                     self._send_json(build_tools_payload())
                     return
@@ -91,6 +95,10 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                         )
                     )
                     return
+                if path.startswith("/api/chats/"):
+                    session_id = path.rsplit("/", 1)[-1]
+                    self._send_json(build_chat_payload(root, session_id))
+                    return
                 if path.startswith("/api/runs/"):
                     run_id = path.rsplit("/", 1)[-1]
                     self._send_json(build_run_detail_payload(root, run_id))
@@ -111,6 +119,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             try:
                 if path == "/api/chat/turn":
                     self._send_json(build_chat_turn_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/config":
+                    self._send_json(build_save_config_payload(root, self._read_json_body()))
                     return
                 if path == "/api/snapshot/restore":
                     self._send_json(build_restore_snapshot_payload(root, self._read_json_body()))
@@ -364,6 +375,126 @@ def build_config_payload(workspace: Path) -> dict[str, Any]:
             "warnings": diagnostics.warnings,
         },
     }
+
+
+def build_save_config_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    root = workspace.resolve()
+    config_path = root / ".agent" / "config.toml"
+    existing = _read_project_config(config_path)
+    updates = _validated_config_updates(request)
+    existing.update(updates)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(_dump_toml(existing), encoding="utf-8")
+    payload = build_config_payload(root)
+    payload["status"] = "ok"
+    return payload
+
+
+def build_chats_payload(workspace: Path, *, limit: int = 30) -> dict[str, Any]:
+    root = workspace.resolve()
+    chats_root = root / ".agent" / "chats"
+    states: list[ConversationState] = []
+    if chats_root.is_dir():
+        for session_dir in chats_root.iterdir():
+            if not session_dir.is_dir():
+                continue
+            try:
+                states.append(ConversationState.load(root, session_dir.name))
+            except (OSError, ValueError, KeyError, json.JSONDecodeError, TypeError):
+                continue
+    states.sort(key=lambda item: item.updated_at, reverse=True)
+    return {
+        "workspace": str(root),
+        "chats": [_chat_list_item(state) for state in states[:limit]],
+    }
+
+
+def build_chat_payload(workspace: Path, session_id: str) -> dict[str, Any]:
+    state = ConversationState.load(workspace.resolve(), session_id)
+    return {
+        "session_id": state.session_id,
+        "created_at": state.created_at,
+        "updated_at": state.updated_at,
+        "turn_count": len(state.turns),
+        "turns": [asdict(turn) for turn in state.turns],
+    }
+
+
+def _chat_list_item(state: ConversationState) -> dict[str, Any]:
+    latest = state.turns[-1] if state.turns else None
+    return {
+        "session_id": state.session_id,
+        "created_at": state.created_at,
+        "updated_at": state.updated_at,
+        "turn_count": len(state.turns),
+        "latest_user": latest.user if latest else "",
+        "latest_final": latest.final if latest else "",
+        "status": latest.status if latest else "empty",
+    }
+
+
+def _read_project_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"Could not parse config file {path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigError(f"Config file {path} must contain a TOML table.")
+    return dict(raw)
+
+
+def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"provider", "model", "sandbox", "approval", "dry_run", "default_skills"}
+    updates: dict[str, Any] = {}
+    for key, value in request.items():
+        if key not in allowed:
+            continue
+        if key == "provider":
+            if value not in {"fake", "deepseek"}:
+                raise ValueError("provider must be fake or deepseek.")
+            updates[key] = value
+        elif key == "model":
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("model must be a non-empty string.")
+            updates[key] = value.strip()
+        elif key == "sandbox":
+            if value not in {"read-only", "workspace-write"}:
+                raise ValueError("sandbox must be read-only or workspace-write.")
+            updates[key] = value
+        elif key == "approval":
+            if value == "never":
+                raise ValueError("browser config cannot disable approvals.")
+            if value not in {"risky-confirm", "always"}:
+                raise ValueError("approval must be risky-confirm or always.")
+            updates[key] = value
+        elif key == "dry_run":
+            if not isinstance(value, bool):
+                raise ValueError("dry_run must be a boolean.")
+            updates[key] = value
+        elif key == "default_skills":
+            if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
+                raise ValueError("default_skills must be a list of non-empty strings.")
+            updates[key] = [item.strip() for item in value]
+    return updates
+
+
+def _dump_toml(values: dict[str, Any]) -> str:
+    lines = [f"{key} = {_toml_value(value)}" for key, value in values.items()]
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=True)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise ValueError(f"Unsupported config value type: {type(value).__name__}")
 
 
 def build_tools_payload() -> dict[str, Any]:
@@ -630,12 +761,14 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
     turn = session.state.turns[-1]
     error = result.observation.error
     error_code = str(error.code) if error is not None else None
+    repair_count = _repair_count(result.observations)
     return {
         "session_id": session.state.session_id,
         "turn_count": len(session.state.turns),
         "run_id": turn.run_id,
         "status": turn.status,
         "completed": turn.completed,
+        "display_status": _display_status(turn.completed, error_code, turn.status, turn.terminal_reason),
         "terminal_reason": turn.terminal_reason,
         "final": turn.final,
         "last_action": turn.last_action,
@@ -646,7 +779,31 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         "approval_required": error_code == "APPROVAL_REQUIRED",
         "requested_action": result.action.action.name,
         "config_warnings": diagnostics.warnings,
+        "repair_count": repair_count,
+        "has_repair_noise": repair_count > 0,
     }
+
+
+def _repair_count(observations: list[Any]) -> int:
+    count = 0
+    for observation in observations[:-1]:
+        error = getattr(observation, "error", None)
+        details = getattr(error, "details", None)
+        if isinstance(details, dict) and "repair_attempt" in details:
+            count += 1
+    return count
+
+
+def _display_status(completed: bool, error_code: str | None, status: str, terminal_reason: str) -> str:
+    if completed:
+        return "completed"
+    if terminal_reason == "ask_user":
+        return "ask_user"
+    if error_code == "APPROVAL_REQUIRED":
+        return "approval_required"
+    if status == "error":
+        return "error"
+    return status
 
 
 def _approve_once_handler():

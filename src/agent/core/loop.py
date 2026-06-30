@@ -427,18 +427,42 @@ def _build_repair_message(
     repair_attempt: int,
 ) -> dict[str, str]:
     raw_response_excerpt = _raw_response_excerpt(raw_response, context.budget)
+    details = _repair_details(exc)
     return {
         "role": "user",
         "content": (
             "Your previous response could not be parsed as a valid JSON action.\n"
             f"Error code: {exc.code}\n"
             f"Error message: {exc.message}\n"
+            f"{details}"
             f"Repair attempt: {repair_attempt + 1} of {context.budget.repair_attempts}\n"
             "Return exactly one valid JSON action object with top-level keys "
             '"message" and "action". Do not include markdown fences or extra text.\n'
             f"Previous response excerpt:\n{raw_response_excerpt}"
         ),
     }
+
+
+def _repair_details(exc: ActionParseError) -> str:
+    lines: list[str] = []
+    errors = exc.details.get("errors")
+    if isinstance(errors, list) and errors:
+        lines.append("Argument errors:")
+        for error in errors[:5]:
+            if not isinstance(error, dict):
+                continue
+            loc = ".".join(str(part) for part in error.get("loc", [])) or "args"
+            message = str(error.get("msg") or error.get("type") or "invalid")
+            lines.append(f"- {loc}: {message}")
+    lines.extend(
+        [
+            "Valid action args examples:",
+            '- read_file: {"path":"README.md","start_line":null,"max_lines":null}',
+            '- ask_user: {"question":"What should I do next?","options":[],"reason":"The model requested more information."}',
+            '- write_file: {"path":"notes.txt","content":"text","create_parents":false}',
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _raw_response_excerpt(raw_response: Any, budget: ContextBudget) -> str:

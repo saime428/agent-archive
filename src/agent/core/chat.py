@@ -294,4 +294,10 @@ def _result_terminal_reason(result: RunResult) -> str:
 def _final_from_result(result: RunResult) -> str:
     data = result.observation.data or {}
     final = data.get("final")
-    return "" if final is None else str(final)
+    if final is not None:
+        return str(final)
+    if result.action.action.name == "ask_user":
+        question = data.get("question")
+        if question is not None:
+            return str(question)
+    return ""

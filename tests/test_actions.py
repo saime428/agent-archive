@@ -129,6 +129,46 @@ def test_parse_model_action_rejects_extra_fields() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_read_file_file_path_alias() -> None:
+    action = parse_model_action(
+        {
+            "message": "Read file.",
+            "action": {
+                "name": "read_file",
+                "args": {"file_path": "pyproject.toml"},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "read_file"
+    assert action.action.args == {"path": "pyproject.toml", "start_line": None, "max_lines": None}
+
+
+def test_parse_model_action_accepts_minimal_ask_user_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Ask.",
+            "action": {
+                "name": "ask_user",
+                "args": {"question": "Please describe the task."},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "ask_user"
+    assert action.action.args == {
+        "question": "Please describe the task.",
+        "options": [],
+        "reason": "The model requested more information.",
+    }
+
+
 def test_parse_model_action_accepts_search_files_args() -> None:
     action = parse_model_action(
         {

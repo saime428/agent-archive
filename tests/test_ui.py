@@ -6,7 +6,9 @@ from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
     build_health_payload,
+    build_chat_payload,
     build_chat_turn_payload,
+    build_chats_payload,
     build_config_payload,
     build_diff_payload,
     build_file_payload,
@@ -14,10 +16,32 @@ from agent.web.server import (
     build_restore_snapshot_payload,
     build_run_detail_payload,
     build_runs_payload,
+    build_save_config_payload,
     build_save_file_payload,
     build_tools_payload,
     static_file_path,
 )
+
+
+class RepairThenDoneLLM:
+    def __init__(self) -> None:
+        self.index = 0
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None):
+        self.index += 1
+        if self.index == 1:
+            return "{not-json"
+        return {
+            "message": "Ready.",
+            "action": {
+                "name": "done",
+                "args": {
+                    "final": "已就绪，等待用户描述任务。",
+                    "changed_files": [],
+                    "next_steps": [],
+                },
+            },
+        }
 
 
 def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path) -> None:
@@ -32,6 +56,44 @@ def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path)
     assert payload["config"]["provider"] == "fake"
     assert payload["config"]["mode"] == "auto"
     assert str(config_path.resolve()) in payload["diagnostics"]["loaded_files"]
+
+
+def test_build_save_config_payload_writes_project_config_without_secrets(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    payload = build_save_config_payload(
+        workspace,
+        {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "sandbox": "workspace-write",
+            "approval": "risky-confirm",
+            "dry_run": True,
+            "default_skills": ["code-dev"],
+            "api_key": "must-not-be-written",
+        },
+    )
+
+    config_text = (workspace / ".agent" / "config.toml").read_text(encoding="utf-8")
+    assert payload["status"] == "ok"
+    assert payload["config"]["provider"] == "deepseek"
+    assert payload["config"]["dry_run"] is True
+    assert 'default_skills = ["code-dev"]' in config_text
+    assert "must-not-be-written" not in config_text
+    assert "api_key" not in config_text
+
+
+def test_build_save_config_payload_rejects_disabling_approvals(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    try:
+        build_save_config_payload(workspace, {"approval": "never"})
+    except ValueError as exc:
+        assert "cannot disable approvals" in str(exc)
+    else:
+        raise AssertionError("browser config must not disable approvals")
 
 
 def test_build_health_payload_reports_deepseek_key_presence_without_leaking_value(monkeypatch, tmp_path: Path) -> None:
@@ -621,6 +683,9 @@ def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: P
     assert payload["final"] == "FakeLLM received task: inspect project"
     assert (workspace / ".agent" / "chats" / payload["session_id"] / "session.json").is_file()
     assert (workspace / ".agent" / "runs" / payload["run_id"] / "summary.md").is_file()
+    assert payload["repair_count"] == 0
+    assert payload["has_repair_noise"] is False
+    assert payload["display_status"] == "completed"
 
 
 def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> None:
@@ -636,6 +701,62 @@ def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> Non
     assert second["session_id"] == first["session_id"]
     assert second["turn_count"] == 2
     assert second["final"] == "FakeLLM received task: second"
+
+
+def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: RepairThenDoneLLM())
+
+    payload = build_chat_turn_payload(workspace, {"message": "你好"})
+
+    assert payload["status"] == "ok"
+    assert payload["completed"] is True
+    assert payload["display_status"] == "completed"
+    assert payload["repair_count"] == 1
+    assert payload["has_repair_noise"] is True
+    assert payload["final"] == "已就绪，等待用户描述任务。"
+
+
+def test_build_chat_turn_payload_displays_ask_user_question(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Ask.",
+                "action": {
+                    "name": "ask_user",
+                    "args": {"question": "Please describe the task you want me to complete."},
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    payload = build_chat_turn_payload(workspace, {"message": "你好"})
+
+    assert payload["status"] == "ok"
+    assert payload["completed"] is False
+    assert payload["terminal_reason"] == "ask_user"
+    assert payload["display_status"] == "ask_user"
+    assert payload["final"] == "Please describe the task you want me to complete."
+
+
+def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    first = build_chat_turn_payload(workspace, {"message": "hello"})
+    build_chat_turn_payload(workspace, {"session_id": first["session_id"], "message": "second"})
+
+    listing = build_chats_payload(workspace)
+    detail = build_chat_payload(workspace, first["session_id"])
+
+    assert listing["chats"][0]["session_id"] == first["session_id"]
+    assert listing["chats"][0]["turn_count"] == 2
+    assert listing["chats"][0]["latest_user"] == "second"
+    assert detail["session_id"] == first["session_id"]
+    assert [turn["user"] for turn in detail["turns"]] == ["hello", "second"]
 
 
 def test_build_chat_turn_payload_rejects_empty_message(tmp_path: Path) -> None:
@@ -752,21 +873,26 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
     assert "Agent Workbench" in index
+    assert "Chat" in index
+    assert "Editor" in index
+    assert "Resources" in index
+    assert "Settings" in index
+    assert 'data-view="chat"' in index
+    assert 'data-view="editor"' in index
+    assert 'data-view="resources"' in index
+    assert 'data-view="settings"' in index
     assert "message-input" in index
     assert 'aria-label="Message"' in index
-    assert 'aria-label="Search runs"' in index
-    assert 'aria-label="Start terminal chat"' in index
     assert 'aria-label="File editor"' in index
-    assert "Describe the next inspection or change..." in index
-    assert "Start terminal chat" in index
-    assert "Waiting for runs..." in index
+    assert "Ask the local agent..." in index
+    assert "chat-thread" in index
+    assert "diagnostics-drawer" in index
+    assert "diagnostics-toggle" in index
     assert "status-bar" in index
-    assert "provider-notice" in index
-    assert "run-risk-filter" in index
     assert "api-key-chip" in index
-    assert "last-refresh-chip" in index
-    assert "refresh-button" in index
     assert "/api/health" in script
+    assert "/api/config" in script
+    assert "/api/chats" in script
     assert "/api/runs" in script
     assert "/api/files" in script
     assert "/api/file" in script
@@ -783,71 +909,19 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "showApprovalPanel" in script
     assert "Save file" in script
     assert "Restore" in script
-    assert "activity-log" in index
-    assert "addActivityEvent" in script
     assert "refreshWorkbench" in script
-    assert "setInterval" in script
-    assert "10000" in script
-    assert "risk_level" in script
-    assert "state.runRiskFilter" in script
-    assert "state.openFilePath || state.pendingApproval" in script
-    assert "Task Review" in index
-    assert "task-review-list" in index
-    assert "renderTaskReview" in script
-    assert "manual_checks" in script
-    assert "Workflow Hints" in index
-    assert "workflow-hint-list" in index
-    assert "renderWorkflowHints" in script
-    assert "verification_commands" in script
-    assert "Failure Summary" in index
-    assert "failure-summary-list" in index
-    assert "renderFailureSummary" in script
-    assert "latest_failure" in script
-    assert "Patch Review" in index
-    assert "patch-review-list" in index
-    assert "renderPatchReview" in script
-    assert "risk_level" in script
-    assert "Failure Recovery" in index
-    assert "failure-recovery-list" in index
-    assert "renderFailureRecovery" in script
-    assert "rollback_available" in script
-    assert "Log Filters" in index
-    assert "log-filter-text" in index
-    assert "log-filter-terminal" in index
-    assert "state.logFilterText" in script
-    assert "state.logFilterTerminal" in script
-    assert "renderSelectedRunLogs" in script
-    assert "matchesLogFilter" in script
-    assert "Run Replay" in index
-    assert "run-replay-list" in index
-    assert "renderRunReplay" in script
-    assert "step_count" in script
+    assert "renderDiagnostics" in script
     assert "DeepSeek key" in script
-    assert "provider_notice" in script
-    assert ".provider-notice" in styles
-    assert "Workspace Risk" in index
-    assert "workspace-risk-list" in index
-    assert "workspace_risk" in script
-    assert "renderWorkspaceRisk" in script
-    assert "Memory Review" in index
-    assert "memory-review-list" in index
-    assert "memory_review" in script
-    assert "renderMemoryReview" in script
-    assert "No runs match the current search or risk filter." in script
-    assert "No runs yet" in script
-    assert "Use the chat box or run agent start from a terminal to create the first run." in script
-    assert "No snapshots recorded for this run." in script
-    assert "Settings Readiness" in index
-    assert "settings-readiness-list" in index
-    assert "settings_readiness" in script
-    assert "renderSettingsReadiness" in script
-    assert "Last refresh" in script
-    assert "Waiting for run engine" in script
+    assert "display_status" in script
+    assert "repair_count" in script
     assert "Waiting for approval" in script
     assert "Snapshots" in index
-    assert "Diff Viewer" in index
-    assert ".activity-list" in styles
+    assert "Task Review" in index
+    assert "Patch Review" in index
+    assert "Trace" in index
+    assert "details-pane" not in index
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
-    assert "grid-template-rows: auto auto minmax(0, 1fr) auto" in styles
     assert ".workbench-shell" in styles
+    assert ".app-view.active" in styles
+    assert ".diagnostics-drawer" in styles
