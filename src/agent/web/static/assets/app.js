@@ -11,7 +11,7 @@ const state = {
   sessionId: null,
   openFilePath: null,
   pendingApproval: null,
-  activeSidePanel: "chat",
+  activeSidePanel: "review",
   chatQuery: "",
   fileQuery: "",
   fileEntries: [],
@@ -26,6 +26,7 @@ const els = {
   provider: document.querySelector("#provider-chip"),
   model: document.querySelector("#model-chip"),
   apiKey: document.querySelector("#api-key-chip"),
+  webSearch: document.querySelector("#web-search-chip"),
   sessionChip: document.querySelector("#session-chip"),
   providerNotice: document.querySelector("#provider-notice"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -70,6 +71,7 @@ const els = {
   settingsApproval: document.querySelector("#settings-approval"),
   settingsSkills: document.querySelector("#settings-skills"),
   settingsDryRun: document.querySelector("#settings-dry-run"),
+  settingsWebSearch: document.querySelector("#settings-web-search"),
   settingsStatus: document.querySelector("#settings-status"),
   settingsKeyStatus: document.querySelector("#settings-key-status"),
   settingsToolList: document.querySelector("#settings-tool-list"),
@@ -206,6 +208,7 @@ function renderHealth() {
   els.provider.textContent = `provider: ${health.provider || "unknown"}`;
   els.model.textContent = `model: ${health.model || "unknown"}`;
   els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"}`;
+  els.webSearch.textContent = `联网搜索：${state.config?.config?.web_search_enabled ? "开" : "关"}`;
   els.providerNotice.textContent = health.provider_notice || "";
   els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
   if (els.editorWorkspacePath) {
@@ -234,6 +237,7 @@ function renderSettings() {
   els.settingsApproval.value = config.approval || "risky-confirm";
   els.settingsSkills.value = (config.default_skills || ["code-dev"]).join(", ");
   els.settingsDryRun.checked = Boolean(config.dry_run);
+  els.settingsWebSearch.checked = Boolean(config.web_search_enabled);
   const readiness = state.health?.settings_readiness || {};
   renderRows(els.settingsReadinessList, [
     ["Status", readiness.status || "ready"],
@@ -256,7 +260,7 @@ function renderChats() {
   replaceOrEmpty(els.chatList, items, "No chat sessions yet.");
   replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
   replaceOrEmpty(els.resourceChatMainList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
-  replaceOrEmpty(els.sideChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
+  renderSideChat();
 }
 
 function chatButton(chat) {
@@ -278,6 +282,7 @@ async function selectChat(sessionId) {
   els.sessionChip.textContent = `session: ${payload.session_id}`;
   renderChats();
   renderChatThread(payload.turns || []);
+  renderSideChat();
   activateView("chat");
 }
 
@@ -287,6 +292,7 @@ function startNewChat() {
   els.sessionChip.textContent = "new session";
   renderChats();
   renderChatThread([]);
+  renderSideChat();
   els.messageInput.focus();
 }
 
@@ -299,17 +305,30 @@ function renderChatThread(turns) {
   for (const turn of turns) {
     bubbles.push(messageBubble("user", turn.user));
     const body = turn.final || turn.last_observation_summary || turn.status || "No response.";
-    bubbles.push(messageBubble("agent", body, turn.terminal_reason, turn.thinking_text || ""));
+    bubbles.push(messageBubble("agent", friendlyChatText(body), friendlyTerminalReason(turn.terminal_reason), turn.thinking_text || ""));
   }
   els.chatThread.replaceChildren(...bubbles);
   els.chatThread.scrollTop = els.chatThread.scrollHeight;
+}
+
+function renderSideChat() {
+  const chat = state.selectedChat;
+  if (!chat) {
+    replaceOrEmpty(els.sideChatList, [], "No current thread.");
+    return;
+  }
+  renderRows(els.sideChatList, [
+    ["Session", chat.session_id],
+    ["Turns", `${chat.turn_count || 0}`],
+    ["Updated", chat.updated_at ? new Date(chat.updated_at).toLocaleString() : ""],
+  ]);
 }
 
 function messageBubble(role, body, meta = "", thinkingText = "") {
   const article = document.createElement("article");
   article.className = `message-bubble ${role}`;
   article.innerHTML = '<div class="message-role"></div><div class="message-body"></div><div class="message-meta"></div>';
-  article.querySelector(".message-role").textContent = role === "user" ? "You" : "Agent";
+  article.querySelector(".message-role").textContent = role === "user" ? "你" : "Agent";
   article.querySelector(".message-body").textContent = body;
   article.querySelector(".message-meta").textContent = meta;
   if (role === "agent" && thinkingText) {
@@ -324,6 +343,25 @@ function messageBubble(role, body, meta = "", thinkingText = "") {
     article.append(details);
   }
   return article;
+}
+
+function friendlyChatText(text) {
+  const value = String(text || "");
+  const messages = {
+    "Action requires approval before execution.": "这个操作需要你先在右侧审查里批准。",
+  };
+  return messages[value] || value;
+}
+
+function friendlyTerminalReason(reason) {
+  const value = String(reason || "");
+  const messages = {
+    "error:APPROVAL_REQUIRED": "需要审批",
+    done: "完成",
+    ask_user: "等待补充",
+    pending: "运行中",
+  };
+  return messages[value] || value;
 }
 
 function renderThinkingText(container, text) {
@@ -388,8 +426,8 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
     els.sessionChip.textContent = `session: ${turn.session_id}`;
     if (turn.approval_required) {
       showApprovalPanel(
-        `Approve ${turn.requested_action}`,
-        turn.last_observation_summary || "Action requires approval.",
+        `审批 ${turn.requested_action}`,
+        friendlyChatText(turn.last_observation_summary || "这个操作需要你先批准。"),
         async () => sendChatTurn(message, { approveOnce: true }),
       );
     } else {
@@ -618,6 +656,7 @@ async function saveSettings(event) {
     sandbox: els.settingsSandbox.value,
     approval: els.settingsApproval.value,
     dry_run: els.settingsDryRun.checked,
+    web_search_enabled: els.settingsWebSearch.checked,
     default_skills: els.settingsSkills.value.split(",").map((item) => item.trim()).filter(Boolean),
   };
   try {

@@ -850,6 +850,92 @@ def test_run_once_executes_search_files_then_done(tmp_path) -> None:
     assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
 
 
+def test_run_once_denies_web_search_when_disabled(tmp_path) -> None:
+    result = run_once(
+        "search web",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Search web.",
+                    "action": {
+                        "name": "web_search",
+                        "args": {"query": "codex news", "max_results": 3},
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_web_search_disabled",
+    )
+
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code.value == "POLICY_DENIED"
+    assert "disabled" in result.observation.summary
+
+
+def test_run_once_executes_web_search_when_enabled(monkeypatch, tmp_path) -> None:
+    def fake_search(query: str, max_results: int) -> list[dict[str, str]]:
+        assert query == "codex news"
+        assert max_results == 2
+        return [{"title": "Codex", "url": "https://example.com/codex", "snippet": "News"}]
+
+    monkeypatch.setattr("agent.tools.web.search_web", fake_search)
+    result = run_once(
+        "search web",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Search web.",
+                    "action": {
+                        "name": "web_search",
+                        "args": {"query": "codex news", "max_results": 2},
+                    },
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {"final": "Found Codex news.", "changed_files": [], "next_steps": []},
+                    },
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_web_search_enabled",
+        config=AgentConfig(web_search_enabled=True),
+    )
+
+    assert result.observations[0].data == {
+        "query": "codex news",
+        "results": [{"title": "Codex", "url": "https://example.com/codex", "snippet": "News"}],
+    }
+    assert result.observation.data == {"final": "Found Codex news."}
+
+
+def test_search_web_parses_duckduckgo_html(monkeypatch) -> None:
+    from agent.tools import web
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b'<a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fcodex">Codex &amp; News</a>'
+                b'<div class="result__snippet">Latest update.</div>'
+            )
+
+    monkeypatch.setattr(web, "urlopen", lambda _request, timeout: Response())
+
+    assert web.search_web("codex news", 1) == [
+        {"title": "Codex & News", "url": "https://example.com/codex", "snippet": "Latest update."}
+    ]
+
+
 def test_run_once_blocks_write_file_without_approval(tmp_path) -> None:
     result = run_once(
         "write notes",

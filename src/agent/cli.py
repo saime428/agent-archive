@@ -80,6 +80,7 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
     console.print(f"config dry_run: {str(config.dry_run).lower()}")
+    console.print(f"config web_search_enabled: {str(config.web_search_enabled).lower()}")
     for package_name, import_name in DOCUMENT_DEPENDENCIES.items():
         present = importlib.util.find_spec(import_name) is not None
         console.print(f"document dependency {package_name}: {'present' if present else 'missing'}")
@@ -168,6 +169,7 @@ def run(
     console.print(f"sandbox: {config.sandbox}")
     console.print(f"approval: {config.approval}")
     console.print(f"dry_run: {str(config.dry_run).lower()}")
+    console.print(f"web_search_enabled: {str(config.web_search_enabled).lower()}")
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     console.print(f"skills: {[item.name for item in result.skills]}")
@@ -350,6 +352,7 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
     console.print(f"sandbox: {config.sandbox}")
     console.print(f"approval: {config.approval}")
     console.print(f"dry_run: {str(config.dry_run).lower()}")
+    console.print(f"web_search_enabled: {str(config.web_search_enabled).lower()}")
     console.print(f"global config: {diagnostics.global_config_path}", soft_wrap=True)
     console.print(f"project config: {diagnostics.project_config_path}", soft_wrap=True)
     if diagnostics.loaded_files:

@@ -16,7 +16,7 @@
             <span>Local visual agent</span>
           </div>
         </div>
-        <button id="refresh-button" class="ghost-button" type="button">Refresh</button>
+        <button id="refresh-button" class="ghost-button" type="button">刷新</button>
       </header>
 
       <div class="apix-body">
@@ -52,7 +52,7 @@
               </div>
               <button id="new-chat-button" class="icon-button" type="button" title="New chat" aria-label="New chat">+</button>
             </div>
-            <input id="chat-search" class="search-input" type="search" placeholder="Search" aria-label="Search chats" />
+            <input id="chat-search" class="search-input" type="search" placeholder="搜索会话" aria-label="Search chats" />
             <div id="chat-list" class="stack-list"></div>
           </section>
 
@@ -101,11 +101,12 @@
           <section id="view-chat" class="app-view chat-stage active" data-view="chat" aria-label="Chat">
             <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
             <form id="chat-form" class="input-dock" aria-label="Chat entry">
-              <textarea id="message-input" name="message" placeholder="Inputs..." aria-label="Message"></textarea>
+              <textarea id="message-input" name="message" placeholder="输入消息..." aria-label="Message"></textarea>
               <div class="input-actions">
                 <span id="provider-chip" class="status-pill">provider</span>
                 <span id="model-chip" class="status-pill">model</span>
                 <span id="api-key-chip" class="status-pill muted">DeepSeek key</span>
+                <span id="web-search-chip" class="status-pill muted">联网搜索：关</span>
                 <button id="send-button" class="send-button" type="submit" aria-label="Send">&#8593;</button>
               </div>
             </form>
@@ -205,6 +206,10 @@
                 <input id="settings-dry-run" name="dry_run" type="checkbox" />
                 Dry run
               </label>
+              <label class="check-row">
+                <input id="settings-web-search" name="web_search_enabled" type="checkbox" />
+                联网搜索
+              </label>
               <section class="settings-card">
                 <h2>工具能力</h2>
                 <div id="settings-tool-list" class="trace-list"></div>
@@ -227,13 +232,13 @@
           </div>
 
           <div class="side-tabs" role="tablist" aria-label="Right sidebar">
-            <button class="side-tab" type="button" data-side-panel="review">审查</button>
+            <button class="side-tab active" type="button" data-side-panel="review">审查</button>
             <button class="side-tab" type="button" data-side-panel="terminal">终端</button>
             <button class="side-tab" type="button" data-side-panel="files">文件</button>
-            <button class="side-tab active" type="button" data-side-panel="chat">聊天</button>
+            <button class="side-tab" type="button" data-side-panel="chat">聊天</button>
           </div>
 
-          <section id="side-review" class="side-panel" data-side-panel="review" aria-label="Review">
+          <section id="side-review" class="side-panel active" data-side-panel="review" aria-label="Review">
             <div id="provider-notice" class="provider-notice" role="status">Checking provider...</div>
 
             <section id="approval-panel" class="approval-panel hidden" aria-label="Approval">
@@ -297,7 +302,7 @@
             <div id="side-file-list" class="stack-list"></div>
           </section>
 
-          <section id="side-chat" class="side-panel active" data-side-panel="chat" aria-label="Chat">
+          <section id="side-chat" class="side-panel" data-side-panel="chat" aria-label="Chat">
             <div class="panel-header compact">
               <div>
                 <div class="eyebrow">Chat</div>

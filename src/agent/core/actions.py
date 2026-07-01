@@ -73,6 +73,25 @@ class SearchFilesArgs(StrictModel):
     max_matches: int | None = None
 
 
+class WebSearchArgs(StrictModel):
+    query: str
+    max_results: int | None = None
+
+    @field_validator("query")
+    @classmethod
+    def _reject_empty_query(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query must not be empty.")
+        return value
+
+    @field_validator("max_results")
+    @classmethod
+    def _reject_invalid_max_results(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_results must be positive.")
+        return value
+
+
 class WriteFileArgs(StrictModel):
     path: str
     content: str
@@ -256,6 +275,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "list_dir": ListDirArgs,
     "read_file": ReadFileArgs,
     "search_files": SearchFilesArgs,
+    "web_search": WebSearchArgs,
     "write_file": WriteFileArgs,
     "apply_patch": ApplyPatchArgs,
     "run_command": RunCommandArgs,

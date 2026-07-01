@@ -17,6 +17,7 @@ LOW_RISK_ACTIONS = {
     "read_xlsx",
     "read_pptx",
     "search_files",
+    "web_search",
     "git_status",
     "git_diff",
 }
@@ -40,6 +41,8 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
         return PolicyDecision("allow", "Done actions are always allowed.")
     if action_name == "ask_user":
         return PolicyDecision("allow", "Ask-user terminal actions are always allowed.")
+    if action_name == "web_search" and not config.web_search_enabled:
+        return PolicyDecision("deny", "Web search is disabled. Enable it in Settings before searching the internet.")
 
     if config.approval == "always":
         return PolicyDecision("approval_required", "Action requires approval before execution.")

@@ -187,6 +187,24 @@ def test_parse_model_action_accepts_search_files_args() -> None:
     assert action.action.args == {"query": "*.py", "path": ".", "max_matches": 10}
 
 
+def test_parse_model_action_accepts_web_search_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Search web.",
+            "action": {
+                "name": "web_search",
+                "args": {"query": "codex news", "max_results": 3},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "web_search"
+    assert action.action.args == {"query": "codex news", "max_results": 3}
+
+
 def test_parse_model_action_rejects_extra_search_files_args() -> None:
     with pytest.raises(ActionParseError) as exc_info:
         parse_model_action(

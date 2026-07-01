@@ -24,6 +24,7 @@ TOOL_DESCRIPTIONS = {
     "read_pptx": "Extract slide text from a workspace PPTX as untrusted source material.",
     "write_markdown_report": "Write a source-grounded Markdown report with snapshot protection.",
     "search_files": "Search workspace paths and text.",
+    "web_search": "Search the public web when enabled in Settings.",
     "write_file": "Write a workspace text file with snapshot protection.",
     "apply_patch": "Apply structured text replacements with snapshots.",
     "run_command": "Run an allowed structured argv command.",

@@ -70,6 +70,7 @@ def test_build_save_config_payload_writes_project_config_without_secrets(tmp_pat
             "sandbox": "workspace-write",
             "approval": "risky-confirm",
             "dry_run": True,
+            "web_search_enabled": True,
             "default_skills": ["code-dev"],
             "api_key": "must-not-be-written",
         },
@@ -79,6 +80,8 @@ def test_build_save_config_payload_writes_project_config_without_secrets(tmp_pat
     assert payload["status"] == "ok"
     assert payload["config"]["provider"] == "deepseek"
     assert payload["config"]["dry_run"] is True
+    assert payload["config"]["web_search_enabled"] is True
+    assert "web_search_enabled = true" in config_text
     assert 'default_skills = ["code-dev"]' in config_text
     assert "must-not-be-written" not in config_text
     assert "api_key" not in config_text
@@ -140,7 +143,7 @@ def test_build_health_payload_warns_when_workbench_uses_fake_provider(tmp_path: 
 
     assert payload["provider"] == "fake"
     assert payload["provider_notice"] == (
-        'Workbench is using FakeLLM. Set provider = "deepseek" in .agent/config.toml to use DeepSeek.'
+        '当前使用 FakeLLM。要使用 DeepSeek，请在 .agent/config.toml 设置 provider = "deepseek"。'
     )
 
 
@@ -154,7 +157,7 @@ def test_build_health_payload_reports_deepseek_provider_status(monkeypatch, tmp_
     payload = build_health_payload(workspace)
 
     assert payload["provider"] == "deepseek"
-    assert payload["provider_notice"] == "DeepSeek provider is selected, but DEEPSEEK_API_KEY is missing."
+    assert payload["provider_notice"] == "已选择 DeepSeek，但缺少 DEEPSEEK_API_KEY。"
 
 
 def test_build_health_payload_includes_read_only_settings_readiness(monkeypatch, tmp_path: Path) -> None:
@@ -932,8 +935,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "resource-summary-list" in index
     assert "settings-tool-list" in index
     assert "settings-key-status" in index
+    assert "settings-web-search" in index
     assert 'aria-label="File editor"' in index
-    assert "Inputs..." in index
+    assert "输入消息..." in index
     assert "chat-thread" in index
     assert "context-column" in index
     assert "stage-column" in index
@@ -981,6 +985,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "refreshWorkbench" in script
     assert "renderDiagnostics" in script
     assert "DeepSeek key" in script
+    assert "web_search_enabled" in script
     assert "display_status" in script
     assert "repair_count" in script
     assert "thought-process" in script

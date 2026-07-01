@@ -204,10 +204,10 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
 
 def _provider_notice(provider: str, api_key_env: str, api_key_present: bool) -> str:
     if provider != "deepseek":
-        return 'Workbench is using FakeLLM. Set provider = "deepseek" in .agent/config.toml to use DeepSeek.'
+        return '当前使用 FakeLLM。要使用 DeepSeek，请在 .agent/config.toml 设置 provider = "deepseek"。'
     if not api_key_present:
-        return f"DeepSeek provider is selected, but {api_key_env} is missing."
-    return "DeepSeek provider is selected."
+        return f"已选择 DeepSeek，但缺少 {api_key_env}。"
+    return "已选择 DeepSeek。"
 
 
 def _build_settings_readiness(config_payload: dict[str, Any], api_key_present: bool) -> dict[str, Any]:
@@ -454,7 +454,7 @@ def _read_project_config(path: Path) -> dict[str, Any]:
 
 
 def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"provider", "model", "sandbox", "approval", "dry_run", "default_skills"}
+    allowed = {"provider", "model", "sandbox", "approval", "dry_run", "web_search_enabled", "default_skills"}
     updates: dict[str, Any] = {}
     for key, value in request.items():
         if key not in allowed:
@@ -480,6 +480,10 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
         elif key == "dry_run":
             if not isinstance(value, bool):
                 raise ValueError("dry_run must be a boolean.")
+            updates[key] = value
+        elif key == "web_search_enabled":
+            if not isinstance(value, bool):
+                raise ValueError("web_search_enabled must be a boolean.")
             updates[key] = value
         elif key == "default_skills":
             if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
@@ -886,6 +890,7 @@ def _thinking_action_label(action_name: str) -> str:
         "list_dir": "列出目录",
         "read_file": "读取文件",
         "search_files": "搜索文件",
+        "web_search": "联网搜索",
         "write_file": "保存文件",
         "apply_patch": "应用补丁",
         "run_command": "运行命令",

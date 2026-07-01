@@ -28,6 +28,7 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
+    assert "config web_search_enabled:" in result.output
     assert "document dependency pypdf:" in result.output
     assert "document dependency python-docx:" in result.output
     assert "document dependency openpyxl:" in result.output
@@ -52,6 +53,7 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
+    assert "config web_search_enabled:" in result.output
     assert "document dependency pypdf:" in result.output
     assert "document dependency python-docx:" in result.output
     assert "document dependency openpyxl:" in result.output
@@ -715,6 +717,7 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "sandbox: workspace-write" in result.output
     assert "approval: risky-confirm" in result.output
     assert "dry_run: false" in result.output
+    assert "web_search_enabled: false" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
     assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output

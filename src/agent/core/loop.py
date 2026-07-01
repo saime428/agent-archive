@@ -34,6 +34,7 @@ from agent.tools.filesystem import execute_tool
 from agent.tools.documents import execute_document_tool
 from agent.tools.git import execute_git_tool
 from agent.tools.shell import execute_run_command
+from agent.tools.web import execute_web_search
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,7 @@ SUPPORTED_TOOL_ACTIONS = {
     "list_dir",
     "read_file",
     "search_files",
+    "web_search",
     "write_file",
     "apply_patch",
     "run_command",
@@ -129,7 +131,14 @@ def run_once(
         max_items=effective_config.memory_max_items,
         max_chars=context.budget.memory_context_chars,
     )
-    messages = _build_messages(task, project_instructions, skills, memory_entries, context_messages=context_messages)
+    messages = _build_messages(
+        task,
+        project_instructions,
+        skills,
+        memory_entries,
+        config=effective_config,
+        context_messages=context_messages,
+    )
     _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
     direct_answer = _direct_chat_answer(task, effective_config)
     if direct_answer is not None:
@@ -550,7 +559,8 @@ def _direct_chat_answer(task: str, config: AgentConfig) -> str | None:
     if len(compact) <= 24 and any(phrase in compact for phrase in ("什么模型", "哪个模型", "用的模型")):
         return f"当前工作区配置是 provider: {config.provider}，model: {config.model}。"
     if len(compact) <= 24 and any(phrase in compact for phrase in ("能做什么", "可以做什么", "会做什么")):
-        return "我可以检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令，并在界面里展示结果和过程摘要。"
+        web = "联网搜索已开启" if config.web_search_enabled else "联网搜索可在设置里开启"
+        return f"我可以检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令；{web}。"
     return None
 
 
@@ -641,6 +651,8 @@ def _tool_observation(
             sandbox,
             observation_index=observation_index,
         )
+    if action.action.name == "web_search":
+        return execute_web_search(action, observation_index=observation_index)
     if action.action.name == "run_command":
         return execute_run_command(
             action,
@@ -743,6 +755,7 @@ def _trace_config(config: AgentConfig) -> dict[str, object]:
         "sandbox": config.sandbox,
         "approval": config.approval,
         "dry_run": config.dry_run,
+        "web_search_enabled": config.web_search_enabled,
     }
 
 
@@ -752,9 +765,10 @@ def _build_messages(
     skills: list[SkillMetadata],
     memory_entries: list[MemoryEntry],
     *,
+    config: AgentConfig,
     context_messages: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = [_action_protocol_message()]
+    messages: list[dict[str, str]] = [_action_protocol_message(config)]
     project_message = build_project_instructions_message(project_instructions)
     if project_message is not None:
         messages.append(project_message)
@@ -770,15 +784,20 @@ def _build_messages(
     return messages
 
 
-def _action_protocol_message() -> dict[str, str]:
+def _action_protocol_message(config: AgentConfig) -> dict[str, str]:
+    actions = "done, ask_user, list_dir, read_file, search_files, git_status, and git_diff"
+    web_search_rule = "web_search is available for current web/news lookups. " if config.web_search_enabled else (
+        "Do not use web_search because web search is disabled in Settings. "
+    )
     return {
         "role": "system",
         "content": (
             "Return exactly one valid JSON action object and no other text. "
             'The top-level object must have keys "message" and "action". '
             'The action object must have keys "name" and "args". '
-            "Use available actions such as done, ask_user, list_dir, read_file, search_files, "
-            "git_status, and git_diff. Finish with done when the task is complete. "
+            f"Use available actions such as {actions}. "
+            f"{web_search_rule}"
+            "Finish with done when the task is complete. "
             "When using done, args.final is the user-facing answer: answer directly in the user's language, "
             "do not summarize your own behavior with phrases like 'I answered the question' or 'task complete'. "
             "For simple chat, identity, model, or capability questions, return a natural direct answer. "
@@ -984,6 +1003,7 @@ def _config_lines(config: AgentConfig) -> list[str]:
         f"- config_sandbox: {config.sandbox}",
         f"- config_approval: {config.approval}",
         f"- config_dry_run: {str(config.dry_run).lower()}",
+        f"- config_web_search_enabled: {str(config.web_search_enabled).lower()}",
     ]
 
 

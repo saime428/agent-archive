@@ -29,6 +29,7 @@ KNOWN_KEYS = {
     "sandbox",
     "approval",
     "dry_run",
+    "web_search_enabled",
 }
 
 
@@ -50,6 +51,7 @@ class AgentConfig:
     sandbox: SandboxMode = "workspace-write"
     approval: ApprovalMode = "risky-confirm"
     dry_run: bool = False
+    web_search_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,7 @@ class ConfigOverrides:
     sandbox: SandboxMode | None = None
     approval: ApprovalMode | None = None
     dry_run: bool | None = None
+    web_search_enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -152,7 +155,7 @@ def _read_config_file(path: Path) -> dict[str, Any]:
 
 
 def _validate_value(key: str, value: Any, path: Path) -> None:
-    if key in {"dry_run", "memory_auto_write"}:
+    if key in {"dry_run", "memory_auto_write", "web_search_enabled"}:
         if not isinstance(value, bool):
             raise ConfigError(f"Invalid value for {key} in {path}: expected boolean.")
         return
@@ -189,6 +192,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "sandbox": overrides.sandbox,
         "approval": overrides.approval,
         "dry_run": overrides.dry_run,
+        "web_search_enabled": overrides.web_search_enabled,
     }
     for key, value in values.items():
         if value is None:
@@ -199,7 +203,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
 
 
 def _validate_override(key: str, value: Any) -> None:
-    if key in {"dry_run", "memory_auto_write"}:
+    if key in {"dry_run", "memory_auto_write", "web_search_enabled"}:
         if not isinstance(value, bool):
             raise ConfigError(f"Invalid CLI value for {key}: expected boolean.")
         return
