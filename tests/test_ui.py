@@ -686,6 +686,7 @@ def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: P
     assert payload["repair_count"] == 0
     assert payload["has_repair_noise"] is False
     assert payload["display_status"] == "completed"
+    assert payload["process"] == ["整理最终回答。"]
 
 
 def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> None:
@@ -708,7 +709,7 @@ def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, t
     workspace.mkdir()
     monkeypatch.setattr("agent.web.server.make_llm", lambda config: RepairThenDoneLLM())
 
-    payload = build_chat_turn_payload(workspace, {"message": "你好"})
+    payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
 
     assert payload["status"] == "ok"
     assert payload["completed"] is True
@@ -734,13 +735,37 @@ def test_build_chat_turn_payload_displays_ask_user_question(monkeypatch, tmp_pat
     )
     monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
 
-    payload = build_chat_turn_payload(workspace, {"message": "你好"})
+    payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
 
     assert payload["status"] == "ok"
     assert payload["completed"] is False
     assert payload["terminal_reason"] == "ask_user"
     assert payload["display_status"] == "ask_user"
     assert payload["final"] == "Please describe the task you want me to complete."
+
+
+def test_build_chat_turn_payload_answers_simple_greeting(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Ask.",
+                "action": {
+                    "name": "ask_user",
+                    "args": {"question": "Please describe the task you want me to complete."},
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    payload = build_chat_turn_payload(workspace, {"message": "你好"})
+
+    assert payload["completed"] is True
+    assert payload["terminal_reason"] == "done"
+    assert "你好，我在" in payload["final"]
+    assert payload["process"] == ["整理最终回答。"]
 
 
 def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
@@ -757,6 +782,7 @@ def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
     assert listing["chats"][0]["latest_user"] == "second"
     assert detail["session_id"] == first["session_id"]
     assert [turn["user"] for turn in detail["turns"]] == ["hello", "second"]
+    assert detail["turns"][0]["process"] == ["整理最终回答。"]
 
 
 def test_build_chat_turn_payload_rejects_empty_message(tmp_path: Path) -> None:
@@ -891,9 +917,17 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "assistant-column" in index
     assert "windows-title-bar" in index
     assert "window-dot" not in index
-    assert "diagnostics-drawer" in index
-    assert "diagnostics-toggle" in index
-    assert "rail-diagnostics-toggle" in index
+    assert "diagnostics-drawer" not in index
+    assert "diagnostics-toggle" not in index
+    assert "rail-diagnostics-toggle" not in index
+    assert "side-tabs" in index
+    assert 'data-side-panel="review"' in index
+    assert 'data-side-panel="terminal"' in index
+    assert 'data-side-panel="files"' in index
+    assert 'data-side-panel="chat"' in index
+    assert "terminal-output" in index
+    assert "side-file-list" in index
+    assert "side-chat-list" in index
     assert "api-key-chip" in index
     assert "/api/health" in script
     assert "/api/config" in script
@@ -919,16 +953,19 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "DeepSeek key" in script
     assert "display_status" in script
     assert "repair_count" in script
+    assert "thought-process" in script
     assert "Waiting for approval" in script
     assert "Snapshots" in index
     assert "Task Review" in index
     assert "Patch Review" in index
-    assert "Trace" in index
     assert "details-pane" not in index
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
     assert ".apix-shell" in styles
     assert ".apix-body" in styles
     assert ".app-view.active" in styles
-    assert ".diagnostics-drawer" in styles
+    assert ".side-tabs" in styles
+    assert ".side-panel.active" in styles
+    assert ".terminal-output" in styles
+    assert ".thought-process" in styles
     assert ".windows-title-bar" in styles

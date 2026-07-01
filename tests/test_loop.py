@@ -119,6 +119,20 @@ def test_run_once_returns_done_action_and_writes_logs(tmp_path) -> None:
     assert "FakeLLM received task: inspect project" in summary
 
 
+def test_run_once_answers_simple_greeting_without_model_clarification(tmp_path) -> None:
+    llm = SpyLLM()
+
+    result = run_once("你好", llm, cwd=tmp_path, run_id="run_hello")
+
+    assert llm.messages is None
+    assert result.action.action.name == "done"
+    assert result.observation.data is not None
+    assert "你好，我在" in result.observation.data["final"]
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "- terminal_reason: done" in summary
+    assert "- action: ask_user" not in summary
+
+
 def test_run_once_redacts_secret_like_values_from_durable_logs(tmp_path) -> None:
     secret = "sk-test-secret-123456"
     result = run_once(
@@ -1683,6 +1697,7 @@ def test_run_once_adds_agents_md_context_before_user_task(tmp_path) -> None:
     assert len(llm.messages) == 4
     assert llm.messages[0]["role"] == "system"
     assert "Return exactly one valid JSON action object" in llm.messages[0]["content"]
+    assert "answer directly in the user's language" in llm.messages[0]["content"]
     assert '"message"' in llm.messages[0]["content"]
     assert '"action"' in llm.messages[0]["content"]
     assert llm.messages[1]["role"] == "user"

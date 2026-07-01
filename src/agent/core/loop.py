@@ -131,6 +131,67 @@ def run_once(
     )
     messages = _build_messages(task, project_instructions, skills, memory_entries, context_messages=context_messages)
     _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
+    direct_answer = _direct_chat_answer(task, effective_config)
+    if direct_answer is not None:
+        action = InternalAction(
+            run_id=context.run_id,
+            action_id=_format_action_id(1),
+            created_at=context.created_at,
+            message="Answered directly.",
+            action=ActionCall(
+                name="done",
+                args={"final": direct_answer, "changed_files": [], "next_steps": []},
+            ),
+        )
+        observation = make_observation(
+            action,
+            observation_index=1,
+            summary="Done.",
+            data={"final": direct_answer},
+        )
+        actions = [action]
+        observations = [truncate_observation(observation, context.budget)]
+        traces = [
+            TraceRecord(
+                phase="action",
+                action_index=1,
+                observation_index=1,
+                repair_attempt=None,
+                terminal=True,
+                **_trace_policy(action, effective_config),
+            )
+        ]
+        _write_memory_candidate(context, observations)
+        _run_hook_event(
+            "after_run",
+            effective_config,
+            hooks_path,
+            {"run_id": context.run_id, "status": observations[-1].status},
+        )
+        _write_run_logs(
+            context=context,
+            actions=actions,
+            observations=observations,
+            traces=traces,
+            project_instructions=project_instructions,
+            skills=skills,
+            memory_entries=memory_entries,
+            config=effective_config,
+            tool_calls_path=tool_calls_path,
+            summary_path=summary_path,
+        )
+        return RunResult(
+            context=context,
+            action=actions[-1],
+            observation=observations[-1],
+            observations=observations,
+            summary_path=summary_path,
+            tool_calls_path=tool_calls_path,
+            project_instructions=project_instructions,
+            skills=skills,
+            memory_entries=memory_entries,
+            config=effective_config,
+        )
     actions: list[InternalAction] = []
     observations: list[Observation] = []
     traces: list[TraceRecord] = []
@@ -479,6 +540,20 @@ def _raw_response_text(raw_response: Any) -> str:
         return str(raw_response)
 
 
+def _direct_chat_answer(task: str, config: AgentConfig) -> str | None:
+    text = task.strip()
+    compact = text.lower().strip(" \t\r\n.,!?;:，。！？、~～")
+    if compact in {"你好", "您好", "嗨", "hi", "hello", "hey"}:
+        return "你好，我在。你可以直接告诉我要看哪个文件、改什么代码，或者让我检查当前项目。"
+    if len(compact) <= 16 and any(phrase in compact for phrase in ("你是谁", "你是什么")):
+        return "我是这个本地 Agent Workbench 里的代码助手，可以帮你读项目、改文件、跑命令、看 diff，并把过程和结果留在本地。"
+    if len(compact) <= 24 and any(phrase in compact for phrase in ("什么模型", "哪个模型", "用的模型")):
+        return f"当前工作区配置是 provider: {config.provider}，model: {config.model}。"
+    if len(compact) <= 24 and any(phrase in compact for phrase in ("能做什么", "可以做什么", "会做什么")):
+        return "我可以检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令，并在界面里展示结果和过程摘要。"
+    return None
+
+
 def _format_action_id(action_index: int) -> str:
     return f"act_{action_index:06d}"
 
@@ -704,8 +779,11 @@ def _action_protocol_message() -> dict[str, str]:
             'The action object must have keys "name" and "args". '
             "Use available actions such as done, ask_user, list_dir, read_file, search_files, "
             "git_status, and git_diff. Finish with done when the task is complete. "
+            "When using done, args.final is the user-facing answer: answer directly in the user's language, "
+            "do not summarize your own behavior with phrases like 'I answered the question' or 'task complete'. "
+            "For simple chat, identity, model, or capability questions, return a natural direct answer. "
             "Example: "
-            '{"message":"Done.","action":{"name":"done","args":{"final":"Complete.",'
+            '{"message":"Done.","action":{"name":"done","args":{"final":"Here is the direct answer.",'
             '"changed_files":[],"next_steps":[]}}}'
         ),
     }

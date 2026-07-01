@@ -5,4 +5,5 @@ __pycache__/
 .agent/runs/
 .agent/chats/
 .agent/memory/
+.agent/*.log
 .agent/secrets.env

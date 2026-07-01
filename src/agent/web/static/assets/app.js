@@ -10,6 +10,7 @@ const state = {
   sessionId: null,
   openFilePath: null,
   pendingApproval: null,
+  activeSidePanel: "chat",
   chatQuery: "",
   fileQuery: "",
   fileEntries: [],
@@ -27,11 +28,9 @@ const els = {
   sessionChip: document.querySelector("#session-chip"),
   providerNotice: document.querySelector("#provider-notice"),
   refreshButton: document.querySelector("#refresh-button"),
-  railDiagnosticsToggle: document.querySelector("#rail-diagnostics-toggle"),
   backToChatButton: document.querySelector("#back-to-chat-button"),
-  diagnosticsToggle: document.querySelector("#diagnostics-toggle"),
-  diagnosticsClose: document.querySelector("#diagnostics-close"),
-  diagnosticsDrawer: document.querySelector("#diagnostics-drawer"),
+  sideTabButtons: [...document.querySelectorAll(".side-tab")],
+  sidePanels: [...document.querySelectorAll(".side-panel")],
   chatList: document.querySelector("#chat-list"),
   chatSearch: document.querySelector("#chat-search"),
   resourceChatList: document.querySelector("#resource-chat-list"),
@@ -47,9 +46,11 @@ const els = {
   denyButton: document.querySelector("#deny-button"),
   runList: document.querySelector("#run-list"),
   resourceRunList: document.querySelector("#resource-run-list"),
+  sideChatList: document.querySelector("#side-chat-list"),
   selectedRunTitle: document.querySelector("#selected-run-title"),
   runState: document.querySelector("#run-state"),
   fileList: document.querySelector("#file-list"),
+  sideFileList: document.querySelector("#side-file-list"),
   fileSearch: document.querySelector("#file-search"),
   selectedFileTitle: document.querySelector("#selected-file-title"),
   summary: document.querySelector("#summary-view"),
@@ -74,6 +75,7 @@ const els = {
   toolCallList: document.querySelector("#tool-call-list"),
   workspaceRiskList: document.querySelector("#workspace-risk-list"),
   settingsReadinessList: document.querySelector("#settings-readiness-list"),
+  terminalOutput: document.querySelector("#terminal-output"),
 };
 
 async function loadJson(path) {
@@ -108,10 +110,10 @@ function bindEvents() {
   for (const button of els.navButtons) {
     button.addEventListener("click", () => activateView(button.dataset.view));
   }
+  for (const button of els.sideTabButtons) {
+    button.addEventListener("click", () => activateSidePanel(button.dataset.sidePanel));
+  }
   els.refreshButton.addEventListener("click", () => refreshWorkbench());
-  els.diagnosticsToggle.addEventListener("click", () => els.diagnosticsDrawer.classList.toggle("hidden"));
-  els.railDiagnosticsToggle.addEventListener("click", () => els.diagnosticsDrawer.classList.toggle("hidden"));
-  els.diagnosticsClose.addEventListener("click", () => els.diagnosticsDrawer.classList.add("hidden"));
   els.backToChatButton.addEventListener("click", () => activateView("chat"));
   els.newChatButton.addEventListener("click", startNewChat);
   els.chatSearch.addEventListener("input", () => {
@@ -139,6 +141,16 @@ function activateView(view) {
   }
   for (const panel of els.contextPanels) {
     panel.classList.toggle("active", panel.dataset.view === state.activeView);
+  }
+}
+
+function activateSidePanel(panel) {
+  state.activeSidePanel = panel || "review";
+  for (const button of els.sideTabButtons) {
+    button.classList.toggle("active", button.dataset.sidePanel === state.activeSidePanel);
+  }
+  for (const section of els.sidePanels) {
+    section.classList.toggle("active", section.dataset.sidePanel === state.activeSidePanel);
   }
 }
 
@@ -208,6 +220,7 @@ function renderChats() {
   const items = filtered.map((chat) => chatButton(chat));
   replaceOrEmpty(els.chatList, items, "No chat sessions yet.");
   replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
+  replaceOrEmpty(els.sideChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
 }
 
 function chatButton(chat) {
@@ -250,19 +263,33 @@ function renderChatThread(turns) {
   for (const turn of turns) {
     bubbles.push(messageBubble("user", turn.user));
     const body = turn.final || turn.last_observation_summary || turn.status || "No response.";
-    bubbles.push(messageBubble("agent", body, turn.terminal_reason));
+    bubbles.push(messageBubble("agent", body, turn.terminal_reason, turn.process || []));
   }
   els.chatThread.replaceChildren(...bubbles);
   els.chatThread.scrollTop = els.chatThread.scrollHeight;
 }
 
-function messageBubble(role, body, meta = "") {
+function messageBubble(role, body, meta = "", process = []) {
   const article = document.createElement("article");
   article.className = `message-bubble ${role}`;
   article.innerHTML = '<div class="message-role"></div><div class="message-body"></div><div class="message-meta"></div>';
   article.querySelector(".message-role").textContent = role === "user" ? "You" : "Agent";
   article.querySelector(".message-body").textContent = body;
   article.querySelector(".message-meta").textContent = meta;
+  if (role === "agent" && process.length) {
+    const details = document.createElement("details");
+    details.className = "thought-process";
+    const summary = document.createElement("summary");
+    summary.textContent = "思考过程";
+    const list = document.createElement("ol");
+    details.append(summary, list);
+    for (const step of process) {
+      const item = document.createElement("li");
+      item.textContent = step;
+      list.append(item);
+    }
+    article.append(details);
+  }
   return article;
 }
 
@@ -312,7 +339,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
 
 function appendPendingMessage(userMessage, status) {
   const existing = state.selectedChat?.turns || [];
-  renderChatThread([...existing, { user: userMessage, final: status, terminal_reason: "pending" }]);
+  renderChatThread([...existing, { user: userMessage, final: status, terminal_reason: "pending", process: ["正在提交本轮请求。"] }]);
 }
 
 function renderResultNotice(text, display_status) {
@@ -394,9 +421,11 @@ function renderFiles(entries, currentPath) {
 
 function renderFileEntries() {
   const items = [];
+  const sideItems = [];
   const currentPath = state.fileCurrentPath;
   if (currentPath !== ".") {
     items.push(fileButton("..", parentPath(currentPath), "dir"));
+    sideItems.push(fileButton("..", parentPath(currentPath), "dir"));
   }
   for (const entry of state.fileEntries) {
     const haystack = `${entry.name} ${entry.path}`.toLowerCase();
@@ -404,8 +433,10 @@ function renderFileEntries() {
       continue;
     }
     items.push(fileButton(entry.name, entry.path, entry.kind));
+    sideItems.push(fileButton(entry.name, entry.path, entry.kind));
   }
   replaceOrEmpty(els.fileList, items, "No files found.");
+  replaceOrEmpty(els.sideFileList, sideItems, "No files found.");
 }
 
 function fileButton(name, path, kind) {
@@ -513,9 +544,12 @@ function renderDiagnostics(detail) {
       els.runReplayList,
       els.toolCallList,
     ]) {
-      element.innerHTML = '<div class="empty-state">Select a run to inspect diagnostics.</div>';
+      if (element) {
+        element.innerHTML = '<div class="empty-state">Select a run to inspect diagnostics.</div>';
+      }
     }
     renderSnapshots([]);
+    renderTerminal(null);
     return;
   }
   renderRows(els.taskReviewList, objectRows(detail.review));
@@ -525,9 +559,13 @@ function renderDiagnostics(detail) {
   renderRows(els.failureRecoveryList, objectRows(detail.recovery));
   renderRunReplay(detail.replay);
   renderToolCalls(detail.tool_calls || []);
+  renderTerminal(detail);
 }
 
 function renderRunReplay(replay) {
+  if (!els.runReplayList) {
+    return;
+  }
   const steps = replay?.steps || [];
   if (!steps.length) {
     els.runReplayList.innerHTML = '<div class="empty-state">No replay steps recorded.</div>';
@@ -540,6 +578,9 @@ function renderRunReplay(replay) {
 }
 
 function renderToolCalls(toolCalls) {
+  if (!els.toolCallList) {
+    return;
+  }
   if (!toolCalls.length) {
     els.toolCallList.innerHTML = '<div class="empty-state">No trace rows recorded.</div>';
     return;
@@ -554,7 +595,30 @@ function renderToolCalls(toolCalls) {
   );
 }
 
+function renderTerminal(detail) {
+  if (!els.terminalOutput) {
+    return;
+  }
+  if (!detail) {
+    els.terminalOutput.textContent = "No run selected.";
+    return;
+  }
+  const lines = [`$ run ${detail.run_id}`, ""];
+  const steps = detail.replay?.steps || [];
+  for (const step of steps) {
+    lines.push(`${step.line_number}. ${step.action} [${step.status}]`);
+    lines.push(`   ${step.summary}`);
+  }
+  if (detail.summary) {
+    lines.push("", "summary:", detail.summary);
+  }
+  els.terminalOutput.textContent = lines.join("\n");
+}
+
 function renderSnapshots(snapshots) {
+  if (!els.snapshotList) {
+    return;
+  }
   if (!snapshots.length) {
     els.snapshotList.innerHTML = '<div class="empty-state">No snapshots for this run.</div>';
     return;
@@ -583,6 +647,9 @@ function objectRows(value) {
 }
 
 function renderRows(container, rows) {
+  if (!container) {
+    return;
+  }
   const items = rows
     .filter(([, value]) => value)
     .map(([label, value]) => {
@@ -597,6 +664,9 @@ function renderRows(container, rows) {
 }
 
 function replaceOrEmpty(container, items, emptyText) {
+  if (!container) {
+    return;
+  }
   if (!items.length) {
     container.innerHTML = `<div class="empty-state">${emptyText}</div>`;
     return;

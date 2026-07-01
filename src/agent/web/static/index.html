@@ -41,11 +41,6 @@
               <svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0-4v2m0 11v2M5.6 5.6 7 7m10 10 1.4 1.4M4 12h2m12 0h2M5.6 18.4 7 17m10-10 1.4-1.4" /></svg>
             </span>
           </button>
-          <button id="rail-diagnostics-toggle" class="nav-button rail-bottom" type="button" aria-label="Diagnostics" title="Diagnostics">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M5 12h.1M12 12h.1M19 12h.1" /></svg>
-            </span>
-          </button>
         </nav>
 
         <aside class="context-column">
@@ -111,7 +106,7 @@
                 <span id="provider-chip" class="status-pill">provider</span>
                 <span id="model-chip" class="status-pill">model</span>
                 <span id="api-key-chip" class="status-pill muted">DeepSeek key</span>
-                <button id="send-button" class="send-button" type="submit" aria-label="Send">↑</button>
+                <button id="send-button" class="send-button" type="submit" aria-label="Send">&#8593;</button>
               </div>
             </form>
           </section>
@@ -195,47 +190,46 @@
 
         <aside class="assistant-column">
           <div class="assistant-header">
-            <button id="back-to-chat-button" class="icon-button" type="button" title="Back to chat" aria-label="Back to chat">‹</button>
+            <button id="back-to-chat-button" class="icon-button" type="button" title="Back to chat" aria-label="Back to chat">&#8249;</button>
             <div>
               <div id="session-chip" class="eyebrow">new session</div>
               <h2>APIX Agent</h2>
             </div>
-            <button id="diagnostics-toggle" class="ghost-button" type="button">Details</button>
           </div>
 
-          <div id="provider-notice" class="provider-notice" role="status">Checking provider...</div>
+          <div class="side-tabs" role="tablist" aria-label="Right sidebar">
+            <button class="side-tab" type="button" data-side-panel="review">审查</button>
+            <button class="side-tab" type="button" data-side-panel="terminal">终端</button>
+            <button class="side-tab" type="button" data-side-panel="files">文件</button>
+            <button class="side-tab active" type="button" data-side-panel="chat">聊天</button>
+          </div>
 
-          <section id="approval-panel" class="approval-panel hidden" aria-label="Approval">
-            <div>
-              <div class="eyebrow">Approval</div>
-              <h3 id="approval-action">No approval pending</h3>
-              <p id="approval-detail"></p>
-            </div>
-            <div class="approval-actions">
-              <button id="approve-button" class="primary-button" type="button">Approve</button>
-              <button id="deny-button" class="ghost-button" type="button">Deny</button>
-            </div>
-          </section>
+          <section id="side-review" class="side-panel" data-side-panel="review" aria-label="Review">
+            <div id="provider-notice" class="provider-notice" role="status">Checking provider...</div>
 
-          <section class="run-panel" aria-label="Runs">
-            <div class="panel-header compact">
+            <section id="approval-panel" class="approval-panel hidden" aria-label="Approval">
               <div>
-                <div class="eyebrow">Runs</div>
-                <h2 id="selected-run-title">No run selected</h2>
+                <div class="eyebrow">Approval</div>
+                <h3 id="approval-action">No approval pending</h3>
+                <p id="approval-detail"></p>
               </div>
-              <span id="run-state" class="state-chip">idle</span>
-            </div>
-            <div id="run-list" class="stack-list"></div>
-          </section>
+              <div class="approval-actions">
+                <button id="approve-button" class="primary-button" type="button">Approve</button>
+                <button id="deny-button" class="ghost-button" type="button">Deny</button>
+              </div>
+            </section>
 
-          <section id="diagnostics-drawer" class="diagnostics-drawer hidden" aria-label="Run diagnostics">
-            <div class="diagnostics-header">
-              <div>
-                <div class="eyebrow">Run diagnostics</div>
-                <h2>Details</h2>
+            <section class="run-panel" aria-label="Runs">
+              <div class="panel-header compact">
+                <div>
+                  <div class="eyebrow">Runs</div>
+                  <h2 id="selected-run-title">No run selected</h2>
+                </div>
+                <span id="run-state" class="state-chip">idle</span>
               </div>
-              <button id="diagnostics-close" class="icon-button" type="button" aria-label="Close diagnostics">×</button>
-            </div>
+              <div id="run-list" class="stack-list"></div>
+            </section>
+
             <details class="diagnostic-section" open>
               <summary>Task Review</summary>
               <div id="task-review-list" class="trace-list"></div>
@@ -252,26 +246,36 @@
               <summary>Patch Review</summary>
               <div id="patch-review-list" class="trace-list"></div>
             </details>
-            <details class="diagnostic-section">
-              <summary>Failure Recovery</summary>
-              <div id="failure-recovery-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>Run Replay</summary>
-              <div id="run-replay-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>Trace</summary>
-              <div id="tool-call-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>Workspace Risk</summary>
-              <div id="workspace-risk-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>Settings Readiness</summary>
-              <div id="settings-readiness-list" class="trace-list"></div>
-            </details>
+          </section>
+
+          <section id="side-terminal" class="side-panel" data-side-panel="terminal" aria-label="Terminal">
+            <div class="panel-header compact">
+              <div>
+                <div class="eyebrow">Terminal</div>
+                <h2>Run output</h2>
+              </div>
+            </div>
+            <pre id="terminal-output" class="terminal-output">No run selected.</pre>
+          </section>
+
+          <section id="side-files" class="side-panel" data-side-panel="files" aria-label="Files">
+            <div class="panel-header compact">
+              <div>
+                <div class="eyebrow">Files</div>
+                <h2>Workspace</h2>
+              </div>
+            </div>
+            <div id="side-file-list" class="stack-list"></div>
+          </section>
+
+          <section id="side-chat" class="side-panel active" data-side-panel="chat" aria-label="Chat">
+            <div class="panel-header compact">
+              <div>
+                <div class="eyebrow">Chat</div>
+                <h2>Current thread</h2>
+              </div>
+            </div>
+            <div id="side-chat-list" class="stack-list"></div>
           </section>
         </aside>
       </div>

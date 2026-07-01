@@ -410,13 +410,14 @@ def build_chats_payload(workspace: Path, *, limit: int = 30) -> dict[str, Any]:
 
 
 def build_chat_payload(workspace: Path, session_id: str) -> dict[str, Any]:
-    state = ConversationState.load(workspace.resolve(), session_id)
+    root = workspace.resolve()
+    state = ConversationState.load(root, session_id)
     return {
         "session_id": state.session_id,
         "created_at": state.created_at,
         "updated_at": state.updated_at,
         "turn_count": len(state.turns),
-        "turns": [asdict(turn) for turn in state.turns],
+        "turns": [_chat_turn_item(root, turn) for turn in state.turns],
     }
 
 
@@ -431,6 +432,12 @@ def _chat_list_item(state: ConversationState) -> dict[str, Any]:
         "latest_final": latest.final if latest else "",
         "status": latest.status if latest else "empty",
     }
+
+
+def _chat_turn_item(workspace: Path, turn: Any) -> dict[str, Any]:
+    item = asdict(turn)
+    item["process"] = _turn_process(workspace, turn)
+    return item
 
 
 def _read_project_config(path: Path) -> dict[str, Any]:
@@ -781,6 +788,7 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         "config_warnings": diagnostics.warnings,
         "repair_count": repair_count,
         "has_repair_noise": repair_count > 0,
+        "process": _turn_process(root, turn),
     }
 
 
@@ -804,6 +812,37 @@ def _display_status(completed: bool, error_code: str | None, status: str, termin
     if status == "error":
         return "error"
     return status
+
+
+def _turn_process(workspace: Path, turn: Any) -> list[str]:
+    try:
+        detail = RunStore(workspace.resolve()).show_run(turn.run_id)
+    except RunStoreError:
+        return _fallback_turn_process(turn)
+
+    steps = _build_run_replay(detail.tool_calls).get("steps", [])
+    process: list[str] = []
+    for step in steps[:6]:
+        action = str(step.get("action") or "unknown")
+        status = str(step.get("status") or "unknown")
+        summary = str(step.get("summary") or "").strip()
+        if action == "done":
+            process.append("整理最终回答。")
+        elif action == "ask_user":
+            process.append(f"需要用户补充：{summary}")
+        elif status == "error":
+            process.append(f"{action} 遇到问题：{summary}")
+        else:
+            process.append(f"执行 {action}：{summary}")
+    return process or _fallback_turn_process(turn)
+
+
+def _fallback_turn_process(turn: Any) -> list[str]:
+    action = str(getattr(turn, "last_action", "") or "unknown")
+    summary = str(getattr(turn, "last_observation_summary", "") or "").strip()
+    if not summary:
+        return ["已完成本轮处理。"]
+    return [f"执行 {action}：{summary}"]
 
 
 def _approve_once_handler():
