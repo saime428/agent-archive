@@ -687,6 +687,8 @@ def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: P
     assert payload["has_repair_noise"] is False
     assert payload["display_status"] == "completed"
     assert payload["process"] == ["整理最终回答。"]
+    assert "thinking_text" in payload
+    assert "整理最终回答" in payload["thinking_text"]
 
 
 def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> None:
@@ -704,6 +706,17 @@ def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> Non
     assert second["final"] == "FakeLLM received task: second"
 
 
+def test_build_chat_turn_payload_creates_requested_new_session(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    payload = build_chat_turn_payload(workspace, {"session_id": "chat_manual", "message": "hello"})
+
+    assert payload["session_id"] == "chat_manual"
+    assert payload["turn_count"] == 1
+    assert (workspace / ".agent" / "chats" / "chat_manual" / "session.json").is_file()
+
+
 def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -717,6 +730,9 @@ def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, t
     assert payload["repair_count"] == 1
     assert payload["has_repair_noise"] is True
     assert payload["final"] == "已就绪，等待用户描述任务。"
+    assert "模型输出格式不符合动作协议" in payload["thinking_text"]
+    assert "invalid_model_response" not in payload["thinking_text"]
+    assert "Model response" not in payload["thinking_text"]
 
 
 def test_build_chat_turn_payload_displays_ask_user_question(monkeypatch, tmp_path: Path) -> None:
@@ -766,6 +782,8 @@ def test_build_chat_turn_payload_answers_simple_greeting(monkeypatch, tmp_path: 
     assert payload["terminal_reason"] == "done"
     assert "你好，我在" in payload["final"]
     assert payload["process"] == ["整理最终回答。"]
+    assert "thinking_text" in payload
+    assert "整理最终回答" in payload["thinking_text"]
 
 
 def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
@@ -783,6 +801,7 @@ def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
     assert detail["session_id"] == first["session_id"]
     assert [turn["user"] for turn in detail["turns"]] == ["hello", "second"]
     assert detail["turns"][0]["process"] == ["整理最终回答。"]
+    assert "thinking_text" in detail["turns"][0]
 
 
 def test_build_chat_turn_payload_rejects_empty_message(tmp_path: Path) -> None:
@@ -909,6 +928,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert 'data-view="settings"' in index
     assert "message-input" in index
     assert 'aria-label="Message"' in index
+    assert "recent-file-list" in index
+    assert "resource-summary-list" in index
+    assert "settings-tool-list" in index
+    assert "settings-key-status" in index
     assert 'aria-label="File editor"' in index
     assert "Inputs..." in index
     assert "chat-thread" in index
@@ -939,6 +962,13 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/diff" in script
     assert "/api/snapshot/restore" in script
     assert "/api/chat/turn" in script
+    assert "thinking_text" in script
+    assert "renderThinkingText" in script
+    assert "keydown" in script
+    assert "isComposing" in script
+    assert "shiftKey" in script
+    assert "Recovered after" not in script
+    assert "invalid_model_response" not in script
     assert "window.confirm" not in script
     assert "approval-panel" in index
     assert "approve-button" in index

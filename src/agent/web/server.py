@@ -437,6 +437,7 @@ def _chat_list_item(state: ConversationState) -> dict[str, Any]:
 def _chat_turn_item(workspace: Path, turn: Any) -> dict[str, Any]:
     item = asdict(turn)
     item["process"] = _turn_process(workspace, turn)
+    item["thinking_text"] = _turn_thinking_text(workspace, turn)
     return item
 
 
@@ -762,7 +763,11 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
     root = workspace.resolve()
     load_workspace_secrets(root)
     config, diagnostics = load_config(root)
-    state = ConversationState.load(root, session_id) if session_id else ConversationState.create(root)
+    if session_id:
+        session_path = root / ".agent" / "chats" / session_id / "session.json"
+        state = ConversationState.load(root, session_id) if session_path.is_file() else ConversationState.create(root, session_id=session_id)
+    else:
+        state = ConversationState.create(root)
     session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
     result = session.run_turn(message.strip(), approval_handler=_approve_once_handler() if approve_once else None)
     turn = session.state.turns[-1]
@@ -789,6 +794,7 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         "repair_count": repair_count,
         "has_repair_noise": repair_count > 0,
         "process": _turn_process(root, turn),
+        "thinking_text": _turn_thinking_text(root, turn),
     }
 
 
@@ -835,6 +841,81 @@ def _turn_process(workspace: Path, turn: Any) -> list[str]:
         else:
             process.append(f"执行 {action}：{summary}")
     return process or _fallback_turn_process(turn)
+
+
+def _turn_thinking_text(workspace: Path, turn: Any) -> str:
+    try:
+        detail = RunStore(workspace.resolve()).show_run(turn.run_id)
+    except RunStoreError:
+        return _fallback_thinking_text(turn)
+
+    lines = [_thinking_line_from_tool_call(call) for call in detail.tool_calls]
+    lines = [line for line in lines if line]
+    if not lines:
+        return _fallback_thinking_text(turn)
+    return "我根据本轮运行记录整理了可公开的工作过程：\n" + "\n".join(f"- {line}" for line in lines[:8])
+
+
+def _thinking_line_from_tool_call(call: Any) -> str:
+    if not call.valid or not call.data:
+        return "有一条运行记录无法解析，已跳过并继续查看后续结果。"
+
+    action = call.data.get("action")
+    inner_action = action.get("action") if isinstance(action, dict) else None
+    observation = call.data.get("observation")
+    action_name = str(inner_action.get("name") or "unknown") if isinstance(inner_action, dict) else "unknown"
+    args = inner_action.get("args") if isinstance(inner_action, dict) and isinstance(inner_action.get("args"), dict) else {}
+    status = str(observation.get("status") or "unknown") if isinstance(observation, dict) else "unknown"
+
+    if action_name == "invalid_model_response":
+        return "模型输出格式不符合动作协议，我已自动修正后继续。"
+    if action_name == "done":
+        return "整理最终回答。"
+    if action_name == "ask_user":
+        return "需要你补充信息后再继续。"
+
+    label = _thinking_action_label(action_name)
+    target = _thinking_target(args)
+    if status == "error":
+        return f"{label}{target}没有完成，详情已放到右侧审查。"
+    return f"{label}{target}。"
+
+
+def _thinking_action_label(action_name: str) -> str:
+    labels = {
+        "list_dir": "列出目录",
+        "read_file": "读取文件",
+        "search_files": "搜索文件",
+        "write_file": "保存文件",
+        "apply_patch": "应用补丁",
+        "run_command": "运行命令",
+        "git_status": "查看 Git 状态",
+        "git_diff": "查看 Git 差异",
+        "read_pdf": "读取 PDF",
+        "read_docx": "读取 DOCX",
+        "read_xlsx": "读取 XLSX",
+        "read_pptx": "读取 PPTX",
+        "write_markdown_report": "写入 Markdown 报告",
+    }
+    return labels.get(action_name, "执行工具")
+
+
+def _thinking_target(args: dict[str, Any]) -> str:
+    value = args.get("path") or args.get("query")
+    if not value and isinstance(args.get("argv"), list):
+        value = " ".join(str(item) for item in args["argv"][:4])
+    if not value:
+        return ""
+    return f" `{value}`"
+
+
+def _fallback_thinking_text(turn: Any) -> str:
+    action = str(getattr(turn, "last_action", "") or "")
+    if action == "done":
+        return "我根据本轮运行记录整理了可公开的工作过程：\n- 整理最终回答。"
+    if action == "ask_user":
+        return "我根据本轮运行记录整理了可公开的工作过程：\n- 需要你补充信息后再继续。"
+    return "我根据本轮运行记录整理了可公开的工作过程：\n- 已完成本轮处理，详情可在右侧审查查看。"
 
 
 def _fallback_turn_process(turn: Any) -> list[str]:

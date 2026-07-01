@@ -2,6 +2,7 @@ const state = {
   activeView: "chat",
   health: null,
   config: null,
+  tools: [],
   runs: [],
   chats: [],
   selectedRunId: null,
@@ -34,6 +35,7 @@ const els = {
   chatList: document.querySelector("#chat-list"),
   chatSearch: document.querySelector("#chat-search"),
   resourceChatList: document.querySelector("#resource-chat-list"),
+  resourceChatMainList: document.querySelector("#resource-chat-main-list"),
   chatThread: document.querySelector("#chat-thread"),
   chatForm: document.querySelector("#chat-form"),
   messageInput: document.querySelector("#message-input"),
@@ -57,7 +59,10 @@ const els = {
   fileEditor: document.querySelector("#file-editor"),
   saveFileButton: document.querySelector("#save-file-button"),
   resourceMemoryList: document.querySelector("#resource-memory-list"),
+  resourceSummaryList: document.querySelector("#resource-summary-list"),
   snapshotList: document.querySelector("#snapshot-list"),
+  editorWorkspacePath: document.querySelector("#editor-workspace-path"),
+  recentFileList: document.querySelector("#recent-file-list"),
   settingsForm: document.querySelector("#settings-form"),
   settingsProvider: document.querySelector("#settings-provider"),
   settingsModel: document.querySelector("#settings-model"),
@@ -66,6 +71,8 @@ const els = {
   settingsSkills: document.querySelector("#settings-skills"),
   settingsDryRun: document.querySelector("#settings-dry-run"),
   settingsStatus: document.querySelector("#settings-status"),
+  settingsKeyStatus: document.querySelector("#settings-key-status"),
+  settingsToolList: document.querySelector("#settings-tool-list"),
   taskReviewList: document.querySelector("#task-review-list"),
   workflowHintList: document.querySelector("#workflow-hint-list"),
   failureSummaryList: document.querySelector("#failure-summary-list"),
@@ -125,10 +132,19 @@ function bindEvents() {
     renderFileEntries();
   });
   els.chatForm.addEventListener("submit", submitChatTurn);
+  els.messageInput.addEventListener("keydown", handleMessageKeydown);
   els.approveButton.addEventListener("click", approvePendingAction);
   els.denyButton.addEventListener("click", denyPendingAction);
   els.saveFileButton.addEventListener("click", saveOpenFile);
   els.settingsForm.addEventListener("submit", saveSettings);
+}
+
+function handleMessageKeydown(event) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
+    return;
+  }
+  event.preventDefault();
+  els.chatForm.requestSubmit();
 }
 
 function activateView(view) {
@@ -155,14 +171,16 @@ function activateSidePanel(panel) {
 }
 
 async function refreshWorkbench({ selectInitial = false } = {}) {
-  const [health, config, runs, chats] = await Promise.all([
+  const [health, config, tools, runs, chats] = await Promise.all([
     loadJson("/api/health"),
     loadJson("/api/config"),
+    loadJson("/api/tools"),
     loadJson("/api/runs"),
     loadJson("/api/chats"),
   ]);
   state.health = health;
   state.config = config;
+  state.tools = tools.tools || [];
   state.runs = runs.runs || [];
   state.chats = chats.chats || [];
   renderHealth();
@@ -190,6 +208,12 @@ function renderHealth() {
   els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"}`;
   els.providerNotice.textContent = health.provider_notice || "";
   els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
+  if (els.editorWorkspacePath) {
+    els.editorWorkspacePath.textContent = health.workspace || "workspace";
+  }
+  if (els.settingsKeyStatus) {
+    els.settingsKeyStatus.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"} (${health.deepseek_api_key_env || "DEEPSEEK_API_KEY"})`;
+  }
   renderRows(els.workspaceRiskList, [
     ["Risk", health.workspace_risk?.risk_level || "low"],
     ["Summary", health.workspace_risk?.summary || "No workspace risk summary."],
@@ -210,6 +234,17 @@ function renderSettings() {
   els.settingsApproval.value = config.approval || "risky-confirm";
   els.settingsSkills.value = (config.default_skills || ["code-dev"]).join(", ");
   els.settingsDryRun.checked = Boolean(config.dry_run);
+  const readiness = state.health?.settings_readiness || {};
+  renderRows(els.settingsReadinessList, [
+    ["Status", readiness.status || "ready"],
+    ["Provider", readiness.provider || config.provider || "unknown"],
+    ["Model", readiness.model || config.model || "unknown"],
+    ["DeepSeek key", readiness.deepseek_api_key_present ? "present" : "missing"],
+  ]);
+  renderRows(
+    els.settingsToolList,
+    state.tools.map((tool) => [tool.name, `${tool.category} / dry-run: ${tool.dry_run}`]),
+  );
 }
 
 function renderChats() {
@@ -220,6 +255,7 @@ function renderChats() {
   const items = filtered.map((chat) => chatButton(chat));
   replaceOrEmpty(els.chatList, items, "No chat sessions yet.");
   replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
+  replaceOrEmpty(els.resourceChatMainList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
   replaceOrEmpty(els.sideChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
 }
 
@@ -263,34 +299,71 @@ function renderChatThread(turns) {
   for (const turn of turns) {
     bubbles.push(messageBubble("user", turn.user));
     const body = turn.final || turn.last_observation_summary || turn.status || "No response.";
-    bubbles.push(messageBubble("agent", body, turn.terminal_reason, turn.process || []));
+    bubbles.push(messageBubble("agent", body, turn.terminal_reason, turn.thinking_text || ""));
   }
   els.chatThread.replaceChildren(...bubbles);
   els.chatThread.scrollTop = els.chatThread.scrollHeight;
 }
 
-function messageBubble(role, body, meta = "", process = []) {
+function messageBubble(role, body, meta = "", thinkingText = "") {
   const article = document.createElement("article");
   article.className = `message-bubble ${role}`;
   article.innerHTML = '<div class="message-role"></div><div class="message-body"></div><div class="message-meta"></div>';
   article.querySelector(".message-role").textContent = role === "user" ? "You" : "Agent";
   article.querySelector(".message-body").textContent = body;
   article.querySelector(".message-meta").textContent = meta;
-  if (role === "agent" && process.length) {
+  if (role === "agent" && thinkingText) {
     const details = document.createElement("details");
     details.className = "thought-process";
     const summary = document.createElement("summary");
     summary.textContent = "思考过程";
-    const list = document.createElement("ol");
-    details.append(summary, list);
-    for (const step of process) {
-      const item = document.createElement("li");
-      item.textContent = step;
-      list.append(item);
-    }
+    const bodyNode = document.createElement("div");
+    bodyNode.className = "thinking-copy";
+    renderThinkingText(bodyNode, thinkingText);
+    details.append(summary, bodyNode);
     article.append(details);
   }
   return article;
+}
+
+function renderThinkingText(container, text) {
+  container.replaceChildren();
+  const lines = String(text).split(/\r?\n/);
+  let list = null;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      list = null;
+      continue;
+    }
+    if (trimmed.startsWith("- ")) {
+      if (!list) {
+        list = document.createElement("ul");
+        container.append(list);
+      }
+      const item = document.createElement("li");
+      appendInlineCode(item, trimmed.slice(2));
+      list.append(item);
+      continue;
+    }
+    list = null;
+    const paragraph = document.createElement("p");
+    appendInlineCode(paragraph, trimmed);
+    container.append(paragraph);
+  }
+}
+
+function appendInlineCode(parent, text) {
+  const parts = String(text).split("`");
+  parts.forEach((part, index) => {
+    if (!part) {
+      return;
+    }
+    const node = index % 2
+      ? Object.assign(document.createElement("code"), { textContent: part })
+      : document.createTextNode(part);
+    parent.append(node);
+  });
 }
 
 async function submitChatTurn(event) {
@@ -327,7 +400,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
     await selectChat(turn.session_id);
     await selectRun(turn.run_id);
     if (turn.has_repair_noise) {
-      renderResultNotice(`Recovered after ${turn.repair_count} schema repair(s).`, turn.display_status);
+      els.runState.textContent = `已修复 ${turn.repair_count} 次`;
     }
   } catch (error) {
     renderResultNotice(error instanceof Error ? error.message : String(error), "error");
@@ -339,7 +412,12 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
 
 function appendPendingMessage(userMessage, status) {
   const existing = state.selectedChat?.turns || [];
-  renderChatThread([...existing, { user: userMessage, final: status, terminal_reason: "pending", process: ["正在提交本轮请求。"] }]);
+  renderChatThread([...existing, {
+    user: userMessage,
+    final: status,
+    terminal_reason: "pending",
+    thinking_text: "我正在提交本轮请求，等待本地 Agent 返回可验证的运行记录。",
+  }]);
 }
 
 function renderResultNotice(text, display_status) {
@@ -402,6 +480,7 @@ async function selectRun(runId) {
   renderRuns();
   renderDiagnostics(detail);
   renderSnapshots(detail.snapshots || []);
+  renderResources();
 }
 
 async function loadFiles(path) {
@@ -417,6 +496,7 @@ function renderFiles(entries, currentPath) {
   state.fileEntries = entries;
   state.fileCurrentPath = currentPath;
   renderFileEntries();
+  renderEditorHome();
 }
 
 function renderFileEntries() {
@@ -437,6 +517,15 @@ function renderFileEntries() {
   }
   replaceOrEmpty(els.fileList, items, "No files found.");
   replaceOrEmpty(els.sideFileList, sideItems, "No files found.");
+  renderEditorHome();
+}
+
+function renderEditorHome() {
+  const files = state.fileEntries
+    .filter((entry) => entry.kind !== "dir")
+    .slice(0, 8)
+    .map((entry) => fileButton(entry.name, entry.path, entry.kind));
+  replaceOrEmpty(els.recentFileList, files, "当前目录没有可打开的文件。");
 }
 
 function fileButton(name, path, kind) {
@@ -507,6 +596,13 @@ async function restoreSnapshot(snapshot) {
 
 function renderResources() {
   const memory = state.health?.memory_review;
+  const snapshotCount = state.selectedDetail?.snapshots?.length || 0;
+  renderRows(els.resourceSummaryList, [
+    ["会话", `${state.chats.length}`],
+    ["运行记录", `${state.runs.length}`],
+    ["快照", `${snapshotCount}`],
+    ["工作区风险", state.health?.workspace_risk?.risk_level || "low"],
+  ]);
   const rows = [
     ["Pending candidates", `${memory?.pending_count || 0}`],
     ["Active entries", `${memory?.active_count || 0}`],

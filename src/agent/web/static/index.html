@@ -116,26 +116,46 @@
               <span id="selected-file-title" class="tab active">Select a file</span>
               <button id="save-file-button" class="ghost-button hidden" type="button">Save</button>
             </div>
-            <pre id="summary-view" class="summary-view">Open a text file from the file resources panel.</pre>
+            <div id="summary-view" class="summary-view">
+              <section class="editor-home">
+                <div>
+                  <div class="eyebrow">文件资源管理</div>
+                  <h1>打开工作区文件</h1>
+                  <p id="editor-workspace-path">正在读取工作区。</p>
+                </div>
+                <div>
+                  <h2>当前目录</h2>
+                  <div id="recent-file-list" class="stack-list flush"></div>
+                </div>
+              </section>
+            </div>
             <textarea id="file-editor" class="file-editor hidden" spellcheck="false" aria-label="File editor"></textarea>
           </section>
 
           <section id="view-resources" class="app-view resources-stage" data-view="resources" aria-label="Resources">
             <div class="section-title">
-              <h1>Resources</h1>
-              <p>Sessions, runs, memory, and snapshots from the local workspace.</p>
+              <h1>数据中心</h1>
+              <p>会话、运行记录、记忆和快照都来自本地工作区。</p>
             </div>
             <div class="resource-grid">
               <article class="resource-panel">
-                <h2>Execution history</h2>
+                <h2>状态概览</h2>
+                <div id="resource-summary-list" class="trace-list"></div>
+              </article>
+              <article class="resource-panel">
+                <h2>任务会话</h2>
+                <div id="resource-chat-main-list" class="stack-list flush"></div>
+              </article>
+              <article class="resource-panel">
+                <h2>运行记录</h2>
                 <div id="resource-run-list" class="stack-list flush"></div>
               </article>
               <article class="resource-panel">
-                <h2>Memory review</h2>
+                <h2>记忆状态</h2>
                 <div id="resource-memory-list" class="trace-list"></div>
               </article>
-              <article class="resource-panel wide">
-                <h2>Snapshots</h2>
+              <article class="resource-panel wide" aria-label="Snapshots">
+                <h2>快照</h2>
                 <div id="snapshot-list" class="trace-list"></div>
               </article>
             </div>
@@ -147,6 +167,11 @@
                 <h1>Settings</h1>
                 <p>Writes only non-secret values to local project config.</p>
               </div>
+              <section class="settings-card">
+                <h2>运行就绪</h2>
+                <div id="settings-key-status" class="settings-status">DeepSeek key status is loading.</div>
+                <div id="settings-readiness-list" class="trace-list"></div>
+              </section>
               <label>
                 Provider
                 <select id="settings-provider" name="provider">
@@ -180,6 +205,10 @@
                 <input id="settings-dry-run" name="dry_run" type="checkbox" />
                 Dry run
               </label>
+              <section class="settings-card">
+                <h2>工具能力</h2>
+                <div id="settings-tool-list" class="trace-list"></div>
+              </section>
               <div class="settings-footer">
                 <div id="settings-status" class="settings-status">Settings are read from local config.</div>
                 <button class="primary-button" type="submit">Save settings</button>

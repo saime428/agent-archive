@@ -522,13 +522,33 @@ button:focus-visible {
   color: var(--text);
   overflow: auto;
   resize: none;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 
 .file-editor {
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 13px;
   line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.editor-home {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  max-width: 760px;
+}
+
+.editor-home h1,
+.editor-home h2,
+.settings-card h2 {
+  margin: 0;
+}
+
+.editor-home p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .resources-stage,
@@ -587,8 +607,18 @@ button:focus-visible {
 }
 
 .settings-panel .section-title,
+.settings-card,
 .settings-footer {
   grid-column: 1 / -1;
+}
+
+.settings-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
 }
 
 .settings-panel label {
@@ -776,13 +806,32 @@ button:focus-visible {
   font-weight: 800;
 }
 
-.thought-process ol {
-  margin: 8px 0 0 18px;
+.thinking-copy {
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+.thinking-copy p {
+  margin: 0 0 8px;
+}
+
+.thinking-copy ul {
+  margin: 6px 0 0 18px;
   padding: 0;
 }
 
-.thought-process li + li {
+.thinking-copy li + li {
   margin-top: 4px;
+}
+
+.thinking-copy code {
+  border: 1px solid #dfe4ec;
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: #f7f9fc;
+  color: var(--brand-strong);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
 }
 
 .row-actions {
