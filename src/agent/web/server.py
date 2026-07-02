@@ -436,6 +436,7 @@ def _chat_list_item(state: ConversationState) -> dict[str, Any]:
 
 def _chat_turn_item(workspace: Path, turn: Any) -> dict[str, Any]:
     item = asdict(turn)
+    item["last_observation_summary"] = _friendly_observation_summary(str(item.get("last_observation_summary") or ""))
     item["process"] = _turn_process(workspace, turn)
     item["thinking_text"] = _turn_thinking_text(workspace, turn)
     return item
@@ -788,7 +789,7 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         "terminal_reason": turn.terminal_reason,
         "final": turn.final,
         "last_action": turn.last_action,
-        "last_observation_summary": turn.last_observation_summary,
+        "last_observation_summary": _friendly_observation_summary(turn.last_observation_summary),
         "summary_path": str(result.summary_path),
         "error_code": error_code,
         "error_message": error.message if error is not None else None,
@@ -822,6 +823,15 @@ def _display_status(completed: bool, error_code: str | None, status: str, termin
     if status == "error":
         return "error"
     return status
+
+
+def _friendly_observation_summary(summary: str) -> str:
+    messages = {
+        "Action requires approval before execution.": "这个操作需要你先在右侧审查里批准。",
+        "Action requires approval.": "这个操作需要你先批准。",
+        "Approval required.": "需要审批。",
+    }
+    return messages.get(summary, summary)
 
 
 def _turn_process(workspace: Path, turn: Any) -> list[str]:
@@ -872,7 +882,7 @@ def _thinking_line_from_tool_call(call: Any) -> str:
     status = str(observation.get("status") or "unknown") if isinstance(observation, dict) else "unknown"
 
     if action_name == "invalid_model_response":
-        return "模型输出格式不符合动作协议，我已自动修正后继续。"
+        return ""
     if action_name == "done":
         return "整理最终回答。"
     if action_name == "ask_user":
@@ -881,6 +891,10 @@ def _thinking_line_from_tool_call(call: Any) -> str:
     label = _thinking_action_label(action_name)
     target = _thinking_target(args)
     if status == "error":
+        error = observation.get("error") if isinstance(observation, dict) else None
+        error_code = str(error.get("code") or "") if isinstance(error, dict) else ""
+        if error_code == "APPROVAL_REQUIRED":
+            return f"{label}{target}需要你批准后才会执行。"
         return f"{label}{target}没有完成，详情已放到右侧审查。"
     return f"{label}{target}。"
 
@@ -911,6 +925,9 @@ def _thinking_target(args: dict[str, Any]) -> str:
         value = " ".join(str(item) for item in args["argv"][:4])
     if not value:
         return ""
+    value = str(value)
+    if len(value) > 80:
+        value = value[:77] + "..."
     return f" `{value}`"
 
 

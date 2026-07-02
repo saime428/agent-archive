@@ -733,7 +733,7 @@ def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, t
     assert payload["repair_count"] == 1
     assert payload["has_repair_noise"] is True
     assert payload["final"] == "已就绪，等待用户描述任务。"
-    assert "模型输出格式不符合动作协议" in payload["thinking_text"]
+    assert "模型输出格式不符合动作协议" not in payload["thinking_text"]
     assert "invalid_model_response" not in payload["thinking_text"]
     assert "Model response" not in payload["thinking_text"]
 
@@ -841,6 +841,9 @@ def test_build_chat_turn_payload_reports_approval_required(monkeypatch, tmp_path
     assert payload["approval_required"] is True
     assert payload["error_code"] == "APPROVAL_REQUIRED"
     assert payload["requested_action"] == "write_file"
+    assert payload["last_observation_summary"] == "这个操作需要你先在右侧审查里批准。"
+    assert "需要你批准后才会执行" in payload["thinking_text"]
+    assert "没有完成" not in payload["thinking_text"]
     assert not (workspace / "notes.txt").exists()
 
 
@@ -989,7 +992,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "display_status" in script
     assert "repair_count" in script
     assert "thought-process" in script
-    assert "Waiting for approval" in script
+    assert "等待审批" in script
     assert "Snapshots" in index
     assert "Task Review" in index
     assert "Patch Review" in index

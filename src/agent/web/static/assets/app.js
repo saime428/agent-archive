@@ -349,6 +349,8 @@ function friendlyChatText(text) {
   const value = String(text || "");
   const messages = {
     "Action requires approval before execution.": "这个操作需要你先在右侧审查里批准。",
+    "Action requires approval.": "这个操作需要你先批准。",
+    "Approval required.": "需要审批。",
   };
   return messages[value] || value;
 }
@@ -470,7 +472,7 @@ function showApprovalPanel(action, detail, onApprove) {
   els.approvalAction.textContent = action;
   els.approvalDetail.textContent = detail;
   els.approvalPanel.classList.remove("hidden");
-  renderResultNotice("Waiting for approval", "approval_required");
+  renderResultNotice("等待审批", "approval_required");
 }
 
 function hideApprovalPanel() {
