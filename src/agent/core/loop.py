@@ -113,7 +113,7 @@ def run_once(
     tool_calls_path = run_dir / "tool_calls.jsonl"
     summary_path = run_dir / "summary.md"
     hooks_path = run_dir / "hooks.jsonl"
-    sandbox = WorkspaceSandbox(context.cwd)
+    sandbox = WorkspaceSandbox(context.cwd, allow_external_read=effective_config.computer_read_enabled)
     project_instructions = load_project_instructions(
         context.cwd,
         max_chars=context.budget.project_instructions_chars,
@@ -560,7 +560,8 @@ def _direct_chat_answer(task: str, config: AgentConfig) -> str | None:
         return f"当前工作区配置是 provider: {config.provider}，model: {config.model}。"
     if len(compact) <= 24 and any(phrase in compact for phrase in ("能做什么", "可以做什么", "会做什么")):
         web = "联网搜索已开启" if config.web_search_enabled else "联网搜索可在设置里开启"
-        return f"我可以检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令；{web}。"
+        computer_read = "已允许只读查看明确指定的电脑路径" if config.computer_read_enabled else "电脑文件读取可在设置里开启"
+        return f"我可以检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令；{web}；{computer_read}。"
     return None
 
 
@@ -756,6 +757,7 @@ def _trace_config(config: AgentConfig) -> dict[str, object]:
         "approval": config.approval,
         "dry_run": config.dry_run,
         "web_search_enabled": config.web_search_enabled,
+        "computer_read_enabled": config.computer_read_enabled,
     }
 
 
@@ -785,9 +787,16 @@ def _build_messages(
 
 
 def _action_protocol_message(config: AgentConfig) -> dict[str, str]:
-    actions = "done, ask_user, list_dir, read_file, search_files, git_status, and git_diff"
-    web_search_rule = "web_search is available for current web/news lookups. " if config.web_search_enabled else (
+    actions = "done, ask_user, list_dir, read_file, search_files, git_status, git_diff"
+    if config.web_search_enabled:
+        actions += ", and web_search"
+    web_search_rule = "For current web, news, latest-version, or internet lookup requests, use web_search before done. " if config.web_search_enabled else (
         "Do not use web_search because web search is disabled in Settings. "
+    )
+    computer_read_rule = (
+        "list_dir, read_file, and search_files may read explicit absolute computer paths or ~ paths. "
+        if config.computer_read_enabled
+        else "list_dir, read_file, and search_files are limited to the workspace unless computer file reading is enabled in Settings. "
     )
     return {
         "role": "system",
@@ -797,6 +806,8 @@ def _action_protocol_message(config: AgentConfig) -> dict[str, str]:
             'The action object must have keys "name" and "args". '
             f"Use available actions such as {actions}. "
             f"{web_search_rule}"
+            f"{computer_read_rule}"
+            "Use list_dir, read_file, or search_files for file inspection; do not use run_command just to list or read files. "
             "Finish with done when the task is complete. "
             "When using done, args.final is the user-facing answer: answer directly in the user's language, "
             "do not summarize your own behavior with phrases like 'I answered the question' or 'task complete'. "

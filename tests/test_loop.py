@@ -913,6 +913,56 @@ def test_run_once_executes_web_search_when_enabled(monkeypatch, tmp_path) -> Non
     assert result.observation.data == {"final": "Found Codex news."}
 
 
+def test_action_protocol_prompts_real_web_search_and_file_read_tools(tmp_path) -> None:
+    llm = SpyLLM()
+
+    run_once(
+        "查一下 codex 新闻并看看 C:\\Users 里有什么",
+        llm,
+        cwd=tmp_path,
+        config=AgentConfig(web_search_enabled=True, computer_read_enabled=True),
+    )
+
+    assert llm.messages is not None
+    system = llm.messages[0]["content"]
+    assert "use web_search before done" in system
+    assert "explicit absolute computer paths" in system
+    assert "do not use run_command just to list or read files" in system
+
+
+def test_run_once_lists_external_directory_when_computer_read_enabled(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "external"
+    workspace.mkdir()
+    external.mkdir()
+    (external / "notes.txt").write_text("hello", encoding="utf-8")
+
+    result = run_once(
+        "list external files",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "List external directory.",
+                    "action": {"name": "list_dir", "args": {"path": str(external), "max_entries": 10}},
+                },
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {"final": "Listed external files.", "changed_files": [], "next_steps": []},
+                    },
+                },
+            ]
+        ),
+        cwd=workspace,
+        config=AgentConfig(computer_read_enabled=True),
+    )
+
+    assert result.observations[0].status == "ok"
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["entries"] == [{"name": "notes.txt", "type": "file"}]
+
+
 def test_search_web_parses_duckduckgo_html(monkeypatch) -> None:
     from agent.tools import web
 
@@ -933,6 +983,30 @@ def test_search_web_parses_duckduckgo_html(monkeypatch) -> None:
 
     assert web.search_web("codex news", 1) == [
         {"title": "Codex & News", "url": "https://example.com/codex", "snippet": "Latest update."}
+    ]
+
+
+def test_search_web_parses_duckduckgo_lite_html(monkeypatch) -> None:
+    from agent.tools import web
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b"<a rel='nofollow' href='//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fcodex'"
+                b" class='result-link'>Codex Lite</a>"
+                b"<td class='result-snippet'>Lite result snippet.</td>"
+            )
+
+    monkeypatch.setattr(web, "urlopen", lambda _request, timeout: Response())
+
+    assert web.search_web("codex news", 3) == [
+        {"title": "Codex Lite", "url": "https://example.com/codex", "snippet": "Lite result snippet."}
     ]
 
 

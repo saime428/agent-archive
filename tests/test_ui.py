@@ -71,6 +71,7 @@ def test_build_save_config_payload_writes_project_config_without_secrets(tmp_pat
             "approval": "risky-confirm",
             "dry_run": True,
             "web_search_enabled": True,
+            "computer_read_enabled": True,
             "default_skills": ["code-dev"],
             "api_key": "must-not-be-written",
         },
@@ -81,7 +82,9 @@ def test_build_save_config_payload_writes_project_config_without_secrets(tmp_pat
     assert payload["config"]["provider"] == "deepseek"
     assert payload["config"]["dry_run"] is True
     assert payload["config"]["web_search_enabled"] is True
+    assert payload["config"]["computer_read_enabled"] is True
     assert "web_search_enabled = true" in config_text
+    assert "computer_read_enabled = true" in config_text
     assert 'default_skills = ["code-dev"]' in config_text
     assert "must-not-be-written" not in config_text
     assert "api_key" not in config_text
@@ -487,6 +490,36 @@ def test_build_file_payload_rejects_outside_path(tmp_path: Path) -> None:
         assert "SANDBOX_VIOLATION" in str(exc)
     else:
         raise AssertionError("outside file reads should be rejected")
+
+
+def test_build_file_payload_reads_external_absolute_path_when_enabled(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("computer_read_enabled = true\n", encoding="utf-8")
+    outside.write_text("external", encoding="utf-8")
+
+    payload = build_file_payload(workspace, str(outside))
+
+    assert payload["path"] == str(outside.resolve())
+    assert payload["content"] == "external"
+
+
+def test_build_file_payload_still_rejects_parent_escape_when_computer_read_enabled(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("computer_read_enabled = true\n", encoding="utf-8")
+    outside.write_text("external", encoding="utf-8")
+
+    try:
+        build_file_payload(workspace, "../outside.txt")
+    except ValueError as exc:
+        assert "SANDBOX_VIOLATION" in str(exc)
+    else:
+        raise AssertionError("relative parent escapes should stay rejected")
 
 
 def test_build_file_payload_reports_missing_file(tmp_path: Path) -> None:
@@ -924,22 +957,23 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
     assert "Agent Workbench" in index
-    assert "Chat" in index
-    assert "Editor" in index
-    assert "Resources" in index
-    assert "Settings" in index
+    assert "聊天" in index
+    assert "文件" in index
+    assert "数据中心" in index
+    assert "设置" in index
     assert 'data-view="chat"' in index
     assert 'data-view="editor"' in index
     assert 'data-view="resources"' in index
     assert 'data-view="settings"' in index
     assert "message-input" in index
-    assert 'aria-label="Message"' in index
+    assert 'aria-label="消息"' in index
     assert "recent-file-list" in index
     assert "resource-summary-list" in index
     assert "settings-tool-list" in index
     assert "settings-key-status" in index
     assert "settings-web-search" in index
-    assert 'aria-label="File editor"' in index
+    assert "settings-computer-read" in index
+    assert 'aria-label="文件编辑器"' in index
     assert "输入消息..." in index
     assert "chat-thread" in index
     assert "context-column" in index
@@ -971,9 +1005,11 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/chat/turn" in script
     assert "thinking_text" in script
     assert "renderThinkingText" in script
+    assert "renderThinkingTextTyping" in script
     assert "keydown" in script
     assert "isComposing" in script
     assert "shiftKey" in script
+    assert "computer_read_enabled" in script
     assert "Recovered after" not in script
     assert "invalid_model_response" not in script
     assert "window.confirm" not in script
@@ -983,8 +1019,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "file-editor" in index
     assert "save-file-button" in index
     assert "showApprovalPanel" in script
-    assert "Save file" in script
-    assert "Restore" in script
+    assert "保存文件" in script
+    assert "恢复" in script
     assert "refreshWorkbench" in script
     assert "renderDiagnostics" in script
     assert "DeepSeek key" in script
@@ -993,9 +1029,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "repair_count" in script
     assert "thought-process" in script
     assert "等待审批" in script
-    assert "Snapshots" in index
-    assert "Task Review" in index
-    assert "Patch Review" in index
+    assert "快照" in index
+    assert "任务审查" in index
+    assert "补丁审查" in index
     assert "details-pane" not in index
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
@@ -1007,3 +1043,5 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert ".terminal-output" in styles
     assert ".thought-process" in styles
     assert ".windows-title-bar" in styles
+    assert "@keyframes view-rise" in styles
+    assert "@media (prefers-reduced-motion: no-preference)" in styles

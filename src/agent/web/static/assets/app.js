@@ -16,6 +16,7 @@ const state = {
   fileQuery: "",
   fileEntries: [],
   fileCurrentPath: ".",
+  animateLatestRunId: null,
 };
 
 const els = {
@@ -72,6 +73,7 @@ const els = {
   settingsSkills: document.querySelector("#settings-skills"),
   settingsDryRun: document.querySelector("#settings-dry-run"),
   settingsWebSearch: document.querySelector("#settings-web-search"),
+  settingsComputerRead: document.querySelector("#settings-computer-read"),
   settingsStatus: document.querySelector("#settings-status"),
   settingsKeyStatus: document.querySelector("#settings-key-status"),
   settingsToolList: document.querySelector("#settings-tool-list"),
@@ -139,6 +141,8 @@ function bindEvents() {
   els.denyButton.addEventListener("click", denyPendingAction);
   els.saveFileButton.addEventListener("click", saveOpenFile);
   els.settingsForm.addEventListener("submit", saveSettings);
+  els.settingsWebSearch.addEventListener("change", () => saveSettingsValues("联网搜索设置已保存。"));
+  els.settingsComputerRead.addEventListener("change", () => saveSettingsValues("电脑文件只读设置已保存。"));
 }
 
 function handleMessageKeydown(event) {
@@ -207,25 +211,29 @@ function renderHealth() {
   els.workspace.textContent = health.workspace || "workspace";
   els.provider.textContent = `provider: ${health.provider || "unknown"}`;
   els.model.textContent = `model: ${health.model || "unknown"}`;
-  els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"}`;
-  els.webSearch.textContent = `联网搜索：${state.config?.config?.web_search_enabled ? "开" : "关"}`;
+  els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "已配置" : "缺失"}`;
+  const webEnabled = Boolean(state.config?.config?.web_search_enabled);
+  els.webSearch.textContent = `联网搜索：${webEnabled ? "开" : "关"}`;
+  els.webSearch.classList.toggle("active", webEnabled);
   els.providerNotice.textContent = health.provider_notice || "";
   els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
   if (els.editorWorkspacePath) {
     els.editorWorkspacePath.textContent = health.workspace || "workspace";
   }
   if (els.settingsKeyStatus) {
-    els.settingsKeyStatus.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "present" : "missing"} (${health.deepseek_api_key_env || "DEEPSEEK_API_KEY"})`;
+    els.settingsKeyStatus.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "已配置" : "缺失"} (${health.deepseek_api_key_env || "DEEPSEEK_API_KEY"})`;
   }
   renderRows(els.workspaceRiskList, [
-    ["Risk", health.workspace_risk?.risk_level || "low"],
-    ["Summary", health.workspace_risk?.summary || "No workspace risk summary."],
+    ["风险", health.workspace_risk?.risk_level || "low"],
+    ["摘要", health.workspace_risk?.summary || "暂无工作区风险摘要。"],
   ]);
   renderRows(els.settingsReadinessList, [
-    ["Status", health.settings_readiness?.status || "ready"],
-    ["Provider", health.settings_readiness?.provider || health.provider || "unknown"],
-    ["Model", health.settings_readiness?.model || health.model || "unknown"],
-    ["DeepSeek key", health.deepseek_api_key_present ? "present" : "missing"],
+    ["状态", health.settings_readiness?.status || "ready"],
+    ["服务商", health.settings_readiness?.provider || health.provider || "unknown"],
+    ["模型", health.settings_readiness?.model || health.model || "unknown"],
+    ["DeepSeek key", health.deepseek_api_key_present ? "已配置" : "缺失"],
+    ["联网搜索", webEnabled ? "开" : "关"],
+    ["读取电脑文件", state.config?.config?.computer_read_enabled ? "开（只读）" : "关"],
   ]);
 }
 
@@ -238,12 +246,15 @@ function renderSettings() {
   els.settingsSkills.value = (config.default_skills || ["code-dev"]).join(", ");
   els.settingsDryRun.checked = Boolean(config.dry_run);
   els.settingsWebSearch.checked = Boolean(config.web_search_enabled);
+  els.settingsComputerRead.checked = Boolean(config.computer_read_enabled);
   const readiness = state.health?.settings_readiness || {};
   renderRows(els.settingsReadinessList, [
-    ["Status", readiness.status || "ready"],
-    ["Provider", readiness.provider || config.provider || "unknown"],
-    ["Model", readiness.model || config.model || "unknown"],
-    ["DeepSeek key", readiness.deepseek_api_key_present ? "present" : "missing"],
+    ["状态", readiness.status || "ready"],
+    ["服务商", readiness.provider || config.provider || "unknown"],
+    ["模型", readiness.model || config.model || "unknown"],
+    ["DeepSeek key", readiness.deepseek_api_key_present ? "已配置" : "缺失"],
+    ["联网搜索", config.web_search_enabled ? "开" : "关"],
+    ["读取电脑文件", config.computer_read_enabled ? "开（只读）" : "关"],
   ]);
   renderRows(
     els.settingsToolList,
@@ -257,9 +268,9 @@ function renderChats() {
     return !state.chatQuery || haystack.includes(state.chatQuery);
   });
   const items = filtered.map((chat) => chatButton(chat));
-  replaceOrEmpty(els.chatList, items, "No chat sessions yet.");
-  replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
-  replaceOrEmpty(els.resourceChatMainList, state.chats.map((chat) => chatButton(chat)), "No chat sessions yet.");
+  replaceOrEmpty(els.chatList, items, "还没有聊天会话。");
+  replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "还没有聊天会话。");
+  replaceOrEmpty(els.resourceChatMainList, state.chats.map((chat) => chatButton(chat)), "还没有聊天会话。");
   renderSideChat();
 }
 
@@ -268,9 +279,9 @@ function chatButton(chat) {
   button.type = "button";
   button.className = `list-item${chat.session_id === state.sessionId ? " selected" : ""}`;
   button.innerHTML = '<strong></strong><span></span><small></small>';
-  button.querySelector("strong").textContent = chat.latest_user || "New chat";
-  button.querySelector("span").textContent = chat.latest_final || chat.status || "No answer yet.";
-  button.querySelector("small").textContent = `${chat.turn_count || 0} turns`;
+  button.querySelector("strong").textContent = chat.latest_user || "新聊天";
+  button.querySelector("span").textContent = chat.latest_final || chat.status || "暂无回答。";
+  button.querySelector("small").textContent = `${chat.turn_count || 0} 轮`;
   button.addEventListener("click", () => selectChat(chat.session_id));
   return button;
 }
@@ -298,23 +309,28 @@ function startNewChat() {
 
 function renderChatThread(turns) {
   if (!turns.length) {
-    els.chatThread.innerHTML = '<div class="empty-state">New chat</div>';
+    els.chatThread.innerHTML = '<div class="empty-state">新聊天</div>';
     return;
   }
   const bubbles = [];
   for (const turn of turns) {
     bubbles.push(messageBubble("user", turn.user));
-    const body = turn.final || turn.last_observation_summary || turn.status || "No response.";
-    bubbles.push(messageBubble("agent", friendlyChatText(body), friendlyTerminalReason(turn.terminal_reason), turn.thinking_text || ""));
+    const body = turn.final || turn.last_observation_summary || turn.status || "暂无响应。";
+    const animateThinking = state.animateLatestRunId && state.animateLatestRunId === turn.run_id;
+    bubbles.push(messageBubble("agent", friendlyChatText(body), friendlyTerminalReason(turn.terminal_reason), turn.thinking_text || "", {
+      animateThinking,
+      openThinking: animateThinking,
+    }));
   }
   els.chatThread.replaceChildren(...bubbles);
   els.chatThread.scrollTop = els.chatThread.scrollHeight;
+  state.animateLatestRunId = null;
 }
 
 function renderSideChat() {
   const chat = state.selectedChat;
   if (!chat) {
-    replaceOrEmpty(els.sideChatList, [], "No current thread.");
+    replaceOrEmpty(els.sideChatList, [], "当前没有会话。");
     return;
   }
   renderRows(els.sideChatList, [
@@ -324,7 +340,7 @@ function renderSideChat() {
   ]);
 }
 
-function messageBubble(role, body, meta = "", thinkingText = "") {
+function messageBubble(role, body, meta = "", thinkingText = "", options = {}) {
   const article = document.createElement("article");
   article.className = `message-bubble ${role}`;
   article.innerHTML = '<div class="message-role"></div><div class="message-body"></div><div class="message-meta"></div>';
@@ -334,11 +350,12 @@ function messageBubble(role, body, meta = "", thinkingText = "") {
   if (role === "agent" && thinkingText) {
     const details = document.createElement("details");
     details.className = "thought-process";
+    details.open = Boolean(options.openThinking);
     const summary = document.createElement("summary");
     summary.textContent = "思考过程";
     const bodyNode = document.createElement("div");
     bodyNode.className = "thinking-copy";
-    renderThinkingText(bodyNode, thinkingText);
+    renderThinkingText(bodyNode, thinkingText, { animate: Boolean(options.animateThinking) });
     details.append(summary, bodyNode);
     article.append(details);
   }
@@ -351,6 +368,7 @@ function friendlyChatText(text) {
     "Action requires approval before execution.": "这个操作需要你先在右侧审查里批准。",
     "Action requires approval.": "这个操作需要你先批准。",
     "Approval required.": "需要审批。",
+    "Web search is disabled. Enable it in Settings before searching the internet.": "联网搜索已关闭，请在设置里打开后再搜索网络。",
   };
   return messages[value] || value;
 }
@@ -366,7 +384,11 @@ function friendlyTerminalReason(reason) {
   return messages[value] || value;
 }
 
-function renderThinkingText(container, text) {
+function renderThinkingText(container, text, { animate = false } = {}) {
+  if (animate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    renderThinkingTextTyping(container, text);
+    return;
+  }
   container.replaceChildren();
   const lines = String(text).split(/\r?\n/);
   let list = null;
@@ -393,6 +415,27 @@ function renderThinkingText(container, text) {
   }
 }
 
+function renderThinkingTextTyping(container, text) {
+  const value = String(text);
+  container.replaceChildren();
+  container.classList.add("typing");
+  const target = document.createElement("div");
+  target.className = "thinking-typewriter";
+  container.append(target);
+  let index = 0;
+  const tick = () => {
+    index += 1;
+    target.textContent = value.slice(0, index);
+    if (index < value.length) {
+      window.setTimeout(tick, 12);
+      return;
+    }
+    container.classList.remove("typing");
+    renderThinkingText(container, value);
+  };
+  tick();
+}
+
 function appendInlineCode(parent, text) {
   const parts = String(text).split("`");
   parts.forEach((part, index) => {
@@ -417,7 +460,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
     return;
   }
   els.sendButton.disabled = true;
-  appendPendingMessage(message, approveOnce ? "Submitting approved action..." : "Running...");
+  appendPendingMessage(message, approveOnce ? "正在提交已批准的操作..." : "正在运行...");
   try {
     const turn = await postJson("/api/chat/turn", {
       session_id: state.sessionId,
@@ -425,6 +468,7 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
       approve_once: approveOnce,
     });
     state.sessionId = turn.session_id;
+    state.animateLatestRunId = turn.run_id;
     els.sessionChip.textContent = `session: ${turn.session_id}`;
     if (turn.approval_required) {
       showApprovalPanel(
@@ -452,11 +496,13 @@ async function sendChatTurn(message, { approveOnce = false } = {}) {
 
 function appendPendingMessage(userMessage, status) {
   const existing = state.selectedChat?.turns || [];
+  state.animateLatestRunId = "__pending__";
   renderChatThread([...existing, {
     user: userMessage,
+    run_id: "__pending__",
     final: status,
     terminal_reason: "pending",
-    thinking_text: "我正在提交本轮请求，等待本地 Agent 返回可验证的运行记录。",
+    thinking_text: "我正在推进本轮请求：\n- 已收到你的输入。\n- 正在等待模型返回动作。\n- 工具执行结果会整理成可公开的过程。",
   }]);
 }
 
@@ -494,8 +540,8 @@ function denyPendingAction() {
 
 function renderRuns() {
   const items = state.runs.map((run) => runButton(run));
-  replaceOrEmpty(els.runList, items, "No runs yet.");
-  replaceOrEmpty(els.resourceRunList, state.runs.map((run) => runButton(run)), "No runs yet.");
+  replaceOrEmpty(els.runList, items, "还没有运行记录。");
+  replaceOrEmpty(els.resourceRunList, state.runs.map((run) => runButton(run)), "还没有运行记录。");
 }
 
 function runButton(run) {
@@ -555,8 +601,8 @@ function renderFileEntries() {
     items.push(fileButton(entry.name, entry.path, entry.kind));
     sideItems.push(fileButton(entry.name, entry.path, entry.kind));
   }
-  replaceOrEmpty(els.fileList, items, "No files found.");
-  replaceOrEmpty(els.sideFileList, sideItems, "No files found.");
+  replaceOrEmpty(els.fileList, items, "没有找到文件。");
+  replaceOrEmpty(els.sideFileList, sideItems, "没有找到文件。");
   renderEditorHome();
 }
 
@@ -590,7 +636,7 @@ async function openFile(path) {
     els.fileEditor.value = payload.content || "";
     activateView("editor");
   } catch (error) {
-    showSummary(error instanceof Error ? error.message : String(error), "Open failed");
+    showSummary(error instanceof Error ? error.message : String(error), "打开失败");
   }
 }
 
@@ -599,16 +645,16 @@ async function saveOpenFile() {
     return;
   }
   const path = state.openFilePath;
-  showApprovalPanel("Save file", path, async () => {
+    showApprovalPanel("保存文件", path, async () => {
     const payload = await postJson("/api/file/save", { path, content: els.fileEditor.value });
     await refreshWorkbench();
     await loadFiles(".");
     await selectRun(payload.run_id);
-    showSummary(`Saved ${payload.path}`, "Saved");
+    showSummary(`已保存 ${payload.path}`, "已保存");
   });
 }
 
-function showSummary(text, title = "Summary") {
+function showSummary(text, title = "摘要") {
   els.selectedFileTitle.textContent = title;
   els.fileEditor.classList.add("hidden");
   els.saveFileButton.classList.add("hidden");
@@ -620,17 +666,17 @@ function showSummary(text, title = "Summary") {
 async function openDiff(path, snapshotPath) {
   const query = `path=${encodeURIComponent(path)}&snapshot=${encodeURIComponent(snapshotPath)}`;
   const payload = await loadJson(`/api/diff?${query}`);
-  showSummary(payload.diff || "(no changes)", `Diff: ${payload.path}`);
+  showSummary(payload.diff || "（没有变化）", `差异：${payload.path}`);
 }
 
 async function restoreSnapshot(snapshot) {
-  showApprovalPanel("Restore snapshot", snapshot.path, async () => {
+  showApprovalPanel("恢复快照", snapshot.path, async () => {
     const payload = await postJson("/api/snapshot/restore", {
       path: snapshot.path,
       snapshot_path: snapshot.snapshot_path,
     });
     await refreshWorkbench();
-    showSummary(`${payload.action}: ${payload.path}`, "Snapshot restored");
+    showSummary(`${payload.action}: ${payload.path}`, "快照已恢复");
   });
 }
 
@@ -652,19 +698,31 @@ function renderResources() {
 
 async function saveSettings(event) {
   event.preventDefault();
-  const payload = {
+  await saveSettingsValues("设置已保存。");
+}
+
+function buildSettingsPayload() {
+  return {
     provider: els.settingsProvider.value,
     model: els.settingsModel.value.trim(),
     sandbox: els.settingsSandbox.value,
     approval: els.settingsApproval.value,
     dry_run: els.settingsDryRun.checked,
     web_search_enabled: els.settingsWebSearch.checked,
+    computer_read_enabled: els.settingsComputerRead.checked,
     default_skills: els.settingsSkills.value.split(",").map((item) => item.trim()).filter(Boolean),
   };
+}
+
+async function saveSettingsValues(successText) {
+  const payload = {
+    ...buildSettingsPayload(),
+  };
   try {
+    els.settingsStatus.textContent = "正在保存设置...";
     state.config = await postJson("/api/config", payload);
-    els.settingsStatus.textContent = "Settings saved.";
     await refreshWorkbench();
+    els.settingsStatus.textContent = successText || "设置已保存。";
   } catch (error) {
     els.settingsStatus.textContent = error instanceof Error ? error.message : String(error);
   }
@@ -682,7 +740,7 @@ function renderDiagnostics(detail) {
       els.toolCallList,
     ]) {
       if (element) {
-        element.innerHTML = '<div class="empty-state">Select a run to inspect diagnostics.</div>';
+        element.innerHTML = '<div class="empty-state">选择一条运行记录查看诊断。</div>';
       }
     }
     renderSnapshots([]);
@@ -705,7 +763,7 @@ function renderRunReplay(replay) {
   }
   const steps = replay?.steps || [];
   if (!steps.length) {
-    els.runReplayList.innerHTML = '<div class="empty-state">No replay steps recorded.</div>';
+    els.runReplayList.innerHTML = '<div class="empty-state">没有记录回放步骤。</div>';
     return;
   }
   renderRows(
@@ -719,14 +777,14 @@ function renderToolCalls(toolCalls) {
     return;
   }
   if (!toolCalls.length) {
-    els.toolCallList.innerHTML = '<div class="empty-state">No trace rows recorded.</div>';
+    els.toolCallList.innerHTML = '<div class="empty-state">没有记录工具调用。</div>';
     return;
   }
   renderRows(
     els.toolCallList,
     toolCalls.map((call) => {
       const action = call.data?.action?.action?.name || "invalid";
-      const summary = call.data?.observation?.summary || call.error || "No summary.";
+      const summary = call.data?.observation?.summary || call.error || "暂无摘要。";
       return [`${call.line_number}. ${action}`, summary];
     }),
   );
@@ -737,7 +795,7 @@ function renderTerminal(detail) {
     return;
   }
   if (!detail) {
-    els.terminalOutput.textContent = "No run selected.";
+    els.terminalOutput.textContent = "未选择运行。";
     return;
   }
   const lines = [`$ run ${detail.run_id}`, ""];
@@ -757,13 +815,13 @@ function renderSnapshots(snapshots) {
     return;
   }
   if (!snapshots.length) {
-    els.snapshotList.innerHTML = '<div class="empty-state">No snapshots for this run.</div>';
+    els.snapshotList.innerHTML = '<div class="empty-state">这次运行没有快照。</div>';
     return;
   }
   const items = snapshots.map((snapshot) => {
     const item = document.createElement("article");
     item.className = "trace-item";
-    item.innerHTML = '<strong></strong><span></span><div class="row-actions"><button type="button">Show diff</button><button type="button">Restore</button></div>';
+    item.innerHTML = '<strong></strong><span></span><div class="row-actions"><button type="button">查看差异</button><button type="button">恢复</button></div>';
     item.querySelector("strong").textContent = snapshot.path;
     item.querySelector("span").textContent = snapshot.snapshot_path;
     const buttons = item.querySelectorAll("button");
@@ -797,7 +855,7 @@ function renderRows(container, rows) {
       item.querySelector("span").textContent = value;
       return item;
     });
-  replaceOrEmpty(container, items, "No data recorded.");
+  replaceOrEmpty(container, items, "没有记录数据。");
 }
 
 function replaceOrEmpty(container, items, emptyText) {
@@ -812,6 +870,11 @@ function replaceOrEmpty(container, items, emptyText) {
 }
 
 function parentPath(path) {
+  if (/^[A-Za-z]:\\/.test(path) || path.includes("\\")) {
+    const normalized = path.replace(/\\+$/, "");
+    const index = normalized.lastIndexOf("\\");
+    return index > 2 ? normalized.slice(0, index) : normalized;
+  }
   const parts = path.split("/").filter(Boolean);
   parts.pop();
   return parts.length ? parts.join("/") : ".";

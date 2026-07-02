@@ -175,7 +175,7 @@ def _resolve_cwd(
     requested_cwd = action.action.args.get("cwd")
     if requested_cwd is None:
         return context.cwd
-    cwd = sandbox.resolve_read_path(str(requested_cwd))
+    cwd = sandbox.resolve_read_path(str(requested_cwd), allow_external=False)
     if not cwd.is_dir():
         raise OSError(f"Command cwd is not a directory: {cwd}")
     return cwd
@@ -211,7 +211,7 @@ def _validate_path_arguments(argv: list[str], sandbox: WorkspaceSandbox) -> None
         if arg == "--" or arg.startswith("-"):
             continue
         if _looks_like_path_argument(arg):
-            sandbox.resolve_read_path(arg)
+            sandbox.resolve_read_path(arg, allow_external=False)
 
 
 def _looks_like_path_argument(arg: str) -> bool:

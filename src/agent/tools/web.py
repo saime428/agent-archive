@@ -9,7 +9,7 @@ from agent.core.actions import ErrorCode, InternalAction, Observation, make_erro
 
 DEFAULT_MAX_RESULTS = 5
 MAX_RESULTS = 8
-SEARCH_URL = "https://duckduckgo.com/html/?q={query}"
+SEARCH_URL = "https://lite.duckduckgo.com/lite/?q={query}"
 
 
 def execute_web_search(action: InternalAction, *, observation_index: int) -> Observation:
@@ -37,7 +37,7 @@ def execute_web_search(action: InternalAction, *, observation_index: int) -> Obs
 def search_web(query: str, max_results: int) -> list[dict[str, str]]:
     request = Request(
         SEARCH_URL.format(query=quote_plus(query)),
-        headers={"User-Agent": "AgentWorkbench/0.1"},
+        headers={"User-Agent": "Mozilla/5.0 AgentWorkbench/0.1"},
     )
     with urlopen(request, timeout=12) as response:  # nosec B310 - user-controlled feature flag gates this tool.
         html = response.read().decode("utf-8", errors="replace")
@@ -62,11 +62,11 @@ class _DuckDuckGoParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attr = {key: value or "" for key, value in attrs}
         classes = set(attr.get("class", "").split())
-        if tag == "a" and "result__a" in classes:
+        if tag == "a" and ("result__a" in classes or "result-link" in classes):
             self._finish_current()
             self._current = {"title": "", "url": _clean_url(attr.get("href", "")), "snippet": ""}
             self._capture = "title"
-        elif self._current is not None and "result__snippet" in classes:
+        elif self._current is not None and ("result__snippet" in classes or "result-snippet" in classes):
             self._capture = "snippet"
 
     def handle_data(self, data: str) -> None:

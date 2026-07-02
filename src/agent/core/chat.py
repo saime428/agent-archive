@@ -164,7 +164,7 @@ class ChatSession:
         history_message = self.state.build_context_message(self.budget)
         if history_message is not None:
             context_messages.append(history_message)
-        context_messages.extend(build_reference_context_messages(user_input, self.cwd, self.budget))
+        context_messages.extend(build_reference_context_messages(user_input, self.cwd, self.budget, config=self.config))
         result = run_once(
             user_input,
             self.llm,
@@ -182,12 +182,18 @@ class ChatSession:
         return result
 
 
-def build_reference_context_messages(user_input: str, cwd: Path, budget: ContextBudget) -> list[dict[str, str]]:
+def build_reference_context_messages(
+    user_input: str,
+    cwd: Path,
+    budget: ContextBudget,
+    *,
+    config: AgentConfig | None = None,
+) -> list[dict[str, str]]:
     references = _extract_references(user_input)
     if not references:
         return []
 
-    sandbox = WorkspaceSandbox(cwd)
+    sandbox = WorkspaceSandbox(cwd, allow_external_read=bool(config and config.computer_read_enabled))
     messages: list[dict[str, str]] = []
     for reference in references:
         messages.append(_build_one_reference_message(reference, cwd.resolve(), sandbox, budget))

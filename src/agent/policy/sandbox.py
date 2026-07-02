@@ -17,24 +17,28 @@ class SandboxError(ValueError):
 
 
 class WorkspaceSandbox:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, allow_external_read: bool = False) -> None:
         self.root = root.resolve()
         self.protected_runs_root = (self.root / ".agent" / "runs").resolve()
+        self.allow_external_read = allow_external_read
 
-    def resolve_read_path(self, path: str) -> Path:
-        requested = Path(path)
+    def resolve_read_path(self, path: str, *, allow_external: bool = True) -> Path:
+        requested = Path(path).expanduser()
+        explicit_external = requested.is_absolute() or path.startswith(("~", "~/", "~\\"))
         candidate = requested if requested.is_absolute() else self.root / requested
         resolved = candidate.resolve()
+        if _is_protected_read_path(resolved, self.protected_runs_root):
+            raise SandboxError(
+                ErrorCode.SANDBOX_VIOLATION,
+                "Path targets protected internal state.",
+                {"path": path},
+            )
         if not _is_within(resolved, self.root):
+            if self.allow_external_read and allow_external and explicit_external:
+                return resolved
             raise SandboxError(
                 ErrorCode.SANDBOX_VIOLATION,
                 "Path resolves outside the workspace.",
-                {"path": path},
-            )
-        if _is_within(resolved, self.protected_runs_root):
-            raise SandboxError(
-                ErrorCode.SANDBOX_VIOLATION,
-                "Path targets protected internal run state.",
                 {"path": path},
             )
         return resolved
@@ -80,6 +84,13 @@ def _is_within(path: Path, root: Path) -> bool:
         return os.path.commonpath([path_text, root_text]) == root_text
     except ValueError:
         return False
+
+
+def _is_protected_read_path(path: Path, protected_runs_root: Path) -> bool:
+    if _is_within(path, protected_runs_root):
+        return True
+    parts = tuple(os.path.normcase(part) for part in path.parts)
+    return any(parts[index] == ".agent" and parts[index + 1] == "secrets.env" for index in range(len(parts) - 1))
 
 
 def _nearest_existing_parent(path: Path) -> Path:

@@ -718,6 +718,7 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "approval: risky-confirm" in result.output
     assert "dry_run: false" in result.output
     assert "web_search_enabled: false" in result.output
+    assert "computer_read_enabled: false" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
     assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output

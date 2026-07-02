@@ -455,7 +455,16 @@ def _read_project_config(path: Path) -> dict[str, Any]:
 
 
 def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
-    allowed = {"provider", "model", "sandbox", "approval", "dry_run", "web_search_enabled", "default_skills"}
+    allowed = {
+        "provider",
+        "model",
+        "sandbox",
+        "approval",
+        "dry_run",
+        "web_search_enabled",
+        "computer_read_enabled",
+        "default_skills",
+    }
     updates: dict[str, Any] = {}
     for key, value in request.items():
         if key not in allowed:
@@ -486,6 +495,10 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(value, bool):
                 raise ValueError("web_search_enabled must be a boolean.")
             updates[key] = value
+        elif key == "computer_read_enabled":
+            if not isinstance(value, bool):
+                raise ValueError("computer_read_enabled must be a boolean.")
+            updates[key] = value
         elif key == "default_skills":
             if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
                 raise ValueError("default_skills must be a list of non-empty strings.")
@@ -508,6 +521,11 @@ def _toml_value(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_toml_value(item) for item in value) + "]"
     raise ValueError(f"Unsupported config value type: {type(value).__name__}")
+
+
+def _read_sandbox(root: Path) -> WorkspaceSandbox:
+    config, _diagnostics = load_config(root.resolve())
+    return WorkspaceSandbox(root, allow_external_read=config.computer_read_enabled)
 
 
 def build_tools_payload() -> dict[str, Any]:
@@ -560,7 +578,7 @@ def _summary_field(summary: str, name: str) -> str | None:
 
 def build_files_payload(workspace: Path, path: str | None = None) -> dict[str, Any]:
     root = workspace.resolve()
-    sandbox = WorkspaceSandbox(root)
+    sandbox = _read_sandbox(root)
     requested = path or "."
     try:
         directory = sandbox.resolve_read_path(requested)
@@ -587,7 +605,7 @@ def build_file_payload(workspace: Path, path: str | None, *, max_chars: int | No
     if not path:
         raise ValueError("path is required.")
     root = workspace.resolve()
-    sandbox = WorkspaceSandbox(root)
+    sandbox = _read_sandbox(root)
     try:
         file_path = sandbox.resolve_read_path(path)
     except SandboxError as exc:
@@ -830,6 +848,8 @@ def _friendly_observation_summary(summary: str) -> str:
         "Action requires approval before execution.": "这个操作需要你先在右侧审查里批准。",
         "Action requires approval.": "这个操作需要你先批准。",
         "Approval required.": "需要审批。",
+        "Web search is disabled. Enable it in Settings before searching the internet.": "联网搜索已关闭，请在设置里打开后再搜索网络。",
+        "Path resolves outside the workspace.": "当前只允许读取工作区文件；如需查看电脑上的绝对路径，请先在设置里开启“读取电脑文件（只读）”。",
     }
     return messages.get(summary, summary)
 
