@@ -71,10 +71,10 @@
               <small>Provider / 权限</small>
             </button>
             <div class="settings-nav">
-              <span>API 提供商</span>
-              <span>Codex CLI</span>
-              <span>工具能力</span>
-              <span>审批策略</span>
+              <button type="button" data-settings-target="settings-api-section">API 提供商</button>
+              <button type="button" data-settings-target="settings-codex-section">Codex CLI</button>
+              <button type="button" data-settings-target="settings-tools-section">工具能力</button>
+              <button type="button" data-settings-target="settings-approval-section">审批策略</button>
             </div>
           </div>
         </section>
@@ -180,12 +180,12 @@
               <h1>设置</h1>
               <p>这里只保存非密钥配置，API key 继续留在本地 secrets.env。</p>
             </div>
-            <section class="settings-card">
+            <section class="settings-card" id="settings-readiness-section">
               <h2>运行就绪</h2>
               <div id="settings-key-status" class="settings-status">正在读取 DeepSeek key 状态。</div>
               <div id="settings-readiness-list" class="trace-list"></div>
             </section>
-            <label>
+            <label id="settings-api-section">
               服务商
               <select id="settings-provider" name="provider">
                 <option value="deepseek">deepseek</option>
@@ -196,14 +196,14 @@
               模型
               <input id="settings-model" name="model" type="text" />
             </label>
-            <label>
+            <label id="settings-codex-section">
               沙箱
               <select id="settings-sandbox" name="sandbox">
                 <option value="workspace-write">workspace-write</option>
                 <option value="read-only">read-only</option>
               </select>
             </label>
-            <label>
+            <label id="settings-approval-section">
               审批
               <select id="settings-approval" name="approval">
                 <option value="risky-confirm">risky-confirm</option>
@@ -226,7 +226,7 @@
               <input id="settings-computer-read" name="computer_read_enabled" type="checkbox" />
               读取电脑文件（只读）
             </label>
-            <section class="settings-card">
+            <section class="settings-card" id="settings-tools-section">
               <h2>Codex 可用工具</h2>
               <div id="settings-tool-list" class="trace-list"></div>
             </section>
@@ -273,7 +273,7 @@
               <span id="session-chip" class="eyebrow">新会话</span>
               <h2>运行审查</h2>
             </div>
-            <button id="back-to-chat-button" class="icon-button" type="button" title="回到聊天" aria-label="回到聊天">‹</button>
+            <button id="back-to-chat-button" class="icon-button" type="button" title="回到聊天" aria-label="回到聊天">×</button>
           </div>
           <div id="provider-notice" class="provider-notice" role="status">正在检查服务商...</div>
 

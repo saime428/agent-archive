@@ -170,9 +170,15 @@ button {
 }
 
 .side-panel.active {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  overflow: auto;
+}
+
+#side-files.side-panel.active,
+#side-chat.side-panel.active,
+#side-terminal.side-panel.active {
   overflow: hidden;
 }
 
@@ -628,6 +634,11 @@ button:focus-visible {
   padding: 0 22px;
 }
 
+.secondary-title > div,
+.panel-header > div {
+  min-width: 0;
+}
+
 .secondary-title h2,
 .panel-header h2,
 .section-title h1,
@@ -651,6 +662,8 @@ button:focus-visible {
 }
 
 .file-tree {
+  flex: 1;
+  min-height: 0;
   padding: 16px 22px 28px;
 }
 
@@ -696,8 +709,28 @@ button:focus-visible {
 }
 
 .run-panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: block;
+  min-height: auto;
+}
+
+#selected-run-title {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#run-state {
+  flex: 0 0 auto;
+}
+
+#side-review #run-list {
+  overflow: visible;
+  padding: 10px 14px 16px;
+}
+
+#side-chat-list {
+  flex: 1;
   min-height: 0;
 }
 
@@ -734,6 +767,8 @@ button:focus-visible {
 }
 
 .terminal-output {
+  flex: 1;
+  min-height: 0;
   min-height: 220px;
   margin: 16px 22px;
   border: 1px solid #262626;
@@ -922,12 +957,20 @@ button:focus-visible {
   padding: 12px 4px;
 }
 
-.settings-nav span {
+.settings-nav button {
+  border: 0;
   border-radius: 14px;
   padding: 12px 14px;
   background: #fbfbfc;
   color: var(--muted);
   font-weight: 700;
+  text-align: left;
+}
+
+.settings-nav button:hover,
+.settings-nav button.active {
+  background: #e9e9ec;
+  color: var(--text);
 }
 
 .result-notice {

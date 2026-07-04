@@ -974,6 +974,12 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "settings-key-status" in index
     assert "settings-web-search" in index
     assert "settings-computer-read" in index
+    assert 'data-settings-target="settings-api-section"' in index
+    assert 'data-settings-target="settings-codex-section"' in index
+    assert 'data-settings-target="settings-tools-section"' in index
+    assert 'data-settings-target="settings-approval-section"' in index
+    assert 'id="settings-api-section"' in index
+    assert 'id="settings-tools-section"' in index
     assert 'aria-label="文件编辑器"' in index
     assert "追加消息..." in index
     assert "chat-thread" in index
@@ -1011,6 +1017,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "keydown" in script
     assert "isComposing" in script
     assert "shiftKey" in script
+    assert "settingsNavButtons" in script
+    assert "scrollToSetting" in script
+    assert "scrollIntoView" in script
     assert "computer_read_enabled" in script
     assert "Recovered after" not in script
     assert "invalid_model_response" not in script
@@ -1043,6 +1052,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert ".app-view.active" in styles
     assert ".side-tabs" in styles
     assert ".side-panel.active" in styles
+    assert "#side-review #run-list" in styles
+    assert "#selected-run-title" in styles
+    assert ".settings-nav button" in styles
     assert ".terminal-output" in styles
     assert ".thought-process" in styles
     assert ".token-secondary" in styles

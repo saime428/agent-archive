@@ -21,6 +21,7 @@ const state = {
 
 const els = {
   navButtons: [...document.querySelectorAll(".nav-button[data-view]")],
+  settingsNavButtons: [...document.querySelectorAll("[data-settings-target]")],
   contextPanels: [...document.querySelectorAll(".context-panel")],
   views: [...document.querySelectorAll(".app-view")],
   workspace: document.querySelector("#workspace-pill"),
@@ -122,6 +123,9 @@ function bindEvents() {
   for (const button of els.navButtons) {
     button.addEventListener("click", () => activateView(button.dataset.view));
   }
+  for (const button of els.settingsNavButtons) {
+    button.addEventListener("click", () => scrollToSetting(button.dataset.settingsTarget));
+  }
   for (const button of els.sideTabButtons) {
     button.addEventListener("click", () => activateSidePanel(button.dataset.sidePanel));
   }
@@ -165,6 +169,14 @@ function activateView(view) {
   for (const panel of els.contextPanels) {
     panel.classList.toggle("active", panel.dataset.view === state.activeView);
   }
+}
+
+function scrollToSetting(targetId) {
+  activateView("settings");
+  for (const button of els.settingsNavButtons) {
+    button.classList.toggle("active", button.dataset.settingsTarget === targetId);
+  }
+  document.getElementById(targetId)?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function activateSidePanel(panel) {
