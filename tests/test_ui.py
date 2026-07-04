@@ -956,7 +956,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     script = static_file_path("assets/app.js").read_text(encoding="utf-8")
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
-    assert "TOKEN/CODEX" in index
+    assert "Agent Workbench" in index
+    assert "TOKEN/CODEX" not in index
     assert "new-task-button" in index
     assert "聊天" in index
     assert "文件" in index
@@ -977,11 +978,11 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert 'data-settings-target="settings-api-section"' in index
     assert 'data-settings-target="settings-runtime-section"' in index
     assert 'data-settings-target="settings-tools-section"' in index
-    assert 'data-settings-target="settings-approval-section"' in index
     assert 'id="settings-api-section"' in index
     assert 'id="settings-runtime-section"' in index
     assert 'id="settings-tools-section"' in index
     assert "运行权限" in index
+    assert "审批策略" not in index
     assert "Codex CLI" not in index
     assert 'aria-label="文件编辑器"' in index
     assert "追加消息..." in index

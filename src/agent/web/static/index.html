@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TOKEN/CODEX Agent</title>
+    <title>Agent Workbench</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/assets/app.css" />
   </head>
@@ -11,8 +11,8 @@
     <div class="apix-shell tokenicode-shell">
       <aside class="context-column token-sidebar">
         <div class="sidebar-brand">
-          <div class="brand-mark" aria-hidden="true">C</div>
-          <strong>TOKEN<span>/</span>CODEX</strong>
+          <div class="brand-mark" aria-hidden="true">A</div>
+          <strong>Agent Workbench</strong>
         </div>
 
         <button id="new-chat-button" class="new-task-button" type="button">
@@ -74,7 +74,6 @@
               <button type="button" data-settings-target="settings-api-section">API 提供商</button>
               <button type="button" data-settings-target="settings-runtime-section">运行权限</button>
               <button type="button" data-settings-target="settings-tools-section">工具能力</button>
-              <button type="button" data-settings-target="settings-approval-section">审批策略</button>
             </div>
           </div>
         </section>
@@ -203,7 +202,7 @@
                 <option value="read-only">read-only</option>
               </select>
             </label>
-            <label id="settings-approval-section">
+            <label>
               审批
               <select id="settings-approval" name="approval">
                 <option value="risky-confirm">risky-confirm</option>
