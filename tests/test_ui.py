@@ -956,7 +956,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     script = static_file_path("assets/app.js").read_text(encoding="utf-8")
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
-    assert "Agent Workbench" in index
+    assert "TOKEN/CODEX" in index
+    assert "new-task-button" in index
     assert "聊天" in index
     assert "文件" in index
     assert "数据中心" in index
@@ -974,12 +975,12 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "settings-web-search" in index
     assert "settings-computer-read" in index
     assert 'aria-label="文件编辑器"' in index
-    assert "输入消息..." in index
+    assert "追加消息..." in index
     assert "chat-thread" in index
     assert "context-column" in index
     assert "stage-column" in index
     assert "assistant-column" in index
-    assert "windows-title-bar" in index
+    assert "tokenicode-shell" in index
     assert "window-dot" not in index
     assert "diagnostics-drawer" not in index
     assert "diagnostics-toggle" not in index
@@ -993,6 +994,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "side-file-list" in index
     assert "side-chat-list" in index
     assert "api-key-chip" in index
+    assert "computer-read-chip" in index
     assert "/api/health" in script
     assert "/api/config" in script
     assert "/api/chats" in script
@@ -1036,12 +1038,13 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
     assert ".apix-shell" in styles
-    assert ".apix-body" in styles
+    assert ".token-sidebar" in styles
+    assert ".new-task-button" in styles
     assert ".app-view.active" in styles
     assert ".side-tabs" in styles
     assert ".side-panel.active" in styles
     assert ".terminal-output" in styles
     assert ".thought-process" in styles
-    assert ".windows-title-bar" in styles
+    assert ".token-secondary" in styles
     assert "@keyframes view-rise" in styles
     assert "@media (prefers-reduced-motion: no-preference)" in styles

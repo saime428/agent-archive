@@ -99,6 +99,64 @@ def test_run_command_rejects_path_argument_escape(tmp_path) -> None:
     assert observation.error.code == ErrorCode.SANDBOX_VIOLATION
 
 
+def test_run_command_accepts_external_path_argument_when_computer_read_enabled(tmp_path) -> None:
+    outside = tmp_path / "outside.txt"
+    outside.write_text("external", encoding="utf-8")
+    context = RunContext.create("run", cwd=tmp_path, run_id="run_shell")
+    action = _parse_run_command(
+        context,
+        {
+            "argv": [
+                sys.executable,
+                "-c",
+                "import pathlib; print(pathlib.Path('payload').name)",
+                str(outside),
+            ],
+            "cwd": None,
+            "timeout_seconds": 5,
+        },
+    )
+
+    observation = execute_run_command(
+        action,
+        context,
+        WorkspaceSandbox(tmp_path, allow_external_read=True),
+        observation_index=1,
+    )
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert observation.data["stdout"] == "payload\n"
+
+
+def test_run_command_resolves_external_cwd_when_computer_read_enabled(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "external"
+    workspace.mkdir()
+    external.mkdir()
+    external_file = external / "marker.txt"
+    external_file.write_text("ok", encoding="utf-8")
+    context = RunContext.create("run", cwd=workspace, run_id="run_shell")
+    action = _parse_run_command(
+        context,
+        {
+            "argv": [sys.executable, "-c", "import os; print(os.path.basename(os.getcwd()))"],
+            "cwd": str(external),
+            "timeout_seconds": 5,
+        },
+    )
+
+    observation = execute_run_command(
+        action,
+        context,
+        WorkspaceSandbox(workspace, allow_external_read=True),
+        observation_index=1,
+    )
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert observation.data["cwd"] == str(external.resolve())
+    assert observation.data["stdout"] == "external\n"
 def test_run_command_rejects_protected_internal_path_argument(tmp_path) -> None:
     protected = tmp_path / ".agent" / "runs" / "run_1"
     protected.mkdir(parents=True)

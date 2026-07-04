@@ -11,7 +11,7 @@ const state = {
   sessionId: null,
   openFilePath: null,
   pendingApproval: null,
-  activeSidePanel: "review",
+  activeSidePanel: "files",
   chatQuery: "",
   fileQuery: "",
   fileEntries: [],
@@ -28,6 +28,7 @@ const els = {
   model: document.querySelector("#model-chip"),
   apiKey: document.querySelector("#api-key-chip"),
   webSearch: document.querySelector("#web-search-chip"),
+  computerRead: document.querySelector("#computer-read-chip"),
   sessionChip: document.querySelector("#session-chip"),
   providerNotice: document.querySelector("#provider-notice"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -209,12 +210,15 @@ async function refreshWorkbench({ selectInitial = false } = {}) {
 function renderHealth() {
   const health = state.health || {};
   els.workspace.textContent = health.workspace || "workspace";
-  els.provider.textContent = `provider: ${health.provider || "unknown"}`;
-  els.model.textContent = `model: ${health.model || "unknown"}`;
-  els.apiKey.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "已配置" : "缺失"}`;
+  els.provider.textContent = `Codex: ${health.provider || "unknown"}`;
+  els.model.textContent = health.model || "DeepSeek";
+  els.apiKey.textContent = `Key: ${health.deepseek_api_key_present ? "已配置" : "缺失"}`;
   const webEnabled = Boolean(state.config?.config?.web_search_enabled);
-  els.webSearch.textContent = `联网搜索：${webEnabled ? "开" : "关"}`;
+  els.webSearch.textContent = `联网：${webEnabled ? "开" : "关"}`;
   els.webSearch.classList.toggle("active", webEnabled);
+  const computerReadEnabled = Boolean(state.config?.config?.computer_read_enabled);
+  els.computerRead.textContent = `电脑文件：${computerReadEnabled ? "开" : "关"}`;
+  els.computerRead.classList.toggle("active", computerReadEnabled);
   els.providerNotice.textContent = health.provider_notice || "";
   els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
   if (els.editorWorkspacePath) {

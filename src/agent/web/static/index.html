@@ -3,321 +3,331 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent Workbench</title>
+    <title>TOKEN/CODEX Agent</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/assets/app.css" />
   </head>
   <body>
-    <div class="apix-shell">
-      <header class="windows-title-bar">
-        <div class="title-left">
-          <div class="app-badge" aria-hidden="true">A</div>
+    <div class="apix-shell tokenicode-shell">
+      <aside class="context-column token-sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-mark" aria-hidden="true">C</div>
+          <strong>TOKEN<span>/</span>CODEX</strong>
+        </div>
+
+        <button id="new-chat-button" class="new-task-button" type="button">
+          <span aria-hidden="true">+</span>
+          新任务
+        </button>
+
+        <div class="current-agent-card">
+          <span class="live-dot" aria-hidden="true"></span>
           <div>
-            <strong>Agent Workbench</strong>
-            <span>本地可视化 Agent</span>
+            <strong>Codex</strong>
+            <small id="agent-status-label">Ready</small>
           </div>
         </div>
-        <button id="refresh-button" class="ghost-button" type="button">刷新</button>
-      </header>
 
-      <div class="apix-body">
-        <nav class="rail" aria-label="主导航">
-          <button class="nav-button active" type="button" data-view="chat" aria-label="聊天" title="聊天">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M5 6.5h14v8H9l-4 3v-11Z" /></svg>
-            </span>
-          </button>
-          <button class="nav-button" type="button" data-view="editor" aria-label="文件" title="文件">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M7 4.5h10v15l-5-3-5 3v-15Z" /></svg>
-            </span>
-          </button>
-          <button class="nav-button" type="button" data-view="resources" aria-label="数据" title="数据">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M6 7c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5-2.7-2.5-6-2.5S6 5.6 6 7Zm0 0v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V7M6 12v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-5" /></svg>
-            </span>
-          </button>
-          <button class="nav-button" type="button" data-view="settings" aria-label="设置" title="设置">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0-4v2m0 11v2M5.6 5.6 7 7m10 10 1.4 1.4M4 12h2m12 0h2M5.6 18.4 7 17m10-10 1.4-1.4" /></svg>
-            </span>
-          </button>
-        </nav>
+        <section id="context-chat" class="context-panel active" data-view="chat" aria-label="会话">
+          <div class="search-row">
+            <input id="chat-search" class="search-input" type="search" placeholder="搜索任务..." aria-label="搜索任务" />
+          </div>
+          <div class="project-group">
+            <button class="project-title nav-button active" type="button" data-view="chat" aria-label="聊天" title="聊天">
+              <span>FocusZone</span>
+              <small>聊天</small>
+            </button>
+            <div id="chat-list" class="stack-list task-list"></div>
+          </div>
+        </section>
 
-        <aside class="context-column">
-          <section id="context-chat" class="context-panel active" data-view="chat" aria-label="聊天会话">
-            <div class="panel-header compact">
-              <div>
-                <div class="eyebrow">会话</div>
-                <h2>聊天</h2>
-              </div>
-              <button id="new-chat-button" class="icon-button" type="button" title="新建聊天" aria-label="新建聊天">+</button>
-            </div>
-            <input id="chat-search" class="search-input" type="search" placeholder="搜索会话" aria-label="搜索会话" />
-            <div id="chat-list" class="stack-list"></div>
-          </section>
+        <section id="context-editor" class="context-panel" data-view="editor" aria-label="文件资源">
+          <div class="search-row">
+            <input id="file-search" class="search-input" type="search" placeholder="搜索文件..." aria-label="搜索文件" />
+          </div>
+          <div class="project-group">
+            <button class="project-title nav-button" type="button" data-view="editor" aria-label="文件" title="文件">
+              <span>文件</span>
+              <small>资源管理</small>
+            </button>
+            <div id="file-list" class="stack-list task-list"></div>
+          </div>
+        </section>
 
-          <section id="context-editor" class="context-panel" data-view="editor" aria-label="文件资源">
-            <div class="panel-header compact">
-              <div>
-                <div class="eyebrow">工作区</div>
-                <h2>文件</h2>
-              </div>
-            </div>
-            <input id="file-search" class="search-input" type="search" placeholder="筛选文件" aria-label="筛选文件" />
-            <div id="file-list" class="stack-list"></div>
-          </section>
+        <section id="context-resources" class="context-panel" data-view="resources" aria-label="数据">
+          <div class="project-group">
+            <button class="project-title nav-button" type="button" data-view="resources" aria-label="数据" title="数据">
+              <span>数据中心</span>
+              <small>runs / memory</small>
+            </button>
+            <div id="resource-chat-list" class="stack-list task-list"></div>
+          </div>
+        </section>
 
-          <section id="context-resources" class="context-panel" data-view="resources" aria-label="数据索引">
-            <div class="panel-header compact">
-              <div>
-                <div class="eyebrow">资源</div>
-                <h2>数据</h2>
-              </div>
-            </div>
-            <div id="resource-chat-list" class="stack-list"></div>
-          </section>
-
-          <section id="context-settings" class="context-panel" data-view="settings" aria-label="设置分区">
-            <div class="panel-header compact">
-              <div>
-                <div class="eyebrow">运行时</div>
-                <h2>设置</h2>
-              </div>
-            </div>
+        <section id="context-settings" class="context-panel" data-view="settings" aria-label="设置">
+          <div class="project-group">
+            <button class="project-title nav-button" type="button" data-view="settings" aria-label="设置" title="设置">
+              <span>设置</span>
+              <small>Provider / 权限</small>
+            </button>
             <div class="settings-nav">
-              <span>服务商</span>
-              <span>模型</span>
-              <span>沙箱</span>
-              <span>审批</span>
+              <span>API 提供商</span>
+              <span>Codex CLI</span>
+              <span>工具能力</span>
+              <span>审批策略</span>
             </div>
-          </section>
-        </aside>
+          </div>
+        </section>
 
-        <main class="stage-column">
-          <div class="workspace-strip">
+        <footer class="sidebar-footer">
+          <button class="sidebar-link nav-button" type="button" data-view="editor" aria-label="打开文件">
+            <span aria-hidden="true">▣</span>
+            文件
+          </button>
+          <button class="sidebar-link nav-button" type="button" data-view="resources" aria-label="打开数据">
+            <span aria-hidden="true">◇</span>
+            数据
+          </button>
+          <button class="sidebar-link nav-button" type="button" data-view="settings" aria-label="打开设置">
+            <span aria-hidden="true">⚙</span>
+            设置
+          </button>
+        </footer>
+      </aside>
+
+      <main class="stage-column">
+        <header class="workspace-strip">
+          <div class="top-status">
+            <span id="model-chip" class="model-name">DeepSeek</span>
             <span id="workspace-pill" class="path-pill">正在读取工作区</span>
+            <span class="agent-dot"></span>
+            <span>Agent</span>
+            <span class="muted-dot"></span>
+            <span>Codex CLI</span>
           </div>
+          <button id="refresh-button" class="icon-button" type="button" title="刷新" aria-label="刷新">↻</button>
+        </header>
 
-          <section id="view-chat" class="app-view chat-stage active" data-view="chat" aria-label="聊天">
-            <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
-            <form id="chat-form" class="input-dock" aria-label="聊天输入">
-              <textarea id="message-input" name="message" placeholder="输入消息..." aria-label="消息"></textarea>
-              <div class="input-actions">
-                <span id="provider-chip" class="status-pill">provider</span>
-                <span id="model-chip" class="status-pill">model</span>
-                <span id="api-key-chip" class="status-pill muted">DeepSeek key</span>
-                <span id="web-search-chip" class="status-pill muted">联网搜索：关</span>
-                <button id="send-button" class="send-button" type="submit" aria-label="Send">&#8593;</button>
+        <section id="view-chat" class="app-view chat-stage active" data-view="chat" aria-label="聊天">
+          <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
+          <form id="chat-form" class="input-dock" aria-label="聊天输入">
+            <textarea id="message-input" name="message" placeholder="追加消息..." aria-label="消息"></textarea>
+            <div class="input-actions">
+              <span id="provider-chip" class="status-pill codex-pill">Codex</span>
+              <span id="api-key-chip" class="status-pill muted">DeepSeek key</span>
+              <span id="web-search-chip" class="status-pill muted">联网：关</span>
+              <span id="computer-read-chip" class="status-pill muted">电脑文件：关</span>
+              <span class="status-pill approval-pill">审批</span>
+              <span class="status-pill thinking-pill">工作过程</span>
+              <button id="send-button" class="send-button" type="submit" aria-label="发送">→</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="view-editor" class="app-view editor-stage" data-view="editor" aria-label="文件编辑器">
+          <div class="tab-strip">
+            <span id="selected-file-title" class="tab active">选择文件</span>
+            <button id="save-file-button" class="ghost-button hidden" type="button">保存</button>
+          </div>
+          <div id="summary-view" class="summary-view">
+            <section class="editor-home">
+              <div>
+                <div class="eyebrow">文件资源管理</div>
+                <h1>打开工作区文件</h1>
+                <p id="editor-workspace-path">正在读取工作区。</p>
               </div>
-            </form>
-          </section>
+              <div>
+                <h2>当前目录</h2>
+                <div id="recent-file-list" class="stack-list flush"></div>
+              </div>
+            </section>
+          </div>
+          <textarea id="file-editor" class="file-editor hidden" spellcheck="false" aria-label="文件编辑器"></textarea>
+        </section>
 
-          <section id="view-editor" class="app-view editor-stage" data-view="editor" aria-label="文件编辑器">
-            <div class="tab-strip">
-              <span id="selected-file-title" class="tab active">选择文件</span>
-              <button id="save-file-button" class="ghost-button hidden" type="button">保存</button>
-            </div>
-            <div id="summary-view" class="summary-view">
-              <section class="editor-home">
-                <div>
-                  <div class="eyebrow">文件资源管理</div>
-                  <h1>打开工作区文件</h1>
-                  <p id="editor-workspace-path">正在读取工作区。</p>
-                </div>
-                <div>
-                  <h2>当前目录</h2>
-                  <div id="recent-file-list" class="stack-list flush"></div>
-                </div>
-              </section>
-            </div>
-            <textarea id="file-editor" class="file-editor hidden" spellcheck="false" aria-label="文件编辑器"></textarea>
-          </section>
+        <section id="view-resources" class="app-view resources-stage" data-view="resources" aria-label="数据中心">
+          <div class="section-title">
+            <h1>数据中心</h1>
+            <p>会话、运行记录、记忆和快照都来自本地工作区。</p>
+          </div>
+          <div class="resource-grid">
+            <article class="resource-panel">
+              <h2>状态概览</h2>
+              <div id="resource-summary-list" class="trace-list"></div>
+            </article>
+            <article class="resource-panel">
+              <h2>任务会话</h2>
+              <div id="resource-chat-main-list" class="stack-list flush"></div>
+            </article>
+            <article class="resource-panel">
+              <h2>运行记录</h2>
+              <div id="resource-run-list" class="stack-list flush"></div>
+            </article>
+            <article class="resource-panel">
+              <h2>记忆状态</h2>
+              <div id="resource-memory-list" class="trace-list"></div>
+            </article>
+            <article class="resource-panel wide" aria-label="快照">
+              <h2>快照</h2>
+              <div id="snapshot-list" class="trace-list"></div>
+            </article>
+          </div>
+        </section>
 
-          <section id="view-resources" class="app-view resources-stage" data-view="resources" aria-label="数据中心">
+        <section id="view-settings" class="app-view settings-stage" data-view="settings" aria-label="设置">
+          <form id="settings-form" class="settings-panel">
             <div class="section-title">
-              <h1>数据中心</h1>
-              <p>会话、运行记录、记忆和快照都来自本地工作区。</p>
+              <h1>设置</h1>
+              <p>这里只保存非密钥配置，API key 继续留在本地 secrets.env。</p>
             </div>
-            <div class="resource-grid">
-              <article class="resource-panel">
-                <h2>状态概览</h2>
-                <div id="resource-summary-list" class="trace-list"></div>
-              </article>
-              <article class="resource-panel">
-                <h2>任务会话</h2>
-                <div id="resource-chat-main-list" class="stack-list flush"></div>
-              </article>
-              <article class="resource-panel">
-                <h2>运行记录</h2>
-                <div id="resource-run-list" class="stack-list flush"></div>
-              </article>
-              <article class="resource-panel">
-                <h2>记忆状态</h2>
-                <div id="resource-memory-list" class="trace-list"></div>
-              </article>
-              <article class="resource-panel wide" aria-label="快照">
-                <h2>快照</h2>
-                <div id="snapshot-list" class="trace-list"></div>
-              </article>
+            <section class="settings-card">
+              <h2>运行就绪</h2>
+              <div id="settings-key-status" class="settings-status">正在读取 DeepSeek key 状态。</div>
+              <div id="settings-readiness-list" class="trace-list"></div>
+            </section>
+            <label>
+              服务商
+              <select id="settings-provider" name="provider">
+                <option value="deepseek">deepseek</option>
+                <option value="fake">fake</option>
+              </select>
+            </label>
+            <label>
+              模型
+              <input id="settings-model" name="model" type="text" />
+            </label>
+            <label>
+              沙箱
+              <select id="settings-sandbox" name="sandbox">
+                <option value="workspace-write">workspace-write</option>
+                <option value="read-only">read-only</option>
+              </select>
+            </label>
+            <label>
+              审批
+              <select id="settings-approval" name="approval">
+                <option value="risky-confirm">risky-confirm</option>
+                <option value="always">always</option>
+              </select>
+            </label>
+            <label>
+              默认技能
+              <input id="settings-skills" name="default_skills" type="text" />
+            </label>
+            <label class="check-row">
+              <input id="settings-dry-run" name="dry_run" type="checkbox" />
+              只演练不写入
+            </label>
+            <label class="check-row">
+              <input id="settings-web-search" name="web_search_enabled" type="checkbox" />
+              联网搜索
+            </label>
+            <label class="check-row">
+              <input id="settings-computer-read" name="computer_read_enabled" type="checkbox" />
+              读取电脑文件（只读）
+            </label>
+            <section class="settings-card">
+              <h2>Codex 可用工具</h2>
+              <div id="settings-tool-list" class="trace-list"></div>
+            </section>
+            <div class="settings-footer">
+              <div id="settings-status" class="settings-status">设置来自本地配置。</div>
+              <button class="primary-button" type="submit">保存设置</button>
             </div>
-          </section>
+          </form>
+        </section>
+      </main>
 
-          <section id="view-settings" class="app-view settings-stage" data-view="settings" aria-label="设置">
-            <form id="settings-form" class="settings-panel">
-              <div class="section-title">
-                <h1>设置</h1>
-                <p>这里只写入非密钥配置；API key 仍保留在本地 secrets.env。</p>
-              </div>
-              <section class="settings-card">
-                <h2>运行就绪</h2>
-                <div id="settings-key-status" class="settings-status">正在读取 DeepSeek key 状态。</div>
-                <div id="settings-readiness-list" class="trace-list"></div>
-              </section>
-              <label>
-                服务商
-                <select id="settings-provider" name="provider">
-                  <option value="deepseek">deepseek</option>
-                  <option value="fake">fake</option>
-                </select>
-              </label>
-              <label>
-                模型
-                <input id="settings-model" name="model" type="text" />
-              </label>
-              <label>
-                沙箱
-                <select id="settings-sandbox" name="sandbox">
-                  <option value="workspace-write">workspace-write</option>
-                  <option value="read-only">read-only</option>
-                </select>
-              </label>
-              <label>
-                审批
-                <select id="settings-approval" name="approval">
-                  <option value="risky-confirm">risky-confirm</option>
-                  <option value="always">always</option>
-                </select>
-              </label>
-              <label>
-                默认技能
-                <input id="settings-skills" name="default_skills" type="text" />
-              </label>
-              <label class="check-row">
-                <input id="settings-dry-run" name="dry_run" type="checkbox" />
-                只演练不写入
-              </label>
-              <label class="check-row">
-                <input id="settings-web-search" name="web_search_enabled" type="checkbox" />
-                联网搜索
-              </label>
-              <label class="check-row">
-                <input id="settings-computer-read" name="computer_read_enabled" type="checkbox" />
-                读取电脑文件（只读）
-              </label>
-              <section class="settings-card">
-                <h2>工具能力</h2>
-                <div id="settings-tool-list" class="trace-list"></div>
-              </section>
-              <div class="settings-footer">
-                <div id="settings-status" class="settings-status">设置来自本地配置。</div>
-                <button class="primary-button" type="submit">保存设置</button>
-              </div>
-            </form>
-          </section>
-        </main>
+      <aside class="assistant-column token-secondary">
+        <div class="side-tabs" role="tablist" aria-label="右侧面板">
+          <button class="side-tab active" type="button" data-side-panel="files">文件</button>
+          <button class="side-tab" type="button" data-side-panel="chat">工具</button>
+          <button class="side-tab" type="button" data-side-panel="review">审查</button>
+          <button class="side-tab" type="button" data-side-panel="terminal">终端</button>
+        </div>
 
-        <aside class="assistant-column">
-          <div class="assistant-header">
-            <button id="back-to-chat-button" class="icon-button" type="button" title="回到聊天" aria-label="回到聊天">&#8249;</button>
+        <section id="side-files" class="side-panel active" data-side-panel="files" aria-label="文件">
+          <div class="secondary-title">
             <div>
-              <div id="session-chip" class="eyebrow">新会话</div>
-              <h2>本地 Agent</h2>
+              <span class="eyebrow">工作区</span>
+              <h2>FocusZone</h2>
+            </div>
+            <button class="icon-button" type="button" title="刷新文件" aria-label="刷新文件" onclick="window.location.reload()">↻</button>
+          </div>
+          <div id="side-file-list" class="stack-list file-tree"></div>
+        </section>
+
+        <section id="side-chat" class="side-panel" data-side-panel="chat" aria-label="工具">
+          <div class="secondary-title">
+            <div>
+              <span class="eyebrow">Codex</span>
+              <h2>当前会话</h2>
             </div>
           </div>
+          <div id="side-chat-list" class="stack-list"></div>
+        </section>
 
-          <div class="side-tabs" role="tablist" aria-label="Right sidebar">
-            <button class="side-tab active" type="button" data-side-panel="review">审查</button>
-            <button class="side-tab" type="button" data-side-panel="terminal">终端</button>
-            <button class="side-tab" type="button" data-side-panel="files">文件</button>
-            <button class="side-tab" type="button" data-side-panel="chat">聊天</button>
+        <section id="side-review" class="side-panel" data-side-panel="review" aria-label="审查">
+          <div class="secondary-title">
+            <div>
+              <span id="session-chip" class="eyebrow">新会话</span>
+              <h2>运行审查</h2>
+            </div>
+            <button id="back-to-chat-button" class="icon-button" type="button" title="回到聊天" aria-label="回到聊天">‹</button>
           </div>
+          <div id="provider-notice" class="provider-notice" role="status">正在检查服务商...</div>
 
-          <section id="side-review" class="side-panel active" data-side-panel="review" aria-label="Review">
-            <div id="provider-notice" class="provider-notice" role="status">正在检查服务商...</div>
-
-            <section id="approval-panel" class="approval-panel hidden" aria-label="审批">
-              <div>
-                <div class="eyebrow">审批</div>
-                <h3 id="approval-action">暂无待审批操作</h3>
-                <p id="approval-detail"></p>
-              </div>
-              <div class="approval-actions">
-                <button id="approve-button" class="primary-button" type="button">批准</button>
-                <button id="deny-button" class="ghost-button" type="button">拒绝</button>
-              </div>
-            </section>
-
-            <section class="run-panel" aria-label="运行记录">
-              <div class="panel-header compact">
-                <div>
-                  <div class="eyebrow">运行</div>
-                  <h2 id="selected-run-title">未选择运行</h2>
-                </div>
-                <span id="run-state" class="state-chip">空闲</span>
-              </div>
-              <div id="run-list" class="stack-list"></div>
-            </section>
-
-            <details class="diagnostic-section" open>
-              <summary>任务审查</summary>
-              <div id="task-review-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>流程提示</summary>
-              <div id="workflow-hint-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>失败摘要</summary>
-              <div id="failure-summary-list" class="trace-list"></div>
-            </details>
-            <details class="diagnostic-section">
-              <summary>补丁审查</summary>
-              <div id="patch-review-list" class="trace-list"></div>
-            </details>
+          <section id="approval-panel" class="approval-panel hidden" aria-label="审批">
+            <div>
+              <div class="eyebrow">审批</div>
+              <h3 id="approval-action">暂无待审批操作</h3>
+              <p id="approval-detail"></p>
+            </div>
+            <div class="approval-actions">
+              <button id="approve-button" class="primary-button" type="button">批准</button>
+              <button id="deny-button" class="ghost-button" type="button">拒绝</button>
+            </div>
           </section>
 
-          <section id="side-terminal" class="side-panel" data-side-panel="terminal" aria-label="终端">
+          <section class="run-panel" aria-label="运行记录">
             <div class="panel-header compact">
               <div>
-                <div class="eyebrow">终端</div>
-                <h2>运行输出</h2>
+                <div class="eyebrow">运行</div>
+                <h2 id="selected-run-title">未选择运行</h2>
               </div>
+              <span id="run-state" class="state-chip">空闲</span>
             </div>
-            <pre id="terminal-output" class="terminal-output">未选择运行。</pre>
+            <div id="run-list" class="stack-list"></div>
           </section>
 
-          <section id="side-files" class="side-panel" data-side-panel="files" aria-label="文件">
-            <div class="panel-header compact">
-              <div>
-                <div class="eyebrow">文件</div>
-                <h2>工作区</h2>
-              </div>
-            </div>
-            <div id="side-file-list" class="stack-list"></div>
-          </section>
+          <details class="diagnostic-section" open>
+            <summary>任务审查</summary>
+            <div id="task-review-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section">
+            <summary>流程提示</summary>
+            <div id="workflow-hint-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section">
+            <summary>失败摘要</summary>
+            <div id="failure-summary-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section">
+            <summary>补丁审查</summary>
+            <div id="patch-review-list" class="trace-list"></div>
+          </details>
+        </section>
 
-          <section id="side-chat" class="side-panel" data-side-panel="chat" aria-label="聊天">
-            <div class="panel-header compact">
-              <div>
-                <div class="eyebrow">聊天</div>
-                <h2>当前会话</h2>
-              </div>
+        <section id="side-terminal" class="side-panel" data-side-panel="terminal" aria-label="终端">
+          <div class="secondary-title">
+            <div>
+              <span class="eyebrow">终端</span>
+              <h2>运行输出</h2>
             </div>
-            <div id="side-chat-list" class="stack-list"></div>
-          </section>
-        </aside>
-      </div>
+          </div>
+          <pre id="terminal-output" class="terminal-output">未选择运行。</pre>
+        </section>
+      </aside>
     </div>
 
     <script src="/assets/app.js" type="module"></script>
