@@ -72,7 +72,7 @@
             </button>
             <div class="settings-nav">
               <button type="button" data-settings-target="settings-api-section">API 提供商</button>
-              <button type="button" data-settings-target="settings-codex-section">Codex CLI</button>
+              <button type="button" data-settings-target="settings-runtime-section">运行权限</button>
               <button type="button" data-settings-target="settings-tools-section">工具能力</button>
               <button type="button" data-settings-target="settings-approval-section">审批策略</button>
             </div>
@@ -103,7 +103,7 @@
             <span class="agent-dot"></span>
             <span>Agent</span>
             <span class="muted-dot"></span>
-            <span>Codex CLI</span>
+            <span>本地运行</span>
           </div>
           <button id="refresh-button" class="icon-button" type="button" title="刷新" aria-label="刷新">↻</button>
         </header>
@@ -196,7 +196,7 @@
               模型
               <input id="settings-model" name="model" type="text" />
             </label>
-            <label id="settings-codex-section">
+            <label id="settings-runtime-section">
               沙箱
               <select id="settings-sandbox" name="sandbox">
                 <option value="workspace-write">workspace-write</option>

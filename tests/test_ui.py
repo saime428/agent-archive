@@ -975,11 +975,14 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "settings-web-search" in index
     assert "settings-computer-read" in index
     assert 'data-settings-target="settings-api-section"' in index
-    assert 'data-settings-target="settings-codex-section"' in index
+    assert 'data-settings-target="settings-runtime-section"' in index
     assert 'data-settings-target="settings-tools-section"' in index
     assert 'data-settings-target="settings-approval-section"' in index
     assert 'id="settings-api-section"' in index
+    assert 'id="settings-runtime-section"' in index
     assert 'id="settings-tools-section"' in index
+    assert "运行权限" in index
+    assert "Codex CLI" not in index
     assert 'aria-label="文件编辑器"' in index
     assert "追加消息..." in index
     assert "chat-thread" in index
