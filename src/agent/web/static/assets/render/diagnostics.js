@@ -1,0 +1,1 @@
+export const diagnosticsModule = true;

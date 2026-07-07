@@ -49,6 +49,26 @@ class RepairThenDoneLLM:
         }
 
 
+JS_MODULES = [
+    "assets/app.js",
+    "assets/state.js",
+    "assets/api.js",
+    "assets/sse.js",
+    "assets/render/health.js",
+    "assets/render/chat.js",
+    "assets/render/runs.js",
+    "assets/render/files.js",
+    "assets/render/editor.js",
+    "assets/render/resources.js",
+    "assets/render/diagnostics.js",
+    "assets/render/ui.js",
+]
+
+
+def _read_static_scripts() -> str:
+    return "\n".join(static_file_path(path).read_text(encoding="utf-8") for path in JS_MODULES)
+
+
 def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     config_path = workspace / ".agent" / "config.toml"
@@ -258,7 +278,7 @@ def test_build_tools_payload_reuses_policy_categories() -> None:
 
 
 def test_app_js_avoids_dynamic_inner_html_xss_paths() -> None:
-    script = static_file_path("assets/app.js").read_text(encoding="utf-8")
+    script = _read_static_scripts()
 
     assert "${emptyText}" not in script
     assert "els.fileList.innerHTML = `<div class=\"empty-state\">${error" not in script
@@ -1118,10 +1138,18 @@ def _wait_for_chat_events(job_id: str, *, after: int = 0, stop_event: str = "fin
 
 def test_static_workbench_assets_exist_and_reference_api() -> None:
     index = static_file_path("index.html").read_text(encoding="utf-8")
-    script = static_file_path("assets/app.js").read_text(encoding="utf-8")
+    script = _read_static_scripts()
+    entry_script = static_file_path("assets/app.js").read_text(encoding="utf-8")
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
     assert "Agent Workbench" in index
+    for path in JS_MODULES:
+        assert static_file_path(path).is_file()
+    assert 'type="module"' in index
+    assert 'from "./state.js"' in entry_script
+    assert 'from "./api.js"' in entry_script
+    assert 'from "./sse.js"' in entry_script
+    assert 'from "./render/' in entry_script
     assert "TOKEN/CODEX" not in index
     assert "new-task-button" in index
     assert "聊天" in index
@@ -1245,6 +1273,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "代码/项目修改" not in script
     assert "网页/视觉设计" not in script
     assert "EventSource" in script
+    assert "renderLiveTurnIncrement" in script
+    handle_chat_event = script[script.index("function handleChatEvent") : script.index("function renderLiveTurnIncrement")]
+    assert "renderChatThread" not in handle_chat_event
     assert "renderProcessCards" in script
     assert "process-step-card" in script
     assert "submitApproval" in script
@@ -1260,6 +1291,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "state.animateLatestRunId = turn.run_id;" not in script
     start_new_chat = script[script.index("function startNewChat()") : script.index("function renderChatThread")]
     assert 'activateView("chat");' in start_new_chat
+    assert "SEARCH_DEBOUNCE_MS = 200" in script
+    assert "debounce(" in script
     assert "等待审批" in script
     assert "快照" in index
     assert "任务审查" in index
@@ -1267,6 +1300,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "details-pane" not in index
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
+    assert "@layer base, layout, components, utilities;" in styles
     assert ".apix-shell" in styles
     assert "--surface:" in styles
     assert "--accent:" in styles
