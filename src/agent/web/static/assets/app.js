@@ -42,6 +42,7 @@ const els = {
   apiKey: document.querySelector("#api-key-chip"),
   webSearch: document.querySelector("#web-search-chip"),
   computerRead: document.querySelector("#computer-read-chip"),
+  modeChip: document.querySelector("#mode-chip"),
   sessionChip: document.querySelector("#session-chip"),
   providerNotice: document.querySelector("#provider-notice"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -353,6 +354,9 @@ function renderHealth() {
   const computerReadEnabled = Boolean(state.config?.config?.computer_read_enabled);
   els.computerRead.textContent = `电脑文件：${computerReadEnabled ? "开" : "关"}`;
   els.computerRead.classList.toggle("active", computerReadEnabled);
+  const mode = health.mode || "guided";
+  els.modeChip.textContent = `模式：${mode}`;
+  els.modeChip.classList.toggle("active", mode !== "guided");
   els.providerNotice.textContent = health.provider_notice || "";
   els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
   if (els.editorWorkspacePath) {

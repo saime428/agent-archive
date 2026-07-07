@@ -99,7 +99,7 @@ def run_once(
     *,
     cwd: Path | None = None,
     run_id: str | None = None,
-    max_iterations: int = 3,
+    max_iterations: int | None = None,
     config: AgentConfig | None = None,
     budget: ContextBudget | None = None,
     selected_skills: list[str] | tuple[str, ...] | None = None,
@@ -109,6 +109,9 @@ def run_once(
     stream_handler: StreamHandler | None = None,
 ) -> RunResult:
     effective_config = config or AgentConfig()
+    effective_max_iterations = (
+        max_iterations if max_iterations is not None else _mode_max_iterations(effective_config.mode)
+    )
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
     run_dir = context.cwd / ".agent" / "runs" / context.run_id
     tool_calls_path = run_dir / "tool_calls.jsonl"
@@ -298,7 +301,7 @@ def run_once(
     model_call_index = 0
     completed_action_iterations = 0
 
-    while completed_action_iterations < max_iterations:
+    while completed_action_iterations < effective_max_iterations:
         model_call_index += 1
         _emit_event(
             event_handler,
@@ -455,7 +458,7 @@ def run_once(
             observation_index=model_call_index + 1,
             code=ErrorCode.TOOL_FAILED,
             message="Run stopped after reaching the iteration limit.",
-            details={"max_iterations": max_iterations},
+            details={"max_iterations": effective_max_iterations},
         )
         observation = truncate_observation(observation, context.budget)
         observations.append(observation)
@@ -934,6 +937,7 @@ def _action_protocol_message(config: AgentConfig) -> dict[str, str]:
         if config.computer_read_enabled
         else "list_dir, read_file, and search_files are limited to the workspace unless computer file reading is enabled in Settings. "
     )
+    mode_instruction = _mode_instruction(config.mode)
     return {
         "role": "system",
         "content": (
@@ -948,11 +952,35 @@ def _action_protocol_message(config: AgentConfig) -> dict[str, str]:
             "When using done, args.final is the user-facing answer: answer directly in the user's language, "
             "do not summarize your own behavior with phrases like 'I answered the question' or 'task complete'. "
             "For simple chat, identity, model, or capability questions, return a natural direct answer. "
+            + mode_instruction +
             "Example: "
             '{"message":"Done.","action":{"name":"done","args":{"final":"Here is the direct answer.",'
             '"changed_files":[],"next_steps":[]}}}'
         ),
     }
+
+
+def _mode_instruction(mode: str) -> str:
+    if mode == "step":
+        return (
+            "Step mode: execute exactly ONE action per turn, then return done with your findings. "
+            "Do not chain multiple tool calls in one response. "
+        )
+    if mode == "auto":
+        return (
+            "Auto mode: you may use multiple tool calls to complete the task thoroughly. "
+            "Explore, verify edge cases, and only return done when the task is fully complete. "
+        )
+    if mode == "plan-first":
+        return (
+            "Plan-first mode: write a short step-by-step plan in your first message field, "
+            "then execute tools following your plan. Adjust the plan if observations show it needs correction. "
+        )
+    return ""
+
+
+def _mode_max_iterations(mode: str) -> int:
+    return {"step": 1, "guided": 3, "auto": 10, "plan-first": 6}[mode]
 
 
 def _write_memory_candidate(context: RunContext, observations: list[Observation]) -> None:
