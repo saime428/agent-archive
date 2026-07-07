@@ -43,6 +43,8 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
         return PolicyDecision("allow", "Ask-user terminal actions are always allowed.")
     if action_name == "web_search" and not config.web_search_enabled:
         return PolicyDecision("deny", "Web search is disabled. Enable it in Settings before searching the internet.")
+    if config.sandbox == "read-only" and action_name in CONFIRMATION_REQUIRED_ACTIONS:
+        return PolicyDecision("deny", "Action is blocked by read-only sandbox.")
 
     if config.approval == "always":
         return PolicyDecision("approval_required", "Action requires approval before execution.")

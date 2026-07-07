@@ -1176,6 +1176,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "api-key-chip" in index
     assert "computer-read-chip" in index
     assert "mode-chip" in index
+    assert "sandbox-chip" in index
     assert "/api/health" in script
     assert "/api/config" in script
     assert "/api/chats" in script
@@ -1205,6 +1206,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "scrollIntoView" in script
     assert "computer_read_enabled" in script
     assert "modeChip" in script
+    assert "sandboxChip" in script
+    assert "沙箱：" in script
     assert "Recovered after" not in script
     assert "invalid_model_response" not in script
     assert "window.confirm" not in script

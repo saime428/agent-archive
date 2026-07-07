@@ -83,6 +83,15 @@ def test_resolve_write_path_rejects_parent_escape(tmp_path) -> None:
     assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
 
 
+def test_resolve_write_path_allows_explicit_external_when_enabled(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "external.txt"
+    workspace.mkdir()
+    sandbox = WorkspaceSandbox(workspace, allow_external_write=True)
+
+    assert sandbox.resolve_write_path(str(external)) == external.resolve()
+
+
 def test_resolve_write_path_rejects_protected_runs_directory(tmp_path) -> None:
     sandbox = WorkspaceSandbox(tmp_path)
 

@@ -117,7 +117,11 @@ def run_once(
     tool_calls_path = run_dir / "tool_calls.jsonl"
     summary_path = run_dir / "summary.md"
     hooks_path = run_dir / "hooks.jsonl"
-    sandbox = WorkspaceSandbox(context.cwd, allow_external_read=effective_config.computer_read_enabled)
+    sandbox = WorkspaceSandbox(
+        context.cwd,
+        allow_external_read=effective_config.computer_read_enabled,
+        allow_external_write=effective_config.sandbox == "danger-full-access",
+    )
     project_instructions = load_project_instructions(
         context.cwd,
         max_chars=context.budget.project_instructions_chars,
@@ -718,6 +722,16 @@ def _tool_observation(
     approval_handler: ApprovalHandler | None = None,
     event_handler: RunEventHandler | None = None,
 ) -> Observation:
+    decision = classify_action(action, config)
+    if decision.status == "deny":
+        return make_error_observation(
+            action.action_id,
+            action.run_id,
+            observation_index=observation_index,
+            code=ErrorCode.POLICY_DENIED,
+            message=decision.reason,
+            details=_policy_details(action, config),
+        )
     if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
         return make_observation(
             action,
@@ -725,8 +739,6 @@ def _tool_observation(
             summary="Dry run skipped action.",
             data=_policy_details(action, config),
         )
-
-    decision = classify_action(action, config)
     if decision.status == "approval_required":
         if approval_handler is not None:
             _emit_event(
@@ -768,16 +780,6 @@ def _tool_observation(
                 message=decision.reason,
                 details=_policy_details(action, config),
             )
-    if decision.status == "deny":
-        return make_error_observation(
-            action.action_id,
-            action.run_id,
-            observation_index=observation_index,
-            code=ErrorCode.POLICY_DENIED,
-            message=decision.reason,
-            details=_policy_details(action, config),
-        )
-
     if action.action.name in {
         "list_dir",
         "read_file",
@@ -867,6 +869,13 @@ def _policy_details(action: InternalAction, config: AgentConfig) -> dict[str, ob
 
 
 def _trace_policy(action: InternalAction, config: AgentConfig) -> dict[str, object]:
+    decision = classify_action(action, config)
+    if decision.status == "deny":
+        return {
+            "policy_decision": decision.status,
+            "policy_reason": decision.reason,
+            "config": _trace_config(config),
+        }
     if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
         return {
             "policy_decision": "dry_run_skipped",
@@ -874,7 +883,6 @@ def _trace_policy(action: InternalAction, config: AgentConfig) -> dict[str, obje
             "config": _trace_config(config),
         }
 
-    decision = classify_action(action, config)
     return {
         "policy_decision": decision.status,
         "policy_reason": decision.reason,

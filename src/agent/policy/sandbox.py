@@ -17,10 +17,11 @@ class SandboxError(ValueError):
 
 
 class WorkspaceSandbox:
-    def __init__(self, root: Path, *, allow_external_read: bool = False) -> None:
+    def __init__(self, root: Path, *, allow_external_read: bool = False, allow_external_write: bool = False) -> None:
         self.root = root.resolve()
         self.protected_runs_root = (self.root / ".agent" / "runs").resolve()
         self.allow_external_read = allow_external_read
+        self.allow_external_write = allow_external_write
 
     def resolve_read_path(self, path: str, *, allow_external: bool = True) -> Path:
         requested = Path(path).expanduser()
@@ -49,19 +50,28 @@ class WorkspaceSandbox:
         nearest_parent = _nearest_existing_parent(candidate)
         resolved_parent = nearest_parent.resolve()
         if not _is_within(resolved_parent, self.root):
-            raise SandboxError(
-                ErrorCode.SANDBOX_VIOLATION,
-                "Path resolves outside the workspace.",
-                {"path": path},
-            )
+            if not self.allow_external_write or not requested.is_absolute():
+                raise SandboxError(
+                    ErrorCode.SANDBOX_VIOLATION,
+                    "Path resolves outside the workspace.",
+                    {"path": path},
+                )
 
         resolved = candidate.resolve(strict=False)
         if not _is_within(resolved, self.root):
-            raise SandboxError(
-                ErrorCode.SANDBOX_VIOLATION,
-                "Path resolves outside the workspace.",
-                {"path": path},
-            )
+            if not self.allow_external_write or not requested.is_absolute():
+                raise SandboxError(
+                    ErrorCode.SANDBOX_VIOLATION,
+                    "Path resolves outside the workspace.",
+                    {"path": path},
+                )
+            if not create_parents and not resolved.parent.exists():
+                raise SandboxError(
+                    ErrorCode.TOOL_FAILED,
+                    "Parent directory does not exist.",
+                    {"path": path, "parent": str(resolved.parent)},
+                )
+            return resolved
         if _has_protected_write_part(resolved, self.root):
             raise SandboxError(
                 ErrorCode.SANDBOX_VIOLATION,

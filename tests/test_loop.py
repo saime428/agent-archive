@@ -1946,6 +1946,63 @@ def test_skill_allowed_tools_do_not_bypass_policy(tmp_path) -> None:
     assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
 
 
+def test_read_only_sandbox_denies_write_actions_before_approval(tmp_path) -> None:
+    result = run_once(
+        "write in read only",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_read_only_write",
+        config=AgentConfig(sandbox="read-only"),
+    )
+
+    assert not (tmp_path / "notes.txt").exists()
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.POLICY_DENIED
+    assert "read-only sandbox" in result.observation.error.message
+
+
+def test_danger_full_access_allows_approved_absolute_write(tmp_path) -> None:
+    external = tmp_path.parent / f"{tmp_path.name}_external.txt"
+    if external.exists():
+        external.unlink()
+    result = run_once(
+        "write external",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": str(external), "content": "hello\n", "create_parents": False},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_danger_external_write",
+        config=AgentConfig(sandbox="danger-full-access", approval="always"),
+        approval_handler=lambda _action: True,
+    )
+
+    try:
+        assert result.observation.status == "ok"
+        assert external.read_text(encoding="utf-8") == "hello\n"
+    finally:
+        if external.exists():
+            external.unlink()
+
+
 def test_run_once_writes_memory_candidate_but_not_entry(tmp_path) -> None:
     result = run_once("remember parser tests", FakeLLMClient(), cwd=tmp_path, run_id="run_memory_candidate")
 
