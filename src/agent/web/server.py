@@ -6,8 +6,11 @@ import mimetypes
 import os
 import shutil
 import subprocess
+import threading
+import time
 import tomllib
-from dataclasses import asdict
+import uuid
+from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -31,6 +34,25 @@ from agent.tools.filesystem import create_snapshot
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
+
+
+@dataclass
+class _ChatJob:
+    job_id: str
+    workspace: Path
+    session_id: str
+    message: str
+    started_at: float = field(default_factory=time.monotonic)
+    events: list[dict[str, Any]] = field(default_factory=list)
+    condition: threading.Condition = field(default_factory=threading.Condition)
+    approval_decision: bool | None = None
+    done: bool = False
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+
+_CHAT_JOBS: dict[str, _ChatJob] = {}
+_CHAT_JOBS_LOCK = threading.Lock()
 
 
 def static_file_path(relative_path: str) -> Path:
@@ -80,6 +102,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                 if path == "/api/runs":
                     self._send_json(build_runs_payload(root))
                     return
+                if path == "/api/chat/events":
+                    self._send_sse(_query_value(parsed.query, "job_id"))
+                    return
                 if path == "/api/files":
                     self._send_json(build_files_payload(root, _query_value(parsed.query, "path")))
                     return
@@ -119,6 +144,18 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             try:
                 if path == "/api/chat/turn":
                     self._send_json(build_chat_turn_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/chat/start":
+                    self._send_json(build_chat_start_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/chat/approval":
+                    self._send_json(build_chat_approval_payload(self._read_json_body()))
+                    return
+                if path == "/api/chat/rename":
+                    self._send_json(build_chat_rename_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/chat/delete":
+                    self._send_json(build_chat_delete_payload(root, self._read_json_body()))
                     return
                 if path == "/api/config":
                     self._send_json(build_save_config_payload(root, self._read_json_body()))
@@ -176,6 +213,32 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _send_sse(self, job_id: str | None) -> None:
+            if not job_id:
+                self._send_json({"error": "job_id is required."}, status=HTTPStatus.BAD_REQUEST)
+                return
+            _get_chat_job(job_id)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            after = 0
+            while True:
+                payload = build_chat_events_payload(job_id, after=after, timeout=10.0)
+                events = payload["events"]
+                for event in events:
+                    data = json.dumps(event, ensure_ascii=False, default=str)
+                    chunk = f"id: {event['sequence']}\nevent: {event['event']}\ndata: {data}\n\n"
+                    try:
+                        self.wfile.write(chunk.encode("utf-8"))
+                        self.wfile.flush()
+                    except OSError:
+                        return
+                after = payload["next"]
+                if payload["done"] and not events:
+                    return
 
     return WorkbenchHandler
 
@@ -414,6 +477,7 @@ def build_chat_payload(workspace: Path, session_id: str) -> dict[str, Any]:
     state = ConversationState.load(root, session_id)
     return {
         "session_id": state.session_id,
+        "title": _chat_title(state),
         "created_at": state.created_at,
         "updated_at": state.updated_at,
         "turn_count": len(state.turns),
@@ -428,10 +492,28 @@ def _chat_list_item(state: ConversationState) -> dict[str, Any]:
         "created_at": state.created_at,
         "updated_at": state.updated_at,
         "turn_count": len(state.turns),
+        "title": _chat_title(state),
         "latest_user": latest.user if latest else "",
         "latest_final": latest.final if latest else "",
         "status": latest.status if latest else "empty",
     }
+
+
+def _chat_title(state: ConversationState) -> str:
+    if state.title:
+        return state.title
+    for turn in state.turns:
+        title = _compact_title(turn.user)
+        if title:
+            return title
+    return "New chat"
+
+
+def _compact_title(text: str, *, max_chars: int = 48) -> str:
+    value = " ".join(str(text).split())
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 3].rstrip() + "..."
 
 
 def _chat_turn_item(workspace: Path, turn: Any) -> dict[str, Any]:
@@ -786,19 +868,111 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
     root = workspace.resolve()
     load_workspace_secrets(root)
     config, diagnostics = load_config(root)
-    if session_id:
-        session_path = root / ".agent" / "chats" / session_id / "session.json"
-        state = ConversationState.load(root, session_id) if session_path.is_file() else ConversationState.create(root, session_id=session_id)
-    else:
-        state = ConversationState.create(root)
+    state = _load_or_create_chat_state(root, session_id)
     session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
     result = session.run_turn(message.strip(), approval_handler=_approve_once_handler() if approve_once else None)
+    return _chat_turn_response(root, session, result, diagnostics)
+
+
+def build_chat_start_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    message = request.get("message")
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("message is required.")
+    session_id = request.get("session_id")
+    if session_id is not None and not isinstance(session_id, str):
+        raise ValueError("session_id must be a string.")
+
+    root = workspace.resolve()
+    load_workspace_secrets(root)
+    config, diagnostics = load_config(root)
+    state = _load_or_create_chat_state(root, session_id)
+    job = _create_chat_job(root, state.session_id, message.strip())
+    _append_chat_event(job, {"event": "chat_started", "session_id": state.session_id})
+    thread = threading.Thread(
+        target=_run_chat_job,
+        args=(job.job_id, root, state, config, diagnostics, message.strip()),
+        daemon=True,
+        name=f"chat-job-{job.job_id}",
+    )
+    thread.start()
+    return {"status": "running", "job_id": job.job_id, "session_id": state.session_id}
+
+
+def build_chat_events_payload(job_id: str, *, after: int = 0, timeout: float = 0.0) -> dict[str, Any]:
+    if after < 0:
+        raise ValueError("after must be non-negative.")
+    job = _get_chat_job(job_id)
+    deadline = time.monotonic() + max(timeout, 0.0)
+    with job.condition:
+        while len(job.events) <= after and not job.done:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            job.condition.wait(remaining)
+        events = [dict(event) for event in job.events[after:]]
+        return {
+            "job_id": job.job_id,
+            "events": events,
+            "done": job.done,
+            "next": after + len(events),
+        }
+
+
+def build_chat_approval_payload(request: dict[str, Any]) -> dict[str, Any]:
+    job_id = request.get("job_id")
+    approve = request.get("approve")
+    if not isinstance(job_id, str) or not job_id:
+        raise ValueError("job_id is required.")
+    if not isinstance(approve, bool):
+        raise ValueError("approve must be a boolean.")
+    job = _get_chat_job(job_id)
+    with job.condition:
+        if job.done:
+            raise ValueError("chat job is already finished.")
+        job.approval_decision = approve
+        job.condition.notify_all()
+    return {"status": "ok", "job_id": job.job_id, "approved": approve}
+
+
+def build_chat_rename_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    session_id = request.get("session_id")
+    title = request.get("title")
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("session_id is required.")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("title is required.")
+    root = workspace.resolve()
+    load_workspace_secrets(root)
+    config, _diagnostics = load_config(root)
+    state = ConversationState.load(root, session_id)
+    state.title = _compact_title(title.strip(), max_chars=80)
+    state.save(config)
+    return {"status": "ok", "session_id": state.session_id, "title": state.title}
+
+
+def build_chat_delete_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+    session_id = request.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("session_id is required.")
+    root = workspace.resolve()
+    chats_root = (root / ".agent" / "chats").resolve()
+    session_dir = (chats_root / session_id).resolve()
+    if not _is_within(session_dir, chats_root):
+        raise ValueError("session_id resolves outside chats.")
+    if not session_dir.is_dir():
+        raise ValueError(f"Chat session not found: {session_id}")
+    shutil.rmtree(session_dir)
+    return {"status": "ok", "session_id": session_id, "deleted": True}
+
+
+def _chat_turn_response(root: Path, session: ChatSession, result: Any, diagnostics: Any) -> dict[str, Any]:
     turn = session.state.turns[-1]
     error = result.observation.error
     error_code = str(error.code) if error is not None else None
     repair_count = _repair_count(result.observations)
     return {
         "session_id": session.state.session_id,
+        "title": _chat_title(session.state),
         "turn_count": len(session.state.turns),
         "run_id": turn.run_id,
         "status": turn.status,
@@ -819,6 +993,80 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
         "process": _turn_process(root, turn),
         "thinking_text": _turn_thinking_text(root, turn),
     }
+
+
+def _load_or_create_chat_state(root: Path, session_id: str | None) -> ConversationState:
+    if session_id:
+        session_path = root / ".agent" / "chats" / session_id / "session.json"
+        if session_path.is_file():
+            return ConversationState.load(root, session_id)
+        return ConversationState.create(root, session_id=session_id)
+    return ConversationState.create(root)
+
+
+def _create_chat_job(root: Path, session_id: str, message: str) -> _ChatJob:
+    job = _ChatJob(
+        job_id=f"job_{uuid.uuid4().hex[:12]}",
+        workspace=root,
+        session_id=session_id,
+        message=message,
+    )
+    with _CHAT_JOBS_LOCK:
+        _CHAT_JOBS[job.job_id] = job
+    return job
+
+
+def _get_chat_job(job_id: str) -> _ChatJob:
+    with _CHAT_JOBS_LOCK:
+        job = _CHAT_JOBS.get(job_id)
+    if job is None:
+        raise ValueError(f"Unknown chat job: {job_id}")
+    return job
+
+
+def _append_chat_event(job: _ChatJob, event: dict[str, Any]) -> None:
+    with job.condition:
+        record = dict(event)
+        record["sequence"] = len(job.events)
+        record["elapsed_ms"] = int((time.monotonic() - job.started_at) * 1000)
+        job.events.append(record)
+        job.condition.notify_all()
+
+
+def _run_chat_job(
+    job_id: str,
+    root: Path,
+    state: ConversationState,
+    config: Any,
+    diagnostics: Any,
+    message: str,
+) -> None:
+    job = _get_chat_job(job_id)
+
+    def handle_event(event: dict[str, Any]) -> None:
+        _append_chat_event(job, event)
+
+    def handle_approval(_action: Any) -> bool:
+        with job.condition:
+            while job.approval_decision is None and not job.done:
+                job.condition.wait()
+            approved = bool(job.approval_decision)
+            job.approval_decision = None
+            return approved
+
+    try:
+        session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
+        result = session.run_turn(message, approval_handler=handle_approval, event_handler=handle_event)
+        payload = _chat_turn_response(root, session, result, diagnostics)
+        job.result = payload
+        _append_chat_event(job, {"event": "final", **payload})
+    except Exception as exc:  # pragma: no cover - kept visible through SSE for local UI failures
+        job.error = str(exc)
+        _append_chat_event(job, {"event": "error", "error": str(exc)})
+    finally:
+        with job.condition:
+            job.done = True
+            job.condition.notify_all()
 
 
 def _repair_count(observations: list[Any]) -> int:
@@ -900,13 +1148,15 @@ def _thinking_line_from_tool_call(call: Any) -> str:
     action_name = str(inner_action.get("name") or "unknown") if isinstance(inner_action, dict) else "unknown"
     args = inner_action.get("args") if isinstance(inner_action, dict) and isinstance(inner_action.get("args"), dict) else {}
     status = str(observation.get("status") or "unknown") if isinstance(observation, dict) else "unknown"
+    intent = _public_action_message(action)
 
     if action_name == "invalid_model_response":
         return ""
     if action_name == "done":
-        return "整理最终回答。"
+        return f"{intent} - 整理最终回答。" if intent else "整理最终回答。"
     if action_name == "ask_user":
-        return "需要你补充信息后再继续。"
+        line = "需要你补充信息后再继续。"
+        return f"{intent} - {line}" if intent else line
 
     label = _thinking_action_label(action_name)
     target = _thinking_target(args)
@@ -914,9 +1164,21 @@ def _thinking_line_from_tool_call(call: Any) -> str:
         error = observation.get("error") if isinstance(observation, dict) else None
         error_code = str(error.get("code") or "") if isinstance(error, dict) else ""
         if error_code == "APPROVAL_REQUIRED":
-            return f"{label}{target}需要你批准后才会执行。"
-        return f"{label}{target}没有完成，详情已放到右侧审查。"
-    return f"{label}{target}。"
+            line = f"{label}{target}需要你批准后才会执行。"
+        else:
+            line = f"{label}{target}没有完成，详情已放到右侧审查。"
+    else:
+        line = f"{label}{target}。"
+    return f"{intent} - {line}" if intent else line
+
+
+def _public_action_message(action: Any) -> str:
+    if not isinstance(action, dict):
+        return ""
+    message = " ".join(str(action.get("message") or "").split())
+    if len(message) <= 120:
+        return message
+    return message[:117].rstrip() + "..."
 
 
 def _thinking_action_label(action_name: str) -> str:

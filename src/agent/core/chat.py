@@ -38,6 +38,7 @@ class ConversationState:
     cwd: Path
     created_at: str
     updated_at: str
+    title: str | None = None
     turns: list[ChatTurn] = field(default_factory=list)
 
     @classmethod
@@ -60,6 +61,7 @@ class ConversationState:
             cwd=cwd.resolve(),
             created_at=str(raw["created_at"]),
             updated_at=str(raw["updated_at"]),
+            title=str(raw["title"]) if raw.get("title") else None,
             turns=turns,
         )
 
@@ -132,6 +134,7 @@ class ConversationState:
             "session_id": self.session_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "title": self.title,
             "config": asdict(config),
             "turns": [asdict(turn) for turn in self.turns],
         }

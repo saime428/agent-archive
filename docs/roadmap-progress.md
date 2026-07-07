@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-06-30
+Last updated: 2026-07-07
 
 ## Product Goal
 
@@ -37,6 +37,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v0.9 | Audit and resilience | Run Risk Filter, Run Replay, Log Filters, Workspace Risk, Memory Review, Failure Recovery |
 | v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision, release readiness doctor, packaging decision, closeout |
 | post-v1.0 | Polish and local secrets | Ordered polish backlog, copy pass, manual smoke, accessibility, local secret flow |
+| v2.0 | Tokenicode Workbench | Tokenicode-style visual refresh, SSE browser chat, dark theme, resizable columns, conversation tabs, resource detail panels |
 
 ## Active v0.6 Plan
 
@@ -280,6 +281,8 @@ Completed slice: post-v1.0 local secret flow.
 
 Completed slice: final route completion.
 
+Completed slice: v2.0 Tokenicode Workbench UI refresh.
+
 Reason: after v1.0, the cheapest way to keep momentum is to order polish work
 instead of adding speculative UI. The backlog separates immediate copy/manual
 smoke/accessibility work from later browser settings writes, packaged executable,
@@ -292,6 +295,10 @@ without committing API keys. The closeout freezes speculative polish until a
 user-directed feature needs it. Final route completion marks the required local
 visual agent roadmap as 100%; packaging, a desktop shell, and browser settings
 writes remain optional trigger-based work rather than unfinished release gates.
+The v2.0 Tokenicode refresh upgrades the existing static Workbench into a
+denser coding-IDE style surface with streaming browser chat, tabs, resizable
+columns, theme switching, and compact resource inspection while keeping the
+stdlib server and local safety model intact.
 
 Next slice: optional trigger-based work only if explicitly needed.
 

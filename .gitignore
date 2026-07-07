@@ -1,9 +1,11 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+pytest-tmp/
 .venv/
 .agent/runs/
 .agent/chats/
 .agent/memory/
+.agent/pytest-tmp/
 .agent/*.log
 .agent/secrets.env

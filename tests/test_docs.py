@@ -170,7 +170,7 @@ def test_readme_documents_v06_workbench_smoke() -> None:
 
     assert "v0.6 Visual Workbench" in readme
     assert "python -m agent.cli ui --cwd F:\\agent" in readme
-    assert "http://127.0.0.1:8765" in readme
+    assert "http://127.0.0.1:8000" in readme
     assert "browser chat turn" in readme
     assert "custom approval panel" in readme
     assert "Files panel" in readme

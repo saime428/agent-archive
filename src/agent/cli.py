@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
@@ -192,7 +193,7 @@ def run(
 def ui(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
-    port: int = typer.Option(8765, "--port", help="Port for the local workbench."),
+    port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
 ) -> None:
     """Start the local read-only web workbench."""
     workspace = (cwd or Path.cwd()).resolve()
@@ -203,7 +204,7 @@ def ui(
 def start(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
-    port: int = typer.Option(8765, "--port", help="Port for the local workbench."),
+    port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
 ) -> None:
     """Start Agent Workbench."""
     workspace = (cwd or Path.cwd()).resolve()
@@ -217,11 +218,24 @@ def _start_workbench(workspace: Path, host: str, port: int) -> None:
     except ConfigError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    try:
-        serve_workbench(workspace=workspace, host=host, port=port)
-    except OSError as exc:
-        console.print(f"Could not start Agent Workbench: {exc}")
-        raise typer.Exit(code=1) from exc
+    last_error: OSError | None = None
+    for candidate in range(port, port + 20):
+        try:
+            if candidate != port:
+                console.print(f"Port {candidate - 1} is busy; trying {candidate}.")
+            serve_workbench(workspace=workspace, host=host, port=candidate)
+            return
+        except OSError as exc:
+            if not _is_address_in_use(exc):
+                console.print(f"Could not start Agent Workbench: {exc}")
+                raise typer.Exit(code=1) from exc
+            last_error = exc
+    console.print(f"Could not start Agent Workbench: {last_error}")
+    raise typer.Exit(code=1)
+
+
+def _is_address_in_use(exc: OSError) -> bool:
+    return exc.errno == errno.EADDRINUSE or getattr(exc, "winerror", None) in {10013, 10048}
 
 
 @app.command()

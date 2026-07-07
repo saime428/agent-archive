@@ -119,8 +119,8 @@ v0.7 closeout is recorded in `docs/v0.7-acceptance.md`. v0.7 manual smoke:
 ```powershell
 $env:PYTHONPATH="src"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/runs
 python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
 python -m pytest -q
 git diff --check
@@ -151,8 +151,8 @@ v0.8 closeout is recorded in `docs/v0.8-acceptance.md`. v0.8 manual smoke:
 ```powershell
 $env:PYTHONPATH="src"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/runs
 python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
 python -m pytest -q
 git diff --check
@@ -193,8 +193,8 @@ v0.9 closeout is recorded in `docs/v0.9-acceptance.md`. v0.9 manual smoke:
 ```powershell
 $env:PYTHONPATH="src"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/runs
 python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
 python -m pytest -q
 git diff --check
@@ -215,7 +215,7 @@ python -m agent.cli ui --cwd F:\agent
 Open the printed URL, usually:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8000
 ```
 
 The workbench shows a Runs Dashboard, effective config, tool catalog, run
@@ -249,7 +249,7 @@ v0.6 manual smoke:
 $env:PYTHONPATH="src"
 python -m agent.cli run --cwd F:\agent "inspect project"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
 python -m pytest tests/test_ui.py tests/test_cli.py tests/test_docs.py -q
 python -m pytest -q
 git diff --check

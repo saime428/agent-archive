@@ -339,7 +339,7 @@ def run_once(
         _emit_event(
             event_handler,
             "action_parsed",
-            {"run_id": context.run_id, "action_index": model_call_index, "action": action.action.name},
+            _event_action_payload(context.run_id, model_call_index, action),
         )
 
         before_tool_hooks = _run_hook_event(
@@ -393,7 +393,7 @@ def run_once(
             _emit_event(
                 event_handler,
                 "tool_start",
-                {"run_id": context.run_id, "action_index": model_call_index, "action": action.action.name},
+                _event_action_payload(context.run_id, model_call_index, action),
             )
             observation = _tool_observation(
                 action,
@@ -417,13 +417,13 @@ def run_once(
         _emit_event(
             event_handler,
             "observation",
-            {
-                "run_id": context.run_id,
-                "action_index": model_call_index,
-                "action": action.action.name,
-                "status": observation.status,
-                "summary": observation.summary,
-            },
+            _event_action_payload(
+                context.run_id,
+                model_call_index,
+                action,
+                status=observation.status,
+                summary=observation.summary,
+            ),
         )
         observations.append(observation)
         _run_hook_event(
@@ -508,6 +508,17 @@ def _emit_event(handler: RunEventHandler | None, event: str, payload: dict[str, 
         return
     record = {"event": event, **payload}
     handler(record)
+
+
+def _event_action_payload(run_id: str, action_index: int, action: InternalAction, **extra: Any) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "action_index": action_index,
+        "action": action.action.name,
+        "message": action.message,
+        "args": redact_value(action.action.args).value,
+        **extra,
+    }
 
 
 def _model_response(
@@ -650,9 +661,12 @@ def _direct_external_list_path(task: str, config: AgentConfig) -> str | None:
     if not any(word in text for word in ("看看", "查看", "列出", "有哪些", "目录", "文件", "文件夹")):
         return None
 
-    windows_path = re.search(r"[A-Za-z]:[\\/][^\s，。！？]*", text)
+    windows_path = re.search(r"[A-Za-z]:[\\/][^，。！？\r\n]*", text)
     if windows_path:
-        return windows_path.group(0)
+        path = windows_path.group(0).strip()
+        for marker in (" 有哪些", " 有什么", " 里", " 下", " 的"):
+            path = path.split(marker, 1)[0].rstrip()
+        return path
 
     drive = re.search(r"([A-Za-z])\s*盘", text)
     if drive:
@@ -715,24 +729,24 @@ def _tool_observation(
             _emit_event(
                 event_handler,
                 "approval_required",
-                {
-                    "run_id": context.run_id,
-                    "action_index": observation_index,
-                    "action": action.action.name,
-                    "reason": decision.reason,
-                },
+                _event_action_payload(
+                    context.run_id,
+                    observation_index,
+                    action,
+                    reason=decision.reason,
+                ),
             )
             if approval_handler(action):
                 _emit_event(
                     event_handler,
                     "approval_granted",
-                    {"run_id": context.run_id, "action_index": observation_index, "action": action.action.name},
+                    _event_action_payload(context.run_id, observation_index, action),
                 )
             else:
                 _emit_event(
                     event_handler,
                     "approval_denied",
-                    {"run_id": context.run_id, "action_index": observation_index, "action": action.action.name},
+                    _event_action_payload(context.run_id, observation_index, action),
                 )
                 return make_error_observation(
                     action.action_id,

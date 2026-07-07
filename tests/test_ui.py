@@ -5,8 +5,13 @@ from pathlib import Path
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web.server import (
+    build_chat_approval_payload,
+    build_chat_delete_payload,
+    build_chat_events_payload,
     build_health_payload,
     build_chat_payload,
+    build_chat_rename_payload,
+    build_chat_start_payload,
     build_chat_turn_payload,
     build_chats_payload,
     build_config_payload,
@@ -725,6 +730,7 @@ def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: P
     assert payload["process"] == ["整理最终回答。"]
     assert "thinking_text" in payload
     assert "整理最终回答" in payload["thinking_text"]
+    assert "Task completed by FakeLLM." in payload["thinking_text"]
 
 
 def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> None:
@@ -825,19 +831,77 @@ def test_build_chat_turn_payload_answers_simple_greeting(monkeypatch, tmp_path: 
 def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    first = build_chat_turn_payload(workspace, {"message": "hello"})
-    build_chat_turn_payload(workspace, {"session_id": first["session_id"], "message": "second"})
+    first = build_chat_turn_payload(workspace, {"message": "summarize project goals"})
+    build_chat_turn_payload(workspace, {"session_id": first["session_id"], "message": "then list commands"})
 
     listing = build_chats_payload(workspace)
     detail = build_chat_payload(workspace, first["session_id"])
 
     assert listing["chats"][0]["session_id"] == first["session_id"]
     assert listing["chats"][0]["turn_count"] == 2
-    assert listing["chats"][0]["latest_user"] == "second"
+    assert listing["chats"][0]["latest_user"] == "then list commands"
+    assert listing["chats"][0]["title"] == "summarize project goals"
+    assert detail["title"] == "summarize project goals"
     assert detail["session_id"] == first["session_id"]
-    assert [turn["user"] for turn in detail["turns"]] == ["hello", "second"]
+    assert [turn["user"] for turn in detail["turns"]] == ["summarize project goals", "then list commands"]
     assert detail["turns"][0]["process"] == ["整理最终回答。"]
     assert "thinking_text" in detail["turns"][0]
+
+
+def test_build_chat_rename_payload_updates_session_title(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    first = build_chat_turn_payload(workspace, {"message": "summarize project goals"})
+
+    payload = build_chat_rename_payload(
+        workspace,
+        {"session_id": first["session_id"], "title": "项目亮点"},
+    )
+    listing = build_chats_payload(workspace)
+    detail = build_chat_payload(workspace, first["session_id"])
+
+    assert payload["status"] == "ok"
+    assert payload["title"] == "项目亮点"
+    assert listing["chats"][0]["title"] == "项目亮点"
+    assert detail["title"] == "项目亮点"
+
+
+def test_build_chat_delete_payload_removes_session(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    first = build_chat_turn_payload(workspace, {"message": "delete me"})
+
+    payload = build_chat_delete_payload(workspace, {"session_id": first["session_id"]})
+
+    assert payload == {"status": "ok", "session_id": first["session_id"], "deleted": True}
+    assert build_chats_payload(workspace)["chats"] == []
+    assert not (workspace / ".agent" / "chats" / first["session_id"]).exists()
+
+
+def test_build_chat_turn_payload_includes_public_action_message_in_process(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Check the workspace files first.",
+                "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 10}},
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Checked files.", "changed_files": [], "next_steps": []},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    payload = build_chat_turn_payload(workspace, {"message": "inspect files"})
+
+    assert "Check the workspace files first." in payload["thinking_text"]
+    assert "invalid_model_response" not in payload["thinking_text"]
 
 
 def test_build_chat_turn_payload_rejects_empty_message(tmp_path: Path) -> None:
@@ -951,6 +1015,73 @@ def test_build_chat_turn_payload_approval_retry_uses_same_session(monkeypatch, t
     assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
 
 
+def test_build_chat_start_payload_streams_real_events_without_fake_route(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    started = build_chat_start_payload(workspace, {"message": "inspect project"})
+    assert started["status"] == "running"
+    assert started["job_id"].startswith("job_")
+
+    events = _wait_for_chat_events(started["job_id"])
+    names = [event["event"] for event in events]
+    assert "chat_started" in names
+    assert "model_call_start" in names
+    assert "action_parsed" in names
+    assert "observation" in names
+    assert "final" in names
+    assert all("网页/视觉设计" not in repr(event) for event in events)
+
+
+def test_chat_job_approval_resumes_same_turn(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    started = build_chat_start_payload(workspace, {"message": "write notes"})
+    approval_events = _wait_for_chat_events(started["job_id"], stop_event="approval_required")
+    approval = approval_events[-1]
+
+    assert approval["event"] == "approval_required"
+    assert approval["action"] == "write_file"
+    assert build_chat_approval_payload({"job_id": started["job_id"], "approve": True})["status"] == "ok"
+
+    events = _wait_for_chat_events(started["job_id"], after=len(approval_events))
+    assert any(event["event"] == "approval_granted" for event in events)
+    assert any(event["event"] == "final" and event["final"] == "Wrote notes." for event in events)
+    detail = build_chat_payload(workspace, started["session_id"])
+    assert detail["turn_count"] == 1
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+
+
+def _wait_for_chat_events(job_id: str, *, after: int = 0, stop_event: str = "final") -> list[dict]:
+    events: list[dict] = []
+    for _ in range(100):
+        payload = build_chat_events_payload(job_id, after=after + len(events), timeout=0.05)
+        events.extend(payload["events"])
+        if any(event["event"] == stop_event for event in events):
+            return events
+    raise AssertionError(f"timed out waiting for {stop_event}")
+
+
 def test_static_workbench_assets_exist_and_reference_api() -> None:
     index = static_file_path("index.html").read_text(encoding="utf-8")
     script = static_file_path("assets/app.js").read_text(encoding="utf-8")
@@ -987,6 +1118,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert 'aria-label="文件编辑器"' in index
     assert "追加消息..." in index
     assert "chat-thread" in index
+    assert "conversation-tabs" in index
+    assert "left-resizer" in index
+    assert "right-resizer" in index
+    assert "resource-detail-modal" in index
     assert "context-column" in index
     assert "stage-column" in index
     assert "assistant-column" in index
@@ -1000,6 +1135,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert 'data-side-panel="terminal"' in index
     assert 'data-side-panel="files"' in index
     assert 'data-side-panel="chat"' in index
+    assert 'aria-label="回到聊天"' in index
     assert "terminal-output" in index
     assert "side-file-list" in index
     assert "side-chat-list" in index
@@ -1015,7 +1151,15 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "/api/diff" in script
     assert "/api/snapshot/restore" in script
     assert "/api/chat/turn" in script
+    assert "/api/chat/start" in script
+    assert "/api/chat/events" in script
+    assert "/api/chat/approval" in script
+    assert "/api/chat/rename" in script
+    assert "/api/chat/delete" in script
     assert "thinking_text" in script
+    assert "renderConversationTabs" in script
+    assert "chat.title" in script
+    assert "chat-row" in script
     assert "renderThinkingText" in script
     assert "renderThinkingTextTyping" in script
     assert "keydown" in script
@@ -1043,6 +1187,40 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "display_status" in script
     assert "repair_count" in script
     assert "thought-process" in script
+    assert "closeConversationTab" in script
+    assert "tab-close" in script
+    assert "chat-menu-button" in script
+    assert "renameChat" in script
+    assert "deleteChat" in script
+    assert "showActionError" in script
+    assert "backendErrorMessage" in script
+    assert "globalThis.confirm" in script
+    assert "initColumnResize" in script
+    assert "renderPagedList" in script
+    assert "openResourceDetail" in script
+    assert "resourcePanels" in script
+    assert "resourcePreviewItem" in script
+    assert "data-resource-expand" not in index
+    assert "buildPendingProcess" not in script
+    assert "pendingRouteFor" not in script
+    assert "代码/项目修改" not in script
+    assert "网页/视觉设计" not in script
+    assert "EventSource" in script
+    assert "renderProcessCards" in script
+    assert "process-step-card" in script
+    assert "submitApproval" in script
+    assert "renderMessageBody" in script
+    assert "renderCodeBlock" in script
+    assert "renderMarkdownTable" in script
+    assert 'document.createElement("a")' in script
+    assert 'document.createElement("strong")' in script
+    assert 'article.querySelector(".message-body").textContent = body;' not in script
+    assert "已收到你的输入" not in script
+    assert "details.open = Boolean(options.openThinking);" in script
+    assert 'state.animateLatestRunId = "__pending__";' in script
+    assert "state.animateLatestRunId = turn.run_id;" not in script
+    start_new_chat = script[script.index("function startNewChat()") : script.index("function renderChatThread")]
+    assert 'activateView("chat");' in start_new_chat
     assert "等待审批" in script
     assert "快照" in index
     assert "任务审查" in index
@@ -1051,8 +1229,21 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "height: 100vh" in styles
     assert "overflow: hidden" in styles
     assert ".apix-shell" in styles
+    assert "--surface:" in styles
+    assert "--accent:" in styles
+    assert "--text:" in styles
+    assert "color-scheme" in styles
     assert ".token-sidebar" in styles
     assert ".new-task-button" in styles
+    assert ".conversation-tabs" in styles
+    assert ".conversation-tab" in styles
+    assert ".tab-close" in styles
+    assert ".column-resizer" in styles
+    assert ".chat-menu" in styles
+    assert ".pagination-row" in styles
+    assert ".resource-preview-item" in styles
+    assert ".resource-detail-modal" in styles
+    assert ".chat-row" in styles
     assert ".app-view.active" in styles
     assert ".side-tabs" in styles
     assert ".side-panel.active" in styles
@@ -1061,6 +1252,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert ".settings-nav button" in styles
     assert ".terminal-output" in styles
     assert ".thought-process" in styles
+    assert ".process-step-card" in styles
+    assert ".copy-code-button" in styles
+    assert ".markdown-table" in styles
+    assert '[data-theme="dark"]' in styles
     assert ".token-secondary" in styles
     assert "@keyframes view-rise" in styles
     assert "@media (prefers-reduced-motion: no-preference)" in styles

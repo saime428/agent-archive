@@ -1,3 +1,4 @@
+import errno
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -140,13 +141,74 @@ def test_start_command_is_workbench_start_alias(monkeypatch, tmp_path) -> None:
     assert calls[0]["port"] == 8767
 
 
+def test_start_command_defaults_to_safe_workbench_port(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert calls[0]["port"] == 8000
+
+
+def test_start_command_tries_next_port_when_requested_port_is_busy(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        if kwargs["port"] == 8765:
+            raise OSError(errno.EADDRINUSE, "Address already in use")
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--port", "8765"])
+
+    assert result.exit_code == 0
+    assert [call["port"] for call in calls] == [8765, 8766]
+    assert "Port 8765 is busy; trying 8766." in result.output
+
+
+def test_start_command_tries_next_port_when_windows_denies_bind(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        if kwargs["port"] == 8765:
+            error = OSError("Access denied")
+            error.winerror = 10013
+            raise error
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--port", "8765"])
+
+    assert result.exit_code == 0
+    assert [call["port"] for call in calls] == [8765, 8766]
+
+
 def test_start_agent_launcher_points_at_workbench() -> None:
     launcher = Path(__file__).resolve().parents[1] / "start-agent.cmd"
     script = launcher.read_text(encoding="utf-8")
 
     assert 'cd /d "%~dp0"' in script
     assert 'set "PYTHONPATH=src"' in script
-    assert 'set "AGENT_PORT=8765"' in script
+    assert 'set "AGENT_PORT=8000"' in script
+    assert "netstat -ano" in script
+    assert "8019" in script
+    assert ":found_port" in script
     assert "http://127.0.0.1:%AGENT_PORT%/" in script
     assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' in script
 

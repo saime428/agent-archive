@@ -79,6 +79,10 @@
         </section>
 
         <footer class="sidebar-footer">
+          <button class="sidebar-link nav-button" type="button" data-view="chat" aria-label="回到聊天">
+            <span aria-hidden="true">●</span>
+            聊天
+          </button>
           <button class="sidebar-link nav-button" type="button" data-view="editor" aria-label="打开文件">
             <span aria-hidden="true">▣</span>
             文件
@@ -94,17 +98,23 @@
         </footer>
       </aside>
 
+      <div id="left-resizer" class="column-resizer" role="separator" aria-label="调整左栏宽度"></div>
+
       <main class="stage-column">
         <header class="workspace-strip">
-          <div class="top-status">
-            <span id="model-chip" class="model-name">DeepSeek</span>
-            <span id="workspace-pill" class="path-pill">正在读取工作区</span>
-            <span class="agent-dot"></span>
-            <span>Agent</span>
-            <span class="muted-dot"></span>
-            <span>本地运行</span>
+          <div class="workspace-main-row">
+            <div class="top-status">
+              <span id="model-chip" class="model-name">DeepSeek</span>
+              <span id="workspace-pill" class="path-pill">正在读取工作区</span>
+              <span class="agent-dot"></span>
+              <span>Agent</span>
+              <span class="muted-dot"></span>
+              <span>本地运行</span>
+            </div>
+            <button id="theme-toggle" class="icon-button" type="button" title="主题" aria-label="切换主题">☾</button>
+            <button id="refresh-button" class="icon-button" type="button" title="刷新" aria-label="刷新">↻</button>
           </div>
-          <button id="refresh-button" class="icon-button" type="button" title="刷新" aria-label="刷新">↻</button>
+          <div id="conversation-tabs" class="conversation-tabs" aria-label="打开的对话标签页"></div>
         </header>
 
         <section id="view-chat" class="app-view chat-stage active" data-view="chat" aria-label="聊天">
@@ -150,24 +160,24 @@
             <p>会话、运行记录、记忆和快照都来自本地工作区。</p>
           </div>
           <div class="resource-grid">
-            <article class="resource-panel">
-              <h2>状态概览</h2>
+            <article class="resource-panel" data-resource-panel="summary" tabindex="0">
+              <div class="resource-panel-header"><h2>状态概览</h2></div>
               <div id="resource-summary-list" class="trace-list"></div>
             </article>
-            <article class="resource-panel">
-              <h2>任务会话</h2>
+            <article class="resource-panel" data-resource-panel="chats" tabindex="0">
+              <div class="resource-panel-header"><h2>任务会话</h2></div>
               <div id="resource-chat-main-list" class="stack-list flush"></div>
             </article>
-            <article class="resource-panel">
-              <h2>运行记录</h2>
+            <article class="resource-panel" data-resource-panel="runs" tabindex="0">
+              <div class="resource-panel-header"><h2>运行记录</h2></div>
               <div id="resource-run-list" class="stack-list flush"></div>
             </article>
-            <article class="resource-panel">
-              <h2>记忆状态</h2>
+            <article class="resource-panel" data-resource-panel="memory" tabindex="0">
+              <div class="resource-panel-header"><h2>记忆状态</h2></div>
               <div id="resource-memory-list" class="trace-list"></div>
             </article>
-            <article class="resource-panel wide" aria-label="快照">
-              <h2>快照</h2>
+            <article class="resource-panel" data-resource-panel="snapshots" tabindex="0" aria-label="快照">
+              <div class="resource-panel-header"><h2>快照</h2></div>
               <div id="snapshot-list" class="trace-list"></div>
             </article>
           </div>
@@ -236,6 +246,8 @@
           </form>
         </section>
       </main>
+
+      <div id="right-resizer" class="column-resizer" role="separator" aria-label="调整右栏宽度"></div>
 
       <aside class="assistant-column token-secondary">
         <div class="side-tabs" role="tablist" aria-label="右侧面板">
@@ -327,6 +339,16 @@
           <pre id="terminal-output" class="terminal-output">未选择运行。</pre>
         </section>
       </aside>
+
+      <div id="resource-detail-modal" class="resource-detail-modal hidden" role="dialog" aria-modal="true" aria-label="数据详情">
+        <article class="resource-detail-card">
+          <header>
+            <h2 id="resource-detail-title">详情</h2>
+            <button id="resource-detail-close" class="icon-button" type="button" aria-label="关闭">×</button>
+          </header>
+          <div id="resource-detail-body" class="resource-detail-body"></div>
+        </article>
+      </div>
     </div>
 
     <script src="/assets/app.js" type="module"></script>
