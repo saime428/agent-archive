@@ -1946,6 +1946,66 @@ def test_skill_allowed_tools_do_not_bypass_policy(tmp_path) -> None:
     assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
 
 
+def test_selected_skill_allowed_tools_deny_unlisted_tool(tmp_path) -> None:
+    skill_dir = tmp_path / ".agent" / "skills" / "reader"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: reader\ndescription: Read files only\nallowed_tools:\n  - read_file\n---\nRead only.\n",
+        encoding="utf-8",
+    )
+
+    result = run_once(
+        "list files",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "List.",
+                    "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 10}},
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_skill_denied_tool",
+        selected_skills=["reader"],
+    )
+
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.POLICY_DENIED
+    assert "not allowed by selected skills" in result.observation.error.message
+
+
+def test_selected_skill_empty_allowed_tools_allows_all_tools(tmp_path) -> None:
+    skill_dir = tmp_path / ".agent" / "skills" / "open"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: open\ndescription: No tool restriction\nallowed_tools:\n---\nOpen.\n",
+        encoding="utf-8",
+    )
+
+    result = run_once(
+        "list files",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "List.",
+                    "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 10}},
+                },
+                {
+                    "message": "Done.",
+                    "action": {"name": "done", "args": {"final": "listed", "changed_files": [], "next_steps": []}},
+                },
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_skill_empty_tools",
+        selected_skills=["open"],
+    )
+
+    assert result.observation.status == "ok"
+    assert result.action.action.name == "done"
+
+
 def test_read_only_sandbox_denies_write_actions_before_approval(tmp_path) -> None:
     result = run_once(
         "write in read only",
@@ -2004,7 +2064,13 @@ def test_danger_full_access_allows_approved_absolute_write(tmp_path) -> None:
 
 
 def test_run_once_writes_memory_candidate_but_not_entry(tmp_path) -> None:
-    result = run_once("remember parser tests", FakeLLMClient(), cwd=tmp_path, run_id="run_memory_candidate")
+    result = run_once(
+        "remember parser tests",
+        FakeLLMClient(),
+        cwd=tmp_path,
+        run_id="run_memory_candidate",
+        config=AgentConfig(memory_auto_write=True),
+    )
 
     candidates_path = tmp_path / ".agent" / "memory" / "candidates.jsonl"
     entries_path = tmp_path / ".agent" / "memory" / "entries.jsonl"
@@ -2013,6 +2079,19 @@ def test_run_once_writes_memory_candidate_but_not_entry(tmp_path) -> None:
     assert result.observation.status == "ok"
     assert "FakeLLM received task: remember parser tests" in candidates
     assert not entries_path.exists()
+
+
+def test_run_once_skips_memory_candidate_when_auto_write_disabled(tmp_path) -> None:
+    result = run_once(
+        "remember parser tests",
+        FakeLLMClient(),
+        cwd=tmp_path,
+        run_id="run_memory_disabled",
+        config=AgentConfig(memory_auto_write=False),
+    )
+
+    assert result.observation.status == "ok"
+    assert not (tmp_path / ".agent" / "memory" / "candidates.jsonl").exists()
 
 
 def test_run_once_adds_accepted_memory_context(tmp_path) -> None:

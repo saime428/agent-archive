@@ -206,7 +206,7 @@ def run_once(
                     **_trace_policy(done_action, effective_config),
                 )
             )
-        _write_memory_candidate(context, observations)
+        _write_memory_candidate(context, observations, effective_config)
         _run_hook_event(
             "after_run",
             effective_config,
@@ -267,7 +267,7 @@ def run_once(
                 **_trace_policy(action, effective_config),
             )
         ]
-        _write_memory_candidate(context, observations)
+        _write_memory_candidate(context, observations, effective_config)
         _run_hook_event(
             "after_run",
             effective_config,
@@ -407,6 +407,7 @@ def run_once(
                 context,
                 sandbox,
                 effective_config,
+                skills=skills,
                 observation_index=model_call_index,
                 approval_handler=approval_handler,
                 event_handler=event_handler,
@@ -467,7 +468,7 @@ def run_once(
         observation = truncate_observation(observation, context.budget)
         observations.append(observation)
 
-    _write_memory_candidate(context, observations)
+    _write_memory_candidate(context, observations, effective_config)
     _run_hook_event(
         "after_run",
         effective_config,
@@ -718,6 +719,7 @@ def _tool_observation(
     sandbox: WorkspaceSandbox,
     config: AgentConfig,
     *,
+    skills: list[SkillMetadata] | None = None,
     observation_index: int,
     approval_handler: ApprovalHandler | None = None,
     event_handler: RunEventHandler | None = None,
@@ -731,6 +733,16 @@ def _tool_observation(
             code=ErrorCode.POLICY_DENIED,
             message=decision.reason,
             details=_policy_details(action, config),
+        )
+    allowed_tools = _skill_allowed_tools(skills or [])
+    if allowed_tools is not None and action.action.name not in allowed_tools:
+        return make_error_observation(
+            action.action_id,
+            action.run_id,
+            observation_index=observation_index,
+            code=ErrorCode.POLICY_DENIED,
+            message=f"Action is not allowed by selected skills: {action.action.name}.",
+            details={"requested_action": action.action.name, "allowed_tools": sorted(allowed_tools)},
         )
     if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
         return make_observation(
@@ -825,6 +837,13 @@ def _tool_observation(
         message="This action is not supported in the current run loop.",
         details={"requested_action": action.action.name},
     )
+
+
+def _skill_allowed_tools(skills: list[SkillMetadata]) -> set[str] | None:
+    allowed: set[str] = set()
+    for skill in skills:
+        allowed.update(skill.allowed_tools)
+    return allowed or None
 
 
 def _should_append_observation_feedback(action: InternalAction, observation: Observation) -> bool:
@@ -991,7 +1010,9 @@ def _mode_max_iterations(mode: str) -> int:
     return {"step": 1, "guided": 3, "auto": 10, "plan-first": 6}[mode]
 
 
-def _write_memory_candidate(context: RunContext, observations: list[Observation]) -> None:
+def _write_memory_candidate(context: RunContext, observations: list[Observation], config: AgentConfig) -> None:
+    if not config.memory_auto_write:
+        return
     if not observations:
         return
     observation = observations[-1]

@@ -744,6 +744,9 @@ def test_memory_review_accept_list_and_undo(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text("memory_auto_write = true\n", encoding="utf-8")
 
     run_result = runner.invoke(app, ["run", "--cwd", str(workspace), "remember parser tests"])
     assert run_result.exit_code == 0
