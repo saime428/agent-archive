@@ -128,6 +128,24 @@ def test_resolve_write_path_rejects_git_directory(tmp_path) -> None:
     assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".svn/wc.db",
+        ".hg/store/data",
+        "node_modules/pkg/index.js",
+        ".env",
+    ],
+)
+def test_resolve_write_path_rejects_common_protected_project_state(tmp_path, path: str) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path(path)
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
 def test_resolve_write_path_rejects_pycache_directory(tmp_path) -> None:
     sandbox = WorkspaceSandbox(tmp_path)
 

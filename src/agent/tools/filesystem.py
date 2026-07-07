@@ -163,8 +163,6 @@ def _plan_patch_files(action: InternalAction, sandbox: WorkspaceSandbox) -> list
         match_count = current_text.count(old)
         if match_count == 0:
             raise OSError(f"Patch text not found in file: {path}")
-        if occurrence == "first" and match_count != 1:
-            raise OSError(f"Patch text is ambiguous in file: {path}")
 
         replacement_count = 1 if occurrence == "first" else match_count
         patched_text = current_text.replace(old, new, replacement_count)

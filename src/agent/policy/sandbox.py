@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agent.core.actions import ErrorCode
 
-PROTECTED_WRITE_PARTS = {".git", "__pycache__", ".pytest_cache"}
+PROTECTED_WRITE_PARTS = {".git", ".svn", ".hg", "node_modules", ".env", "__pycache__", ".pytest_cache"}
 
 
 class SandboxError(ValueError):

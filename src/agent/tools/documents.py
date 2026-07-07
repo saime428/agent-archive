@@ -103,7 +103,7 @@ def _extract_pdf_pages(path: Path) -> list[str]:
     try:
         from pypdf import PdfReader
     except (ImportError, ModuleNotFoundError) as exc:
-        raise OSError("PDF support requires the pypdf package.") from exc
+        raise _missing_dependency_error("read_pdf", "pypdf") from exc
 
     try:
         reader = PdfReader(str(path))
@@ -158,7 +158,7 @@ def _extract_docx_paragraphs(path: Path) -> list[str]:
     try:
         from docx import Document
     except (ImportError, ModuleNotFoundError) as exc:
-        raise OSError("DOCX support requires the python-docx package.") from exc
+        raise _missing_dependency_error("read_docx", "python-docx") from exc
 
     try:
         document = Document(str(path))
@@ -214,7 +214,7 @@ def _extract_xlsx_sheets(path: Path) -> list[dict[str, Any]]:
     try:
         from openpyxl import load_workbook
     except (ImportError, ModuleNotFoundError) as exc:
-        raise OSError("XLSX support requires the openpyxl package.") from exc
+        raise _missing_dependency_error("read_xlsx", "openpyxl") from exc
 
     try:
         workbook = load_workbook(str(path), read_only=True, data_only=True)
@@ -308,7 +308,7 @@ def _extract_pptx_slides(path: Path) -> list[dict[str, Any]]:
     try:
         from pptx import Presentation
     except (ImportError, ModuleNotFoundError) as exc:
-        raise OSError("PPTX support requires the python-pptx package.") from exc
+        raise _missing_dependency_error("read_pptx", "python-pptx") from exc
 
     try:
         presentation = Presentation(str(path))
@@ -404,6 +404,13 @@ def _render_markdown_report(*, title: str, body: str, sources: list[str]) -> str
         f"{body.strip()}\n\n"
         "## Sources\n\n"
         f"{source_lines}\n"
+    )
+
+
+def _missing_dependency_error(tool_name: str, package_name: str) -> OSError:
+    return OSError(
+        f"{tool_name} requires optional dependency {package_name!r}. "
+        f"Install it with: python -m pip install {package_name}"
     )
 
 

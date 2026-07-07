@@ -614,7 +614,7 @@ def test_apply_patch_missing_old_returns_tool_failed_without_snapshot(tmp_path) 
     assert not (tmp_path / ".agent" / "runs" / "run_patch" / "snapshots").exists()
 
 
-def test_apply_patch_first_rejects_ambiguous_match_without_change(tmp_path) -> None:
+def test_apply_patch_first_replaces_only_the_first_match(tmp_path) -> None:
     target = tmp_path / "notes.txt"
     target.write_text("same same\n", encoding="utf-8")
     context = RunContext.create("patch", cwd=tmp_path, run_id="run_patch")
@@ -626,10 +626,10 @@ def test_apply_patch_first_rejects_ambiguous_match_without_change(tmp_path) -> N
 
     observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
 
-    assert observation.status == "error"
-    assert observation.error is not None
-    assert observation.error.code == ErrorCode.TOOL_FAILED
-    assert target.read_text(encoding="utf-8") == "same same\n"
+    assert observation.status == "ok"
+    assert target.read_text(encoding="utf-8") == "once same\n"
+    assert observation.data is not None
+    assert observation.data["replacements"] == [{"path": str(target.resolve()), "count": 1}]
 
 
 def test_apply_patch_rejects_binary_file_without_change(tmp_path) -> None:
@@ -655,6 +655,10 @@ def test_apply_patch_rejects_protected_and_escape_paths(tmp_path) -> None:
     protected_cases = [
         ".agent/runs/run_patch/summary.md",
         ".git/config",
+        ".svn/wc.db",
+        ".hg/store",
+        "node_modules/pkg/index.js",
+        ".env",
         "__pycache__/cache.pyc",
         "../outside.txt",
     ]

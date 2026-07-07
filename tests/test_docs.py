@@ -3,7 +3,11 @@ import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
-V03_TARGETED_TEST_COMMAND = "python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q"
+V03_TARGETED_TEST_COMMAND = (
+    "python -m pytest tests/core/test_actions_parse.py tests/core/test_actions_observations.py "
+    "tests/test_documents.py tests/core/test_loop_core.py tests/core/test_loop_modes.py "
+    "tests/test_cli.py tests/test_docs.py -q"
+)
 V05_TARGETED_TEST_COMMAND = "python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q"
 WORKBENCH_TARGETED_TEST_COMMAND = "python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q"
 

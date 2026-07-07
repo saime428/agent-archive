@@ -157,30 +157,6 @@ def _read_config_file(path: Path) -> dict[str, Any]:
     return raw
 
 
-def _validate_value(key: str, value: Any, path: Path) -> None:
-    if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled"}:
-        if not isinstance(value, bool):
-            raise ConfigError(f"Invalid value for {key} in {path}: expected boolean.")
-        return
-    if key == "memory_max_items":
-        if not isinstance(value, int) or value <= 0:
-            raise ConfigError(f"Invalid value for memory_max_items in {path}: expected positive integer.")
-        return
-    if key in {"model", "deepseek_api_key_env"}:
-        if not isinstance(value, str) or not value.strip():
-            raise ConfigError(f"Invalid value for {key} in {path}: expected non-empty string.")
-        return
-    if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
-        if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-            raise ConfigError(f"Invalid value for {key} in {path}: expected list of non-empty strings.")
-        return
-
-    valid_values = VALID_VALUES[key]
-    if value not in valid_values:
-        expected = ", ".join(sorted(valid_values))
-        raise ConfigError(f"Invalid value for {key} in {path}: {value!r}. Expected one of: {expected}.")
-
-
 def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentConfig:
     values = {
         "provider": overrides.provider,
@@ -201,32 +177,41 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
     for key, value in values.items():
         if value is None:
             continue
-        _validate_override(key, value)
+        _validate_value(key, value, None)
         config = replace(config, **{key: _normalize_value(key, value)})
     return config
 
 
-def _validate_override(key: str, value: Any) -> None:
+def _validate_value(key: str, value: Any, path: Path | None) -> None:
+    cli = path is None
+    sequence_type = tuple if cli else list
     if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled"}:
         if not isinstance(value, bool):
-            raise ConfigError(f"Invalid CLI value for {key}: expected boolean.")
+            raise _invalid_config_value(key, "expected boolean", path)
         return
     if key == "memory_max_items":
         if not isinstance(value, int) or value <= 0:
-            raise ConfigError("Invalid CLI value for memory_max_items: expected positive integer.")
+            raise _invalid_config_value(key, "expected positive integer", path)
         return
     if key in {"model", "deepseek_api_key_env"}:
         if not isinstance(value, str) or not value.strip():
-            raise ConfigError(f"Invalid CLI value for {key}: expected non-empty string.")
+            raise _invalid_config_value(key, "expected non-empty string", path)
         return
     if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
-        if not isinstance(value, tuple) or any(not isinstance(item, str) or not item.strip() for item in value):
-            raise ConfigError(f"Invalid CLI value for {key}: expected tuple of non-empty strings.")
+        type_name = "tuple" if cli else "list"
+        if not isinstance(value, sequence_type) or any(not isinstance(item, str) or not item.strip() for item in value):
+            raise _invalid_config_value(key, f"expected {type_name} of non-empty strings", path)
         return
     valid_values = VALID_VALUES[key]
     if value not in valid_values:
         expected = ", ".join(sorted(valid_values))
-        raise ConfigError(f"Invalid CLI value for {key}: {value!r}. Expected one of: {expected}.")
+        raise _invalid_config_value(key, f"{value!r}. Expected one of: {expected}", path)
+
+
+def _invalid_config_value(key: str, message: str, path: Path | None) -> ConfigError:
+    if path is None:
+        return ConfigError(f"Invalid CLI value for {key}: {message}.")
+    return ConfigError(f"Invalid value for {key} in {path}: {message}.")
 
 
 def _normalize_value(key: str, value: Any) -> Any:

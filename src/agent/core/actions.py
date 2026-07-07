@@ -361,7 +361,7 @@ def parse_model_action(
 
     return InternalAction(
         run_id=run_id,
-        action_id=_format_action_id(action_index),
+        action_id=format_action_id(action_index),
         created_at=created_at,
         message=raw_obj["message"],
         action=ActionCall(name=name, args=args),
@@ -512,7 +512,7 @@ def _normalize_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _format_action_id(action_index: int) -> str:
+def format_action_id(action_index: int) -> str:
     return f"act_{action_index:06d}"
 
 

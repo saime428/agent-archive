@@ -152,7 +152,9 @@ def test_read_pdf_returns_tool_failed_when_dependency_is_missing(tmp_path, monke
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert "optional dependency" in observation.error.message
     assert "pypdf" in observation.error.message
+    assert "python -m pip install pypdf" in observation.error.message
 
 
 def test_read_docx_returns_budgeted_untrusted_source_material(tmp_path, monkeypatch) -> None:
@@ -198,7 +200,9 @@ def test_read_docx_returns_tool_failed_when_dependency_is_missing(tmp_path, monk
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert "optional dependency" in observation.error.message
     assert "python-docx" in observation.error.message
+    assert "python -m pip install python-docx" in observation.error.message
 
 
 def test_read_docx_rejects_sandbox_escape(tmp_path) -> None:
@@ -269,7 +273,9 @@ def test_read_xlsx_returns_tool_failed_when_dependency_is_missing(tmp_path, monk
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert "optional dependency" in observation.error.message
     assert "openpyxl" in observation.error.message
+    assert "python -m pip install openpyxl" in observation.error.message
 
 
 def test_read_xlsx_rejects_sandbox_escape(tmp_path) -> None:
@@ -332,7 +338,9 @@ def test_read_pptx_returns_tool_failed_when_dependency_is_missing(tmp_path, monk
     assert observation.status == "error"
     assert observation.error is not None
     assert observation.error.code == ErrorCode.TOOL_FAILED
+    assert "optional dependency" in observation.error.message
     assert "python-pptx" in observation.error.message
+    assert "python -m pip install python-pptx" in observation.error.message
 
 
 def test_read_pptx_rejects_sandbox_escape(tmp_path) -> None:

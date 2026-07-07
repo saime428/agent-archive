@@ -13,6 +13,7 @@ from agent.core.actions import (
     ErrorCode,
     InternalAction,
     Observation,
+    format_action_id,
     make_error_observation,
     make_observation,
     parse_model_action,
@@ -28,6 +29,8 @@ from agent.core.project_instructions import (
 )
 from agent.core.redaction import redact_record, redact_value
 from agent.core.skills import SkillError, SkillMetadata, build_skills_message, load_selected_skills
+from agent.core.summary import final_from_observation, render_summary
+from agent.core.tool_catalog import DRY_RUN_SKIPPED_TOOLS
 from agent.llm.base import LLMClient
 from agent.policy.approvals import LOW_RISK_ACTIONS, classify_action
 from agent.policy.sandbox import WorkspaceSandbox
@@ -83,12 +86,6 @@ SUPPORTED_TOOL_ACTIONS = {
     "read_docx",
     "read_xlsx",
     "read_pptx",
-    "write_markdown_report",
-}
-DRY_RUN_SKIPPED_ACTIONS = {
-    "write_file",
-    "apply_patch",
-    "run_command",
     "write_markdown_report",
 }
 
@@ -152,7 +149,7 @@ def run_once(
     if direct_list_path is not None:
         action = InternalAction(
             run_id=context.run_id,
-            action_id=_format_action_id(1),
+            action_id=format_action_id(1),
             created_at=context.created_at,
             message="List requested computer path.",
             action=ActionCall(
@@ -180,7 +177,7 @@ def run_once(
             final = _list_dir_final(observation)
             done_action = InternalAction(
                 run_id=context.run_id,
-                action_id=_format_action_id(2),
+                action_id=format_action_id(2),
                 created_at=context.created_at,
                 message="Summarized directory listing.",
                 action=ActionCall(
@@ -206,14 +203,7 @@ def run_once(
                     **_trace_policy(done_action, effective_config),
                 )
             )
-        _write_memory_candidate(context, observations, effective_config)
-        _run_hook_event(
-            "after_run",
-            effective_config,
-            hooks_path,
-            {"run_id": context.run_id, "status": observations[-1].status},
-        )
-        _write_run_logs(
+        return _finalize_run(
             context=context,
             actions=actions,
             observations=observations,
@@ -222,26 +212,15 @@ def run_once(
             skills=skills,
             memory_entries=memory_entries,
             config=effective_config,
+            hooks_path=hooks_path,
             tool_calls_path=tool_calls_path,
             summary_path=summary_path,
-        )
-        return RunResult(
-            context=context,
-            action=actions[-1],
-            observation=observations[-1],
-            observations=observations,
-            summary_path=summary_path,
-            tool_calls_path=tool_calls_path,
-            project_instructions=project_instructions,
-            skills=skills,
-            memory_entries=memory_entries,
-            config=effective_config,
         )
     direct_answer = _direct_chat_answer(task, effective_config)
     if direct_answer is not None:
         action = InternalAction(
             run_id=context.run_id,
-            action_id=_format_action_id(1),
+            action_id=format_action_id(1),
             created_at=context.created_at,
             message="Answered directly.",
             action=ActionCall(
@@ -267,14 +246,7 @@ def run_once(
                 **_trace_policy(action, effective_config),
             )
         ]
-        _write_memory_candidate(context, observations, effective_config)
-        _run_hook_event(
-            "after_run",
-            effective_config,
-            hooks_path,
-            {"run_id": context.run_id, "status": observations[-1].status},
-        )
-        _write_run_logs(
+        return _finalize_run(
             context=context,
             actions=actions,
             observations=observations,
@@ -283,20 +255,9 @@ def run_once(
             skills=skills,
             memory_entries=memory_entries,
             config=effective_config,
+            hooks_path=hooks_path,
             tool_calls_path=tool_calls_path,
             summary_path=summary_path,
-        )
-        return RunResult(
-            context=context,
-            action=actions[-1],
-            observation=observations[-1],
-            observations=observations,
-            summary_path=summary_path,
-            tool_calls_path=tool_calls_path,
-            project_instructions=project_instructions,
-            skills=skills,
-            memory_entries=memory_entries,
-            config=effective_config,
         )
     actions: list[InternalAction] = []
     observations: list[Observation] = []
@@ -468,10 +429,49 @@ def run_once(
         observation = truncate_observation(observation, context.budget)
         observations.append(observation)
 
-    _write_memory_candidate(context, observations, effective_config)
+    return _finalize_run(
+        context=context,
+        actions=actions,
+        observations=observations,
+        traces=traces,
+        project_instructions=project_instructions,
+        skills=skills,
+        memory_entries=memory_entries,
+        config=effective_config,
+        hooks_path=hooks_path,
+        tool_calls_path=tool_calls_path,
+        summary_path=summary_path,
+    )
+
+
+def _run_hook_event(event: str, config: AgentConfig, hooks_path: Path, payload: dict[str, Any]):
+    return run_hooks(
+        event=event,
+        enabled_hooks=config.enabled_hooks,
+        blocking_hooks=config.blocking_hooks,
+        payload=payload,
+        log_path=hooks_path,
+    )
+
+
+def _finalize_run(
+    *,
+    context: RunContext,
+    actions: list[InternalAction],
+    observations: list[Observation],
+    traces: list[TraceRecord],
+    project_instructions: ProjectInstructions,
+    skills: list[SkillMetadata],
+    memory_entries: list[MemoryEntry],
+    config: AgentConfig,
+    hooks_path: Path,
+    tool_calls_path: Path,
+    summary_path: Path,
+) -> RunResult:
+    _write_memory_candidate(context, observations, config)
     _run_hook_event(
         "after_run",
-        effective_config,
+        config,
         hooks_path,
         {"run_id": context.run_id, "status": observations[-1].status if observations else "unknown"},
     )
@@ -483,7 +483,7 @@ def run_once(
         project_instructions=project_instructions,
         skills=skills,
         memory_entries=memory_entries,
-        config=effective_config,
+        config=config,
         tool_calls_path=tool_calls_path,
         summary_path=summary_path,
     )
@@ -497,17 +497,7 @@ def run_once(
         project_instructions=project_instructions,
         skills=skills,
         memory_entries=memory_entries,
-        config=effective_config,
-    )
-
-
-def _run_hook_event(event: str, config: AgentConfig, hooks_path: Path, payload: dict[str, Any]):
-    return run_hooks(
-        event=event,
-        enabled_hooks=config.enabled_hooks,
-        blocking_hooks=config.blocking_hooks,
-        payload=payload,
-        log_path=hooks_path,
+        config=config,
     )
 
 
@@ -564,7 +554,7 @@ def _parse_error_record(
     repairable = repair_attempt < context.budget.repair_attempts
     action = InternalAction(
         run_id=context.run_id,
-        action_id=_format_action_id(action_index),
+        action_id=format_action_id(action_index),
         created_at=context.created_at,
         message="Invalid model response.",
         action=ActionCall(
@@ -709,10 +699,6 @@ def _direct_chat_answer(task: str, config: AgentConfig) -> str | None:
     return None
 
 
-def _format_action_id(action_index: int) -> str:
-    return f"act_{action_index:06d}"
-
-
 def _tool_observation(
     action: InternalAction,
     context: RunContext,
@@ -744,7 +730,7 @@ def _tool_observation(
             message=f"Action is not allowed by selected skills: {action.action.name}.",
             details={"requested_action": action.action.name, "allowed_tools": sorted(allowed_tools)},
         )
-    if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
+    if config.dry_run and action.action.name in DRY_RUN_SKIPPED_TOOLS:
         return make_observation(
             action,
             observation_index=observation_index,
@@ -895,7 +881,7 @@ def _trace_policy(action: InternalAction, config: AgentConfig) -> dict[str, obje
             "policy_reason": decision.reason,
             "config": _trace_config(config),
         }
-    if config.dry_run and action.action.name in DRY_RUN_SKIPPED_ACTIONS:
+    if config.dry_run and action.action.name in DRY_RUN_SKIPPED_TOOLS:
         return {
             "policy_decision": "dry_run_skipped",
             "policy_reason": "Dry run skipped action.",
@@ -1018,7 +1004,7 @@ def _write_memory_candidate(context: RunContext, observations: list[Observation]
     observation = observations[-1]
     if observation.status != "ok":
         return
-    final = _final_from_observation(observation)
+    final = final_from_observation(observation)
     if not final:
         return
     MemoryStore(context.cwd).add_candidate(source_run_id=context.run_id, source_excerpt=final)
@@ -1074,208 +1060,10 @@ def _write_run_logs(
         "\n".join(records) + "\n",
         encoding="utf-8",
     )
-    summary = _render_summary(context, actions, observations, project_instructions, skills, memory_entries, config)
+    summary = render_summary(context, actions, observations, project_instructions, skills, memory_entries, config)
     redacted_summary = redact_value(summary)
     redaction_replacements += redacted_summary.replacements
     summary_text = redacted_summary.value
     if redaction_replacements:
         summary_text = summary_text.rstrip("\n") + "\n- redaction_applied: true\n"
     summary_path.write_text(summary_text, encoding="utf-8")
-
-
-def _render_summary(
-    context: RunContext,
-    actions: list[InternalAction],
-    observations: list[Observation],
-    project_instructions: ProjectInstructions,
-    skills: list[SkillMetadata],
-    memory_entries: list[MemoryEntry],
-    config: AgentConfig,
-) -> str:
-    action = actions[-1]
-    observation = observations[-1]
-    terminal_reason = _terminal_reason(action, observation)
-    lines = [
-        f"# Run {context.run_id}",
-        "",
-        f"- task: {context.task}",
-        f"- action: {action.action.name}",
-        f"- status: {observation.status}",
-        f"- completed: {str(_completed(action, observation)).lower()}",
-        f"- terminal_reason: {terminal_reason}",
-        f"- last_action: {action.action.name}",
-        f"- last_observation_summary: {observation.summary}",
-    ]
-    final = _final_from_observation(observation)
-    if final:
-        lines.append(f"- final: {final}")
-    if observation.error:
-        lines.append(f"- error: {observation.error.code}: {observation.error.message}")
-    failure_explanation = _failure_explanation(action, observation, terminal_reason)
-    if failure_explanation:
-        lines.append(f"- failure_explanation: {failure_explanation}")
-    if action.action.name == "ask_user":
-        lines.extend(_ask_user_lines(observation))
-    lines.extend(_project_instruction_lines(project_instructions))
-    lines.extend(_skill_lines(skills))
-    lines.extend(_memory_lines(memory_entries))
-    lines.extend(_config_lines(config))
-    changed_lines = _changed_file_lines(observations)
-    if changed_lines:
-        lines.extend(["", "## Changes", *changed_lines])
-    lines.append("")
-    return "\n".join(lines)
-
-
-def _completed(action: InternalAction, observation: Observation) -> bool:
-    return action.action.name == "done" and observation.status == "ok"
-
-
-def _terminal_reason(action: InternalAction, observation: Observation) -> str:
-    if _completed(action, observation):
-        return "done"
-    if action.action.name == "ask_user" and observation.status == "ok":
-        return "ask_user"
-    if _is_iteration_limit(observation):
-        return "iteration_limit"
-    if observation.error is not None:
-        return f"error:{observation.error.code}"
-    return "stopped"
-
-
-def _failure_explanation(action: InternalAction, observation: Observation, terminal_reason: str) -> str | None:
-    if terminal_reason == "iteration_limit":
-        return f"The model did not return done before the iteration limit; last action was {action.action.name}."
-    if observation.error is not None:
-        return observation.error.message
-    return None
-
-
-def _is_iteration_limit(observation: Observation) -> bool:
-    if observation.error is None:
-        return False
-    return (
-        observation.error.code == ErrorCode.TOOL_FAILED
-        and observation.error.message == "Run stopped after reaching the iteration limit."
-    )
-
-
-def _project_instruction_lines(project_instructions: ProjectInstructions) -> list[str]:
-    lines = [
-        "",
-        "## Project Instructions",
-        f"- project_instructions_path: {project_instructions.path}",
-        f"- project_instructions_loaded: {str(project_instructions.loaded).lower()}",
-        f"- project_instructions_chars: {project_instructions.char_count}",
-        f"- project_instructions_truncated: {str(project_instructions.truncated).lower()}",
-    ]
-    if project_instructions.error:
-        lines.append(f"- project_instructions_error: {project_instructions.error}")
-    return lines
-
-
-def _skill_lines(skills: list[SkillMetadata]) -> list[str]:
-    lines = ["", "## Skills", f"- skills_loaded: {len(skills)}"]
-    for skill in skills:
-        lines.append(f"- skill: {skill.name}")
-        lines.append(f"  source: {skill.source}")
-        lines.append(f"  truncated: {str(skill.truncated).lower()}")
-    return lines
-
-
-def _memory_lines(memory_entries: list[MemoryEntry]) -> list[str]:
-    lines = ["", "## Memory", f"- memory_loaded: {len(memory_entries)}"]
-    for entry in memory_entries:
-        lines.append(f"- memory_entry: {entry.entry_id}")
-        lines.append(f"  source_run_id: {entry.source_run_id}")
-    return lines
-
-
-def _config_lines(config: AgentConfig) -> list[str]:
-    return [
-        "",
-        "## Config",
-        f"- config_provider: {config.provider}",
-        f"- config_model: {config.model}",
-        f"- config_deepseek_api_key_env: {config.deepseek_api_key_env}",
-        f"- config_default_skills: {list(config.default_skills)}",
-        f"- config_memory_auto_write: {str(config.memory_auto_write).lower()}",
-        f"- config_memory_max_items: {config.memory_max_items}",
-        f"- config_enabled_hooks: {list(config.enabled_hooks)}",
-        f"- config_blocking_hooks: {list(config.blocking_hooks)}",
-        f"- config_mode: {config.mode}",
-        f"- config_sandbox: {config.sandbox}",
-        f"- config_approval: {config.approval}",
-        f"- config_dry_run: {str(config.dry_run).lower()}",
-        f"- config_web_search_enabled: {str(config.web_search_enabled).lower()}",
-        f"- config_computer_read_enabled: {str(config.computer_read_enabled).lower()}",
-    ]
-
-
-def _ask_user_lines(observation: Observation) -> list[str]:
-    data = observation.data or {}
-    lines = ["", "## User Input Request"]
-    if data.get("question") is not None:
-        lines.append(f"- question: {data['question']}")
-    if data.get("options") is not None:
-        lines.append(f"- options: {data['options']}")
-    if data.get("reason") is not None:
-        lines.append(f"- reason: {data['reason']}")
-    return lines
-
-
-def _final_from_observation(observation: Observation) -> str | None:
-    data: dict[str, Any] | None = observation.data
-    if not data:
-        return None
-    final = data.get("final")
-    if final is None:
-        return None
-    return str(final)
-
-
-def _changed_file_lines(observations: list[Observation]) -> list[str]:
-    lines: list[str] = []
-    for observation in observations:
-        data = observation.data or {}
-        snapshot_records = data.get("snapshots")
-        if isinstance(snapshot_records, list):
-            restore_hints = _restore_hints_by_path(data.get("restore_hints"))
-            for snapshot in snapshot_records:
-                if not isinstance(snapshot, dict):
-                    continue
-                path = snapshot.get("path")
-                snapshot_path = snapshot.get("snapshot_path")
-                if not path or not snapshot_path:
-                    continue
-                lines.append(f"- changed_file: {path}")
-                lines.append(f"- snapshot: {snapshot_path}")
-                restore_hint = restore_hints.get(str(path))
-                if restore_hint:
-                    lines.append(f"- restore: {restore_hint}")
-            continue
-
-        path = data.get("path")
-        snapshot_path = data.get("snapshot_path")
-        restore_hint = data.get("restore_hint")
-        if not path or not snapshot_path:
-            continue
-        lines.append(f"- changed_file: {path}")
-        lines.append(f"- snapshot: {snapshot_path}")
-        if restore_hint:
-            lines.append(f"- restore: {restore_hint}")
-    return lines
-
-
-def _restore_hints_by_path(raw_restore_hints: Any) -> dict[str, str]:
-    if not isinstance(raw_restore_hints, list):
-        return {}
-    result: dict[str, str] = {}
-    for item in raw_restore_hints:
-        if not isinstance(item, dict):
-            continue
-        path = item.get("path")
-        hint = item.get("hint")
-        if path and hint:
-            result[str(path)] = str(hint)
-    return result
