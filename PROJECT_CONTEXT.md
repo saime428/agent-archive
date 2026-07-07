@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-04
+Last updated: 2026-07-08
 
 ## One-line Summary
 
@@ -12,6 +12,7 @@ This is a minimal Python 3.11+ local coding agent: a CLI engine plus a static lo
 - `agent start` is the preferred local startup command; it reuses the existing `agent ui` server path.
 - Browser settings remain read-only for v1.0. Config changes stay in terminal commands or explicit config-file edits.
 - Binary packaging, desktop shell, and browser-side settings writes are optional trigger-based work, not open release blockers.
+- `core/loop.py` still has two narrow Chinese-only direct helpers: `_direct_chat_answer` and `_direct_external_list_path`. They are local Workbench convenience shortcuts, not the general model reasoning path.
 
 ## Main Code Map
 

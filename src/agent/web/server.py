@@ -34,6 +34,7 @@ from agent.tools.filesystem import create_snapshot
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
+CHAT_JOB_TTL_SECONDS = 300.0
 
 
 @dataclass
@@ -47,6 +48,7 @@ class _ChatJob:
     condition: threading.Condition = field(default_factory=threading.Condition)
     approval_decision: bool | None = None
     done: bool = False
+    completed_at: float | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
 
@@ -901,6 +903,7 @@ def build_chat_start_payload(workspace: Path, request: dict[str, Any]) -> dict[s
 def build_chat_events_payload(job_id: str, *, after: int = 0, timeout: float = 0.0) -> dict[str, Any]:
     if after < 0:
         raise ValueError("after must be non-negative.")
+    _prune_chat_jobs()
     job = _get_chat_job(job_id)
     deadline = time.monotonic() + max(timeout, 0.0)
     with job.condition:
@@ -932,6 +935,18 @@ def build_chat_approval_payload(request: dict[str, Any]) -> dict[str, Any]:
         job.approval_decision = approve
         job.condition.notify_all()
     return {"status": "ok", "job_id": job.job_id, "approved": approve}
+
+
+def _prune_chat_jobs() -> None:
+    now = time.monotonic()
+    with _CHAT_JOBS_LOCK:
+        expired = [
+            job_id
+            for job_id, job in _CHAT_JOBS.items()
+            if job.done and job.completed_at is not None and now - job.completed_at > CHAT_JOB_TTL_SECONDS
+        ]
+        for job_id in expired:
+            del _CHAT_JOBS[job_id]
 
 
 def build_chat_rename_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
@@ -1066,6 +1081,7 @@ def _run_chat_job(
     finally:
         with job.condition:
             job.done = True
+            job.completed_at = time.monotonic()
             job.condition.notify_all()
 
 

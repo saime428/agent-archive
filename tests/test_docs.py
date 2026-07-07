@@ -1,7 +1,44 @@
 from pathlib import Path
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
+V03_TARGETED_TEST_COMMAND = "python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q"
+V05_TARGETED_TEST_COMMAND = "python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q"
+WORKBENCH_TARGETED_TEST_COMMAND = "python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q"
+
+
+def test_package_version_matches_v21_route() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    init_text = (ROOT / "src" / "agent" / "__init__.py").read_text(encoding="utf-8")
+
+    assert pyproject["project"]["version"] == "2.1.0"
+    assert '__version__ = "2.1.0"' in init_text
+
+
+def test_changelog_records_v21_security_hardening() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "## 2.1.0" in changelog
+    assert "安全硬化" in changelog
+
+
+def test_duplicate_interview_docx_removed() -> None:
+    assert not (ROOT / "docs" / "agent-interview-summary.docx").exists()
+
+
+def test_roadmap_progress_no_longer_has_stale_later_roadmap_table() -> None:
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "## Later Roadmap" not in roadmap
+
+
+def test_project_context_documents_direct_chat_language_limit() -> None:
+    context = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+
+    assert "_direct_chat_answer" in context
+    assert "_direct_external_list_path" in context
+    assert "Chinese-only" in context
 
 
 def test_readme_quickstart_documents_core_cli_commands() -> None:
@@ -79,7 +116,7 @@ def test_readme_documents_v03_document_commands() -> None:
     assert "write_markdown_report" in readme
     assert "document dependency" in readme
     assert "python -m agent.cli doctor" in readme
-    assert "python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q" in readme
+    assert V03_TARGETED_TEST_COMMAND in readme
     assert "Document read tools are low-risk read-only actions" in readme
     assert "write_markdown_report is confirmation-required" in readme
     assert "v0.3 manual smoke" in readme
@@ -157,7 +194,7 @@ def test_readme_documents_v05_manual_smoke_and_success_criteria() -> None:
     assert "python -m agent.cli chat --cwd F:\\agent" in readme
     assert "python -m agent.cli chat --cwd F:\\agent --provider deepseek --model deepseek-v4-flash" in readme
     assert "python -m agent.cli runs show <run-id>" in readme
-    assert "python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q" in readme
+    assert V05_TARGETED_TEST_COMMAND in readme
     assert "live chat success criteria" in readme
     assert "raw model response preview" in readme
     assert "chat_id" in readme
@@ -417,7 +454,7 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Failure Recovery" in readme
     assert "v0.9 closeout" in readme
     assert "docs/v0.9-acceptance.md" in readme
-    assert "python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q" in readme
+    assert WORKBENCH_TARGETED_TEST_COMMAND in readme
     assert "visual agent progress" in readme
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap

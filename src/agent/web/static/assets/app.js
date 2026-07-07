@@ -1337,7 +1337,7 @@ function renderPagedList(container, records, pageKey, renderItem, emptyText, pag
     return;
   }
   if (!records.length) {
-    container.innerHTML = `<div class="empty-state">${emptyText}</div>`;
+    container.replaceChildren(emptyStateElement(emptyText));
     return;
   }
   const maxPage = Math.max(0, Math.ceil(records.length / pageSize) - 1);
@@ -1426,7 +1426,7 @@ async function loadFiles(path) {
     const payload = await loadJson(`/api/files?path=${encodeURIComponent(path)}`);
     renderFiles(payload.entries || [], payload.path || ".");
   } catch (error) {
-    els.fileList.innerHTML = `<div class="empty-state">${error instanceof Error ? error.message : String(error)}</div>`;
+    els.fileList.replaceChildren(emptyStateElement(error instanceof Error ? error.message : String(error)));
   }
 }
 
@@ -1763,10 +1763,17 @@ function replaceOrEmpty(container, items, emptyText) {
     return;
   }
   if (!items.length) {
-    container.innerHTML = `<div class="empty-state">${emptyText}</div>`;
+    container.replaceChildren(emptyStateElement(emptyText));
     return;
   }
   container.replaceChildren(...items);
+}
+
+function emptyStateElement(text) {
+  const element = document.createElement("div");
+  element.className = "empty-state";
+  element.textContent = text;
+  return element;
 }
 
 function parentPath(path) {

@@ -115,6 +115,7 @@ def _apply_patch(
 
     for plan in plans:
         plan.path.write_bytes(plan.patched_text.encode("utf-8"))
+        sandbox.resolve_write_path(str(plan.path), create_parents=False)
 
     replacements = [{"path": str(plan.path), "count": plan.replacements} for plan in plans]
     changed_files = [str(plan.path) for plan in plans]
@@ -194,6 +195,7 @@ def _write_file(
         path.parent.mkdir(parents=True, exist_ok=True)
     encoded = content.encode("utf-8")
     path.write_bytes(encoded)
+    sandbox.resolve_write_path(str(path), create_parents=bool(action.action.args["create_parents"]))
 
     data = {
         "path": str(path),

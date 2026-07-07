@@ -121,15 +121,6 @@ These percentages are product estimates, not exact engineering metrics.
    - Done: `docs/v0.8-acceptance.md` records frozen read-only coding workflow
      status and v0.9 audit/resilience as the next track.
 
-## Later Roadmap
-
-| Version | Goal | Notes |
-| --- | --- | --- |
-| v0.7 | Product shell decision | Move to Vue/Vite only when static UI state becomes painful; package with Electron/Tauri only after browser UI stabilizes |
-| v0.8 | Stronger coding workflow | Test suggestions, failure reading, patch review, git checkpoint UI, branch/commit helpers |
-| v0.9 | Audit and resilience | v0.9 closeout |
-| v1.0 | Local product release | One-command startup, settings page, model switching, desktop packaging, stable docs and smoke tests |
-
 ## Active v0.9 Plan
 
 1. Run risk filters

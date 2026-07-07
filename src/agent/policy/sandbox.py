@@ -105,6 +105,6 @@ def _has_protected_write_part(path: Path, root: Path) -> bool:
         relative_parts = path.relative_to(root).parts
     except ValueError:
         return True
-    if len(relative_parts) >= 2 and relative_parts[0] == ".agent" and relative_parts[1] == "runs":
+    if relative_parts and relative_parts[0] == ".agent":
         return True
     return any(part in PROTECTED_WRITE_PARTS for part in relative_parts)

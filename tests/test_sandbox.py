@@ -92,6 +92,24 @@ def test_resolve_write_path_rejects_protected_runs_directory(tmp_path) -> None:
     assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
 
 
+def test_resolve_write_path_rejects_workspace_secrets_file(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path(".agent/secrets.env")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
+def test_resolve_write_path_rejects_agent_internal_directory(tmp_path) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path(".agent/config.toml")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
 def test_resolve_write_path_rejects_git_directory(tmp_path) -> None:
     sandbox = WorkspaceSandbox(tmp_path)
 

@@ -95,6 +95,32 @@ def test_build_save_config_payload_writes_project_config_without_secrets(tmp_pat
     assert "api_key" not in config_text
 
 
+def test_build_save_config_payload_escapes_toml_strings(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    model = 'deepseek-v4-"flash"\nnext = "bad"'
+
+    build_save_config_payload(
+        workspace,
+        {
+            "provider": "deepseek",
+            "model": model,
+            "sandbox": "workspace-write",
+            "approval": "risky-confirm",
+            "dry_run": False,
+            "web_search_enabled": False,
+            "computer_read_enabled": False,
+            "default_skills": ["code-dev"],
+        },
+    )
+
+    config_text = (workspace / ".agent" / "config.toml").read_text(encoding="utf-8")
+    payload = build_config_payload(workspace)
+
+    assert payload["config"]["model"] == model
+    assert config_text.count("model = ") == 1
+
+
 def test_build_save_config_payload_rejects_disabling_approvals(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -229,6 +255,14 @@ def test_build_tools_payload_reuses_policy_categories() -> None:
     assert tools["write_file"]["category"] == "confirmation-required"
     assert tools["write_file"]["dry_run"] == "skipped"
     assert tools["done"]["category"] == "terminal"
+
+
+def test_app_js_avoids_dynamic_inner_html_xss_paths() -> None:
+    script = static_file_path("assets/app.js").read_text(encoding="utf-8")
+
+    assert "${emptyText}" not in script
+    assert "els.fileList.innerHTML = `<div class=\"empty-state\">${error" not in script
+    assert "function emptyStateElement" in script
 
 
 def test_build_runs_payload_lists_recent_runs(tmp_path: Path) -> None:
