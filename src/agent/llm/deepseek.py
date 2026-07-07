@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
+from http.client import HTTPConnection, HTTPSConnection
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 from agent.core.actions import ActionParseError, parse_model_action
 
@@ -16,6 +18,7 @@ DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 Transport = Callable[[str, dict[str, str], bytes, float], bytes]
 StreamTransport = Callable[[str, dict[str, str], bytes, float], Iterable[bytes]]
+RetrySleep = Callable[[float], None]
 
 
 class DeepSeekError(RuntimeError):
@@ -42,6 +45,7 @@ class DeepSeekClient:
         timeout: float = 60.0,
         transport: Transport | None = None,
         stream_transport: StreamTransport | None = None,
+        retry_sleep: RetrySleep | None = None,
     ) -> None:
         if not api_key.strip():
             raise DeepSeekError("DeepSeek API key is required.")
@@ -51,8 +55,10 @@ class DeepSeekClient:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.transport = transport or _urllib_transport
-        self.stream_transport = stream_transport or _urllib_stream_transport
+        reusable_transport = _ReusableHTTPTransport()
+        self.transport = transport or reusable_transport.request_bytes
+        self.stream_transport = stream_transport or reusable_transport.stream_bytes
+        self.retry_sleep = retry_sleep or time.sleep
 
     def chat(
         self,
@@ -71,14 +77,18 @@ class DeepSeekClient:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "Connection": "keep-alive",
         }
 
         try:
-            response_body = self.transport(
-                f"{self.base_url}/chat/completions",
-                headers,
-                body,
-                self.timeout,
+            response_body = _retry_transient(
+                lambda: self.transport(
+                    f"{self.base_url}/chat/completions",
+                    headers,
+                    body,
+                    self.timeout,
+                ),
+                self.retry_sleep,
             )
         except HTTPError as exc:
             raise DeepSeekError(f"DeepSeek API request failed: {exc.code} {exc.reason}") from exc
@@ -104,20 +114,27 @@ class DeepSeekClient:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "Connection": "keep-alive",
         }
 
-        try:
-            stream = self.stream_transport(
-                f"{self.base_url}/chat/completions",
-                headers,
-                body,
-                self.timeout,
-            )
-            yield from _parse_streaming_chat_response(stream)
-        except HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek API request failed: {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise DeepSeekError(f"DeepSeek API request failed: {exc.reason}") from exc
+        for attempt, delay in enumerate([1.0, 2.0, 4.0, None]):
+            try:
+                stream = self.stream_transport(
+                    f"{self.base_url}/chat/completions",
+                    headers,
+                    body,
+                    self.timeout,
+                )
+                yield from _parse_streaming_chat_response(stream)
+                return
+            except HTTPError as exc:
+                if delay is None or not _is_retryable_http(exc):
+                    raise DeepSeekError(f"DeepSeek API request failed: {exc.code} {exc.reason}") from exc
+                self.retry_sleep(delay)
+            except URLError as exc:
+                if delay is None:
+                    raise DeepSeekError(f"DeepSeek API request failed: {exc.reason}") from exc
+                self.retry_sleep(delay)
 
 
 def smoke_deepseek_provider(
@@ -207,16 +224,71 @@ def _looks_like_action_envelope(raw_action: dict) -> bool:
     return isinstance(raw_action.get("message"), str) and isinstance(raw_action.get("action"), dict)
 
 
-def _urllib_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
-    request = Request(url, data=body, headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:
-        return response.read()
+def _retry_transient(call: Callable[[], bytes], sleep: RetrySleep) -> bytes:
+    for delay in [1.0, 2.0, 4.0, None]:
+        try:
+            return call()
+        except HTTPError as exc:
+            if delay is None or not _is_retryable_http(exc):
+                raise
+            sleep(delay)
+        except URLError:
+            if delay is None:
+                raise
+            sleep(delay)
+    raise RuntimeError("unreachable")
 
 
-def _urllib_stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> Iterable[bytes]:
-    request = Request(url, data=body, headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:
-        yield from response
+def _is_retryable_http(exc: HTTPError) -> bool:
+    return exc.code == 429 or 500 <= exc.code <= 599
+
+
+class _ReusableHTTPTransport:
+    def __init__(self) -> None:
+        self._connections: dict[tuple[str, str, int | None], HTTPConnection] = {}
+
+    def request_bytes(self, url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
+        response = self._request(url, headers, body, timeout)
+        data = response.read()
+        self._drop_closed_connection(url, response.will_close)
+        return data
+
+    def stream_bytes(self, url: str, headers: dict[str, str], body: bytes, timeout: float) -> Iterable[bytes]:
+        response = self._request(url, headers, body, timeout)
+        try:
+            yield from response
+        finally:
+            self._drop_closed_connection(url, response.will_close)
+
+    def _request(self, url: str, headers: dict[str, str], body: bytes, timeout: float):
+        parsed = urlparse(url)
+        connection = self._connection(parsed.scheme, parsed.hostname or "", parsed.port, timeout)
+        target = parsed.path or "/"
+        if parsed.query:
+            target += f"?{parsed.query}"
+        connection.request("POST", target, body=body, headers=headers)
+        response = connection.getresponse()
+        if response.status >= 400:
+            raise HTTPError(url, response.status, response.reason, hdrs=response.headers, fp=None)
+        return response
+
+    def _connection(self, scheme: str, host: str, port: int | None, timeout: float) -> HTTPConnection:
+        key = (scheme, host, port)
+        connection = self._connections.get(key)
+        if connection is None:
+            cls = HTTPSConnection if scheme == "https" else HTTPConnection
+            connection = cls(host, port=port, timeout=timeout)
+            self._connections[key] = connection
+        return connection
+
+    def _drop_closed_connection(self, url: str, will_close: bool) -> None:
+        if not will_close:
+            return
+        parsed = urlparse(url)
+        key = (parsed.scheme, parsed.hostname or "", parsed.port)
+        connection = self._connections.pop(key, None)
+        if connection is not None:
+            connection.close()
 
 
 def _parse_chat_response(response_body: bytes) -> dict | str:

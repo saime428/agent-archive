@@ -45,6 +45,7 @@ def test_deepseek_client_posts_openai_compatible_chat_request() -> None:
             {
                 "Authorization": "Bearer secret",
                 "Content-Type": "application/json",
+                "Connection": "keep-alive",
             },
             {
                 "model": "deepseek-v4-flash",
@@ -55,6 +56,48 @@ def test_deepseek_client_posts_openai_compatible_chat_request() -> None:
             60.0,
         )
     ]
+
+
+def test_deepseek_client_retries_transient_http_errors() -> None:
+    calls = []
+    delays = []
+
+    def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
+        calls.append(url)
+        if len(calls) < 3:
+            raise HTTPError(url, 429, "Too Many Requests", hdrs=None, fp=None)
+        return json.dumps({"choices": [{"message": {"content": '{"message":"Done.","action":{"name":"done","args":{"final":"ok","changed_files":[],"next_steps":[]}}}'}}]}).encode("utf-8")
+
+    client = DeepSeekClient(api_key="secret", transport=transport, retry_sleep=delays.append)
+
+    response = client.chat([{"role": "user", "content": "finish"}])
+
+    assert response["action"]["args"]["final"] == "ok"
+    assert len(calls) == 3
+    assert delays == [1.0, 2.0]
+
+
+def test_deepseek_client_retries_network_errors() -> None:
+    calls = []
+    delays = []
+
+    def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
+        calls.append(url)
+        if len(calls) == 1:
+            raise URLError("offline")
+        return json.dumps({"choices": [{"message": {"content": "not json"}}]}).encode("utf-8")
+
+    client = DeepSeekClient(api_key="secret", transport=transport, retry_sleep=delays.append)
+
+    assert client.chat([{"role": "user", "content": "finish"}]) == "not json"
+    assert len(calls) == 2
+    assert delays == [1.0]
+
+
+def test_deepseek_default_transports_share_reusable_connection_pool() -> None:
+    client = DeepSeekClient(api_key="secret")
+
+    assert getattr(client.transport, "__self__", None) is getattr(client.stream_transport, "__self__", None)
 
 
 def test_deepseek_client_rejects_missing_api_key() -> None:
@@ -68,7 +111,7 @@ def test_deepseek_client_returns_non_json_model_content_for_repair_loop() -> Non
     def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
         return json.dumps({"choices": [{"message": {"content": "not json"}}]}).encode("utf-8")
 
-    client = DeepSeekClient(api_key="secret", transport=transport)
+    client = DeepSeekClient(api_key="secret", transport=transport, retry_sleep=lambda _delay: None)
 
     response = client.chat([{"role": "user", "content": "finish"}])
 
@@ -79,7 +122,7 @@ def test_deepseek_client_reports_http_errors() -> None:
     def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
         raise HTTPError(url, 401, "Unauthorized", hdrs=None, fp=None)
 
-    client = DeepSeekClient(api_key="secret", transport=transport)
+    client = DeepSeekClient(api_key="secret", transport=transport, retry_sleep=lambda _delay: None)
 
     with pytest.raises(DeepSeekError) as exc_info:
         client.chat([{"role": "user", "content": "finish"}])
@@ -91,7 +134,7 @@ def test_deepseek_client_reports_network_errors() -> None:
     def transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
         raise URLError("offline")
 
-    client = DeepSeekClient(api_key="secret", transport=transport)
+    client = DeepSeekClient(api_key="secret", transport=transport, retry_sleep=lambda _delay: None)
 
     with pytest.raises(DeepSeekError) as exc_info:
         client.chat([{"role": "user", "content": "finish"}])
@@ -129,7 +172,7 @@ def test_deepseek_client_streaming_stops_on_done_marker() -> None:
         yield b"data: [DONE]\n\n"
         yield b'data: {"choices":[{"delta":{"content":"ignored"}}]}\n\n'
 
-    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport, retry_sleep=lambda _delay: None)
 
     assert list(client.stream_chat([{"role": "user", "content": "finish"}])) == ["hello"]
 
@@ -138,7 +181,7 @@ def test_deepseek_client_streaming_reports_invalid_sse() -> None:
     def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
         yield b"data: {not json}\n\n"
 
-    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport, retry_sleep=lambda _delay: None)
 
     with pytest.raises(DeepSeekError) as exc_info:
         list(client.stream_chat([{"role": "user", "content": "finish"}]))
@@ -150,7 +193,7 @@ def test_deepseek_client_streaming_reports_non_text_delta() -> None:
     def stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float):
         yield b'data: {"choices":[{"delta":{"content":123}}]}\n\n'
 
-    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport, retry_sleep=lambda _delay: None)
 
     with pytest.raises(DeepSeekError) as exc_info:
         list(client.stream_chat([{"role": "user", "content": "finish"}]))
@@ -163,7 +206,7 @@ def test_deepseek_client_streaming_reports_http_errors() -> None:
         raise HTTPError(url, 429, "Too Many Requests", hdrs=None, fp=None)
         yield b""
 
-    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport)
+    client = DeepSeekClient(api_key="secret", stream_transport=stream_transport, retry_sleep=lambda _delay: None)
 
     with pytest.raises(DeepSeekError) as exc_info:
         list(client.stream_chat([{"role": "user", "content": "finish"}]))
