@@ -1,24 +1,9 @@
-import { state, els } from "./state.js";
-import { loadJson, postJson } from "./api.js";
-import { openChatEventSource as sseModule } from "./sse.js";
-import { healthModule } from "./render/health.js";
-import { runsModule } from "./render/runs.js";
-import { filesModule } from "./render/files.js";
-import { editorModule } from "./render/editor.js";
-import { resourcesModule } from "./render/resources.js";
-import { diagnosticsModule } from "./render/diagnostics.js";
-import { uiModule } from "./render/ui.js";
-import "./render/chat.js";
+import "./state.js";
+import "./api.js";
+import "./sse.js";
+import { boot } from "./render/chat.js";
+import { renderResultNotice } from "./render/ui.js";
 
-void state;
-void els;
-void loadJson;
-void postJson;
-void sseModule;
-void healthModule;
-void runsModule;
-void filesModule;
-void editorModule;
-void resourcesModule;
-void diagnosticsModule;
-void uiModule;
+boot().catch((error) => {
+  renderResultNotice(error instanceof Error ? error.message : String(error), "error");
+});

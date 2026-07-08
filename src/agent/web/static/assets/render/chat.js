@@ -1,7 +1,28 @@
 import { state, els, LEGACY_CHAT_TURN_ENDPOINT, SEARCH_DEBOUNCE_MS, debounce } from "../state.js";
 import { loadJson, postJson } from "../api.js";
+import { closeChatEventSource, openChatEventSource, submitApproval } from "../sse.js";
+import {
+  activateSidePanel,
+  activateView,
+  applyStoredTheme,
+  initColumnResize,
+  renderPagedList,
+  renderResultNotice,
+  renderRows,
+  replaceOrEmpty,
+  resourcePreviewItem,
+  scrollToSetting,
+  showActionError,
+  toggleTheme,
+} from "./ui.js";
+import { renderHealth, renderSettings, saveSettings, saveSettingsValues } from "./health.js";
+import { renderRuns, runButton } from "./runs.js";
+import { loadFiles, renderFileEntries } from "./files.js";
+import { saveOpenFile, showSummary } from "./editor.js";
+import { closeResourceDetail, openResourceDetail, renderResources } from "./resources.js";
+import { renderDiagnostics, renderSnapshots, snapshotItem } from "./diagnostics.js";
 
-async function boot() {
+export async function boot() {
   applyStoredTheme();
   bindEvents();
   initColumnResize();
@@ -39,19 +60,19 @@ function bindEvents() {
   els.messageInput.addEventListener("input", autoResizeMessageInput);
   els.approveButton.addEventListener("click", approvePendingAction);
   els.denyButton.addEventListener("click", denyPendingAction);
-  els.saveFileButton.addEventListener("click", saveOpenFile);
-  els.settingsForm.addEventListener("submit", saveSettings);
-  els.settingsWebSearch.addEventListener("change", () => saveSettingsValues("联网搜索设置已保存。"));
-  els.settingsComputerRead.addEventListener("change", () => saveSettingsValues("电脑文件只读设置已保存。"));
+  els.saveFileButton.addEventListener("click", () => saveOpenFile({ showApprovalPanel, refreshWorkbench, loadFiles, selectRun }));
+  els.settingsForm.addEventListener("submit", (event) => saveSettings(event, refreshWorkbench));
+  els.settingsWebSearch.addEventListener("change", () => saveSettingsValues("联网搜索设置已保存。", refreshWorkbench));
+  els.settingsComputerRead.addEventListener("change", () => saveSettingsValues("电脑文件只读设置已保存。", refreshWorkbench));
   document.addEventListener("click", closeChatMenus);
   for (const panel of els.resourcePanels) {
-    panel.addEventListener("click", () => openResourceDetail(panel.dataset.resourcePanel));
+    panel.addEventListener("click", () => openResourceDetail(panel.dataset.resourcePanel, resourceDetailActions()));
     panel.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") {
         return;
       }
       event.preventDefault();
-      openResourceDetail(panel.dataset.resourcePanel);
+      openResourceDetail(panel.dataset.resourcePanel, resourceDetailActions());
     });
   }
   els.resourceDetailClose?.addEventListener("click", closeResourceDetail);
@@ -78,102 +99,6 @@ function autoResizeMessageInput() {
   els.messageInput.style.height = `${Math.min(180, els.messageInput.scrollHeight)}px`;
 }
 
-function applyStoredTheme() {
-  const theme = localStorage.getItem("agent-theme");
-  if (theme === "dark" || theme === "light") {
-    document.documentElement.dataset.theme = theme;
-  }
-  updateThemeButton();
-}
-
-function toggleTheme() {
-  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  localStorage.setItem("agent-theme", next);
-  updateThemeButton();
-}
-
-function updateThemeButton() {
-  if (!els.themeToggle) {
-    return;
-  }
-  const dark = document.documentElement.dataset.theme === "dark";
-  els.themeToggle.textContent = dark ? "☀" : "☾";
-  els.themeToggle.setAttribute("aria-label", dark ? "切换到浅色主题" : "切换到深色主题");
-}
-
-function initColumnResize() {
-  const left = localStorage.getItem("agent-left-column");
-  const right = localStorage.getItem("agent-right-column");
-  if (left) {
-    document.documentElement.style.setProperty("--left-column", left);
-  }
-  if (right) {
-    document.documentElement.style.setProperty("--right-column", right);
-  }
-  bindColumnResize(els.leftResizer, "left");
-  bindColumnResize(els.rightResizer, "right");
-}
-
-function bindColumnResize(handle, side) {
-  if (!handle || !els.shell) {
-    return;
-  }
-  handle.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    handle.setPointerCapture(event.pointerId);
-    document.body.classList.add("resizing-columns");
-    const rect = els.shell.getBoundingClientRect();
-    const move = (moveEvent) => {
-      const raw = side === "left" ? moveEvent.clientX - rect.left : rect.right - moveEvent.clientX;
-      const width = Math.round(Math.min(620, Math.max(240, raw)));
-      const name = side === "left" ? "--left-column" : "--right-column";
-      document.documentElement.style.setProperty(name, `${width}px`);
-      localStorage.setItem(side === "left" ? "agent-left-column" : "agent-right-column", `${width}px`);
-    };
-    const stop = () => {
-      document.body.classList.remove("resizing-columns");
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", stop);
-      handle.removeEventListener("pointercancel", stop);
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", stop);
-    handle.addEventListener("pointercancel", stop);
-  });
-}
-
-function activateView(view) {
-  state.activeView = view || "chat";
-  for (const button of els.navButtons) {
-    button.classList.toggle("active", button.dataset.view === state.activeView);
-  }
-  for (const section of els.views) {
-    section.classList.toggle("active", section.dataset.view === state.activeView);
-  }
-  for (const panel of els.contextPanels) {
-    panel.classList.toggle("active", panel.dataset.view === state.activeView);
-  }
-}
-
-function scrollToSetting(targetId) {
-  activateView("settings");
-  for (const button of els.settingsNavButtons) {
-    button.classList.toggle("active", button.dataset.settingsTarget === targetId);
-  }
-  document.getElementById(targetId)?.scrollIntoView({ block: "center", behavior: "smooth" });
-}
-
-function activateSidePanel(panel) {
-  state.activeSidePanel = panel || "review";
-  for (const button of els.sideTabButtons) {
-    button.classList.toggle("active", button.dataset.sidePanel === state.activeSidePanel);
-  }
-  for (const section of els.sidePanels) {
-    section.classList.toggle("active", section.dataset.sidePanel === state.activeSidePanel);
-  }
-}
-
 async function refreshWorkbench({ selectInitial = false } = {}) {
   const [health, config, tools, runs, chats] = await Promise.all([
     loadJson("/api/health"),
@@ -191,7 +116,7 @@ async function refreshWorkbench({ selectInitial = false } = {}) {
   renderHealth();
   renderSettings();
   renderChats();
-  renderRuns();
+  renderRuns(selectRun, rerenderPagedLists);
   renderResources();
   if (selectInitial && state.chats.length && !state.sessionId) {
     await selectChat(state.chats[0].session_id);
@@ -201,74 +126,29 @@ async function refreshWorkbench({ selectInitial = false } = {}) {
   if ((selectInitial || !state.selectedRunId) && state.runs.length) {
     await selectRun(state.runs[0].run_id);
   } else if (!state.selectedDetail) {
-    renderDiagnostics(null);
+    renderDiagnostics(null, snapshotActions());
   }
 }
 
-function renderHealth() {
-  const health = state.health || {};
-  els.workspace.textContent = health.workspace || "workspace";
-  els.provider.textContent = `Codex: ${health.provider || "unknown"}`;
-  els.model.textContent = health.model || "DeepSeek";
-  els.apiKey.textContent = `Key: ${health.deepseek_api_key_present ? "已配置" : "缺失"}`;
-  const webEnabled = Boolean(state.config?.config?.web_search_enabled);
-  els.webSearch.textContent = `联网：${webEnabled ? "开" : "关"}`;
-  els.webSearch.classList.toggle("active", webEnabled);
-  const computerReadEnabled = Boolean(state.config?.config?.computer_read_enabled);
-  els.computerRead.textContent = `电脑文件：${computerReadEnabled ? "开" : "关"}`;
-  els.computerRead.classList.toggle("active", computerReadEnabled);
-  const mode = health.mode || "guided";
-  els.modeChip.textContent = `模式：${mode}`;
-  els.modeChip.classList.toggle("active", mode !== "guided");
-  const sandbox = health.sandbox || state.config?.config?.sandbox || "workspace-write";
-  els.sandboxChip.textContent = `沙箱：${sandbox}`;
-  els.sandboxChip.classList.toggle("active", sandbox !== "workspace-write");
-  els.providerNotice.textContent = health.provider_notice || "";
-  els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
-  if (els.editorWorkspacePath) {
-    els.editorWorkspacePath.textContent = health.workspace || "workspace";
-  }
-  if (els.settingsKeyStatus) {
-    els.settingsKeyStatus.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "已配置" : "缺失"} (${health.deepseek_api_key_env || "DEEPSEEK_API_KEY"})`;
-  }
-  renderRows(els.workspaceRiskList, [
-    ["风险", health.workspace_risk?.risk_level || "low"],
-    ["摘要", health.workspace_risk?.summary || "暂无工作区风险摘要。"],
-  ]);
-  renderRows(els.settingsReadinessList, [
-    ["状态", health.settings_readiness?.status || "ready"],
-    ["服务商", health.settings_readiness?.provider || health.provider || "unknown"],
-    ["模型", health.settings_readiness?.model || health.model || "unknown"],
-    ["DeepSeek key", health.deepseek_api_key_present ? "已配置" : "缺失"],
-    ["联网搜索", webEnabled ? "开" : "关"],
-    ["读取电脑文件", state.config?.config?.computer_read_enabled ? "开（只读）" : "关"],
-  ]);
+function rerenderPagedLists() {
+  renderResources();
+  renderChats();
+  renderRuns(selectRun, rerenderPagedLists);
+  renderSnapshots(state.selectedDetail?.snapshots || [], snapshotActions());
 }
 
-function renderSettings() {
-  const config = state.config?.config || {};
-  els.settingsProvider.value = config.provider || "deepseek";
-  els.settingsModel.value = config.model || "deepseek-v4-flash";
-  els.settingsSandbox.value = config.sandbox || "workspace-write";
-  els.settingsApproval.value = config.approval || "risky-confirm";
-  els.settingsSkills.value = (config.default_skills || ["code-dev"]).join(", ");
-  els.settingsDryRun.checked = Boolean(config.dry_run);
-  els.settingsWebSearch.checked = Boolean(config.web_search_enabled);
-  els.settingsComputerRead.checked = Boolean(config.computer_read_enabled);
-  const readiness = state.health?.settings_readiness || {};
-  renderRows(els.settingsReadinessList, [
-    ["状态", readiness.status || "ready"],
-    ["服务商", readiness.provider || config.provider || "unknown"],
-    ["模型", readiness.model || config.model || "unknown"],
-    ["DeepSeek key", readiness.deepseek_api_key_present ? "已配置" : "缺失"],
-    ["联网搜索", config.web_search_enabled ? "开" : "关"],
-    ["读取电脑文件", config.computer_read_enabled ? "开（只读）" : "关"],
-  ]);
-  renderRows(
-    els.settingsToolList,
-    state.tools.map((tool) => [tool.name, `${tool.category} / dry-run: ${tool.dry_run}`]),
-  );
+function snapshotActions() {
+  return { openDiff, restoreSnapshot, onPageChange: rerenderPagedLists };
 }
+
+function resourceDetailActions() {
+  return {
+    chatItem: chatButton,
+    runItem: (run) => runButton(run, selectRun),
+    snapshotItem: (snapshot) => snapshotItem(snapshot, snapshotActions()),
+  };
+}
+
 
 function renderChats() {
   const filtered = state.chats.filter((chat) => {
@@ -278,7 +158,7 @@ function renderChats() {
   const items = filtered.map((chat) => chatButton(chat));
   replaceOrEmpty(els.chatList, items, "还没有聊天会话。");
   replaceOrEmpty(els.resourceChatList, state.chats.map((chat) => chatButton(chat)), "还没有聊天会话。");
-  renderPagedList(els.resourceChatMainList, state.chats, "chats", chatPreviewItem, "还没有聊天会话。", 4);
+  renderPagedList(els.resourceChatMainList, state.chats, "chats", chatPreviewItem, "还没有聊天会话。", 4, rerenderPagedLists);
   renderConversationTabs();
   renderSideChat();
 }
@@ -381,18 +261,6 @@ async function deleteChat(sessionId) {
   } catch (error) {
     showActionError("删除失败", error);
   }
-}
-
-function showActionError(prefix, error) {
-  globalThis.alert(`${prefix}: ${backendErrorMessage(error)}`);
-}
-
-function backendErrorMessage(error) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (error?.status === 404) {
-    return `${message}。当前页面连到的后端不是最新进程，请关闭旧 8765 页面，重新用 start-agent.cmd 打开它显示的新地址。`;
-  }
-  return message;
 }
 
 async function selectChat(sessionId) {
@@ -996,7 +864,7 @@ async function sendChatTurn(message) {
       state.liveTurn.job_id = started.job_id;
     }
     els.sessionChip.textContent = `session: ${started.session_id}`;
-    openChatEventSource(started.job_id);
+    openChatEventSource(started.job_id, { onEvent: handleLiveChatEvent, onError: handleChatStreamError });
   } catch (error) {
     if (isMissingChatStartEndpoint(error)) {
       renderResultNotice("当前页面连到旧后端，已临时切到同步模式；请关闭旧 8765 页面，重新用 start-agent.cmd 打开它显示的新地址。", "approval_required");
@@ -1067,37 +935,7 @@ function startLiveTurn(userMessage) {
   renderChatThread(existing);
 }
 
-function openChatEventSource(jobId) {
-  closeChatEventSource();
-  const source = new EventSource(`/api/chat/events?job_id=${encodeURIComponent(jobId)}`);
-  state.eventSource = source;
-  for (const eventName of [
-    "chat_started",
-    "model_call_start",
-    "model_stream_start",
-    "action_parsed",
-    "tool_start",
-    "approval_required",
-    "approval_granted",
-    "approval_denied",
-    "observation",
-    "final",
-    "error",
-  ]) {
-    source.addEventListener(eventName, handleChatEvent);
-  }
-  source.onerror = () => {
-    if (!state.liveTurn) {
-      return;
-    }
-    renderResultNotice("事件流连接中断。", "error");
-    closeChatEventSource();
-    els.sendButton.disabled = false;
-  };
-}
-
-function handleChatEvent(event) {
-  const payload = JSON.parse(event.data);
+function handleLiveChatEvent(payload) {
   state.liveEvents.push(payload);
   if (state.liveTurn) {
     state.liveTurn.events = [...state.liveEvents];
@@ -1114,6 +952,16 @@ function handleChatEvent(event) {
     els.sendButton.disabled = false;
   }
 }
+
+function handleChatStreamError() {
+  if (!state.liveTurn) {
+    return;
+  }
+  renderResultNotice("事件流连接中断。", "error");
+  closeChatEventSource();
+  els.sendButton.disabled = false;
+}
+
 
 function renderLiveTurnIncrement(event) {
   const article = els.chatThread.querySelector('[data-live-turn="true"]');
@@ -1183,27 +1031,6 @@ function stopLiveTurn() {
   state.activeJobId = null;
 }
 
-function closeChatEventSource() {
-  if (state.eventSource) {
-    state.eventSource.close();
-    state.eventSource = null;
-  }
-}
-
-async function submitApproval(jobId, approve, button) {
-  if (button) {
-    button.disabled = true;
-  }
-  await postJson("/api/chat/approval", { job_id: jobId, approve });
-}
-
-function renderResultNotice(text, display_status) {
-  const notice = document.createElement("article");
-  notice.className = `result-notice ${display_status || "ok"}`;
-  notice.textContent = text;
-  els.chatThread.append(notice);
-}
-
 function showApprovalPanel(action, detail, onApprove) {
   state.pendingApproval = { onApprove };
   els.approvalAction.textContent = action;
@@ -1229,88 +1056,6 @@ function denyPendingAction() {
   hideApprovalPanel();
 }
 
-function renderRuns() {
-  const items = state.runs.map((run) => runButton(run));
-  replaceOrEmpty(els.runList, items, "还没有运行记录。");
-  renderPagedList(els.resourceRunList, state.runs, "runs", runPreviewItem, "还没有运行记录。", 4);
-}
-
-function renderPagedList(container, records, pageKey, renderItem, emptyText, pageSize = 6) {
-  if (!container) {
-    return;
-  }
-  if (!records.length) {
-    container.replaceChildren(emptyStateElement(emptyText));
-    return;
-  }
-  const maxPage = Math.max(0, Math.ceil(records.length / pageSize) - 1);
-  const page = Math.min(state.resourcePages[pageKey] || 0, maxPage);
-  state.resourcePages[pageKey] = page;
-  const start = page * pageSize;
-  const items = records.slice(start, start + pageSize).map(renderItem);
-  const footer = document.createElement("div");
-  footer.className = "pagination-row";
-  footer.addEventListener("click", (event) => event.stopPropagation());
-  const prev = document.createElement("button");
-  prev.type = "button";
-  prev.textContent = "上一页";
-  prev.disabled = page <= 0;
-  prev.addEventListener("click", (event) => {
-    event.stopPropagation();
-    state.resourcePages[pageKey] = page - 1;
-    renderResources();
-    renderChats();
-    renderRuns();
-    renderSnapshots(state.selectedDetail?.snapshots || []);
-  });
-  const next = document.createElement("button");
-  next.type = "button";
-  next.textContent = "下一页";
-  next.disabled = page >= maxPage;
-  next.addEventListener("click", (event) => {
-    event.stopPropagation();
-    state.resourcePages[pageKey] = page + 1;
-    renderResources();
-    renderChats();
-    renderRuns();
-    renderSnapshots(state.selectedDetail?.snapshots || []);
-  });
-  const label = document.createElement("span");
-  label.textContent = `${page + 1} / ${maxPage + 1}`;
-  footer.append(prev, label, next);
-  container.replaceChildren(...items, footer);
-}
-
-function runPreviewItem(run) {
-  return resourcePreviewItem(
-    run.run_id,
-    `${run.status || "unknown"} / ${run.risk_level || "low"}`,
-    new Date(run.updated_at).toLocaleString(),
-  );
-}
-
-function resourcePreviewItem(title, detail, meta) {
-  const item = document.createElement("article");
-  item.className = "list-item resource-preview-item";
-  item.innerHTML = '<strong></strong><span></span><small></small>';
-  item.querySelector("strong").textContent = title;
-  item.querySelector("span").textContent = detail;
-  item.querySelector("small").textContent = meta;
-  return item;
-}
-
-function runButton(run) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = `list-item${run.run_id === state.selectedRunId ? " selected" : ""}`;
-  button.innerHTML = '<strong></strong><span></span><small></small>';
-  button.querySelector("strong").textContent = run.run_id;
-  button.querySelector("span").textContent = `${run.status || "unknown"} / ${run.risk_level || "low"}`;
-  button.querySelector("small").textContent = new Date(run.updated_at).toLocaleString();
-  button.addEventListener("click", () => selectRun(run.run_id));
-  return button;
-}
-
 async function selectRun(runId) {
   const detail = await loadJson(`/api/runs/${encodeURIComponent(runId)}`);
   state.selectedRunId = detail.run_id;
@@ -1318,104 +1063,10 @@ async function selectRun(runId) {
   els.selectedRunTitle.textContent = detail.run_id;
   const lastCall = detail.tool_calls?.[detail.tool_calls.length - 1];
   els.runState.textContent = lastCall?.data?.observation?.status || "loaded";
-  renderRuns();
-  renderDiagnostics(detail);
-  renderSnapshots(detail.snapshots || []);
+  renderRuns(selectRun, rerenderPagedLists);
+  renderDiagnostics(detail, snapshotActions());
+  renderSnapshots(detail.snapshots || [], snapshotActions());
   renderResources();
-}
-
-async function loadFiles(path) {
-  try {
-    const payload = await loadJson(`/api/files?path=${encodeURIComponent(path)}`);
-    renderFiles(payload.entries || [], payload.path || ".");
-  } catch (error) {
-    els.fileList.replaceChildren(emptyStateElement(error instanceof Error ? error.message : String(error)));
-  }
-}
-
-function renderFiles(entries, currentPath) {
-  state.fileEntries = entries;
-  state.fileCurrentPath = currentPath;
-  renderFileEntries();
-  renderEditorHome();
-}
-
-function renderFileEntries() {
-  const items = [];
-  const sideItems = [];
-  const currentPath = state.fileCurrentPath;
-  if (currentPath !== ".") {
-    items.push(fileButton("..", parentPath(currentPath), "dir"));
-    sideItems.push(fileButton("..", parentPath(currentPath), "dir"));
-  }
-  for (const entry of state.fileEntries) {
-    const haystack = `${entry.name} ${entry.path}`.toLowerCase();
-    if (state.fileQuery && !haystack.includes(state.fileQuery)) {
-      continue;
-    }
-    items.push(fileButton(entry.name, entry.path, entry.kind));
-    sideItems.push(fileButton(entry.name, entry.path, entry.kind));
-  }
-  replaceOrEmpty(els.fileList, items, "没有找到文件。");
-  replaceOrEmpty(els.sideFileList, sideItems, "没有找到文件。");
-  renderEditorHome();
-}
-
-function renderEditorHome() {
-  const files = state.fileEntries
-    .filter((entry) => entry.kind !== "dir")
-    .slice(0, 8)
-    .map((entry) => fileButton(entry.name, entry.path, entry.kind));
-  replaceOrEmpty(els.recentFileList, files, "当前目录没有可打开的文件。");
-}
-
-function fileButton(name, path, kind) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "list-item";
-  button.innerHTML = '<strong></strong><span></span>';
-  button.querySelector("strong").textContent = name;
-  button.querySelector("span").textContent = `${kind} - ${path}`;
-  button.addEventListener("click", () => (kind === "dir" ? loadFiles(path) : openFile(path)));
-  return button;
-}
-
-async function openFile(path) {
-  try {
-    const payload = await loadJson(`/api/file?path=${encodeURIComponent(path)}`);
-    state.openFilePath = payload.path;
-    els.selectedFileTitle.textContent = payload.path;
-    els.summary.classList.add("hidden");
-    els.fileEditor.classList.remove("hidden");
-    els.saveFileButton.classList.remove("hidden");
-    els.fileEditor.value = payload.content || "";
-    activateView("editor");
-  } catch (error) {
-    showSummary(error instanceof Error ? error.message : String(error), "打开失败");
-  }
-}
-
-async function saveOpenFile() {
-  if (!state.openFilePath) {
-    return;
-  }
-  const path = state.openFilePath;
-    showApprovalPanel("保存文件", path, async () => {
-    const payload = await postJson("/api/file/save", { path, content: els.fileEditor.value });
-    await refreshWorkbench();
-    await loadFiles(".");
-    await selectRun(payload.run_id);
-    showSummary(`已保存 ${payload.path}`, "已保存");
-  });
-}
-
-function showSummary(text, title = "摘要") {
-  els.selectedFileTitle.textContent = title;
-  els.fileEditor.classList.add("hidden");
-  els.saveFileButton.classList.add("hidden");
-  els.summary.classList.remove("hidden");
-  els.summary.textContent = text;
-  activateView("editor");
 }
 
 async function openDiff(path, snapshotPath) {
@@ -1434,262 +1085,3 @@ async function restoreSnapshot(snapshot) {
     showSummary(`${payload.action}: ${payload.path}`, "快照已恢复");
   });
 }
-
-function renderResources() {
-  const memory = state.health?.memory_review;
-  const snapshotCount = state.selectedDetail?.snapshots?.length || 0;
-  renderRows(els.resourceSummaryList, [
-    ["会话", `${state.chats.length}`],
-    ["运行记录", `${state.runs.length}`],
-    ["快照", `${snapshotCount}`],
-    ["工作区风险", state.health?.workspace_risk?.risk_level || "low"],
-  ]);
-  const rows = [
-    ["Pending candidates", `${memory?.pending_count || 0}`],
-    ["Active entries", `${memory?.active_count || 0}`],
-  ];
-  renderRows(els.resourceMemoryList, rows);
-}
-
-function openResourceDetail(key) {
-  if (!els.resourceDetailModal || !els.resourceDetailBody || !els.resourceDetailTitle) {
-    return;
-  }
-  const titles = {
-    summary: "状态概览",
-    chats: "任务会话",
-    runs: "运行记录",
-    memory: "记忆状态",
-    snapshots: "快照",
-  };
-  els.resourceDetailTitle.textContent = titles[key] || "详情";
-  if (key === "chats") {
-    replaceOrEmpty(els.resourceDetailBody, state.chats.map((chat) => chatButton(chat)), "还没有聊天会话。");
-  } else if (key === "runs") {
-    replaceOrEmpty(els.resourceDetailBody, state.runs.map((run) => runButton(run)), "还没有运行记录。");
-  } else if (key === "memory") {
-    const memory = state.health?.memory_review;
-    replaceOrEmpty(els.resourceDetailBody, rowElements([
-      ["Pending candidates", `${memory?.pending_count || 0}`],
-      ["Active entries", `${memory?.active_count || 0}`],
-      ["检查", (memory?.checks || []).join("；")],
-    ]), "没有记忆记录。");
-  } else if (key === "snapshots") {
-    replaceOrEmpty(els.resourceDetailBody, (state.selectedDetail?.snapshots || []).map(snapshotItem), "这次运行没有快照。");
-  } else {
-    replaceOrEmpty(els.resourceDetailBody, rowElements([
-      ["会话", `${state.chats.length}`],
-      ["运行记录", `${state.runs.length}`],
-      ["快照", `${state.selectedDetail?.snapshots?.length || 0}`],
-      ["工作区风险", state.health?.workspace_risk?.risk_level || "low"],
-    ]), "没有记录数据。");
-  }
-  els.resourceDetailModal.classList.remove("hidden");
-}
-
-function closeResourceDetail() {
-  els.resourceDetailModal?.classList.add("hidden");
-}
-
-async function saveSettings(event) {
-  event.preventDefault();
-  await saveSettingsValues("设置已保存。");
-}
-
-function buildSettingsPayload() {
-  return {
-    provider: els.settingsProvider.value,
-    model: els.settingsModel.value.trim(),
-    sandbox: els.settingsSandbox.value,
-    approval: els.settingsApproval.value,
-    dry_run: els.settingsDryRun.checked,
-    web_search_enabled: els.settingsWebSearch.checked,
-    computer_read_enabled: els.settingsComputerRead.checked,
-    default_skills: els.settingsSkills.value.split(",").map((item) => item.trim()).filter(Boolean),
-  };
-}
-
-async function saveSettingsValues(successText) {
-  const payload = {
-    ...buildSettingsPayload(),
-  };
-  try {
-    els.settingsStatus.textContent = "正在保存设置...";
-    state.config = await postJson("/api/config", payload);
-    await refreshWorkbench();
-    els.settingsStatus.textContent = successText || "设置已保存。";
-  } catch (error) {
-    els.settingsStatus.textContent = error instanceof Error ? error.message : String(error);
-  }
-}
-
-function renderDiagnostics(detail) {
-  if (!detail) {
-    for (const element of [
-      els.taskReviewList,
-      els.workflowHintList,
-      els.failureSummaryList,
-      els.patchReviewList,
-      els.failureRecoveryList,
-      els.runReplayList,
-      els.toolCallList,
-    ]) {
-      if (element) {
-        element.innerHTML = '<div class="empty-state">选择一条运行记录查看诊断。</div>';
-      }
-    }
-    renderSnapshots([]);
-    renderTerminal(null);
-    return;
-  }
-  renderRows(els.taskReviewList, objectRows(detail.review));
-  renderRows(els.workflowHintList, objectRows(detail.workflow));
-  renderRows(els.failureSummaryList, objectRows(detail.failure));
-  renderRows(els.patchReviewList, objectRows(detail.patch_review));
-  renderRows(els.failureRecoveryList, objectRows(detail.recovery));
-  renderRunReplay(detail.replay);
-  renderToolCalls(detail.tool_calls || []);
-  renderTerminal(detail);
-}
-
-function renderRunReplay(replay) {
-  if (!els.runReplayList) {
-    return;
-  }
-  const steps = replay?.steps || [];
-  if (!steps.length) {
-    els.runReplayList.innerHTML = '<div class="empty-state">没有记录回放步骤。</div>';
-    return;
-  }
-  renderRows(
-    els.runReplayList,
-    steps.map((step) => [`${step.line_number}. ${step.action}`, `${step.status} - ${step.summary}`]),
-  );
-}
-
-function renderToolCalls(toolCalls) {
-  if (!els.toolCallList) {
-    return;
-  }
-  if (!toolCalls.length) {
-    els.toolCallList.innerHTML = '<div class="empty-state">没有记录工具调用。</div>';
-    return;
-  }
-  renderRows(
-    els.toolCallList,
-    toolCalls.map((call) => {
-      const action = call.data?.action?.action?.name || "invalid";
-      const summary = call.data?.observation?.summary || call.error || "暂无摘要。";
-      return [`${call.line_number}. ${action}`, summary];
-    }),
-  );
-}
-
-function renderTerminal(detail) {
-  if (!els.terminalOutput) {
-    return;
-  }
-  if (!detail) {
-    els.terminalOutput.textContent = "未选择运行。";
-    return;
-  }
-  const lines = [`$ run ${detail.run_id}`, ""];
-  const steps = detail.replay?.steps || [];
-  for (const step of steps) {
-    lines.push(`${step.line_number}. ${step.action} [${step.status}]`);
-    lines.push(`   ${step.summary}`);
-  }
-  if (detail.summary) {
-    lines.push("", "summary:", detail.summary);
-  }
-  els.terminalOutput.textContent = lines.join("\n");
-}
-
-function renderSnapshots(snapshots) {
-  if (!els.snapshotList) {
-    return;
-  }
-  if (!snapshots.length) {
-    els.snapshotList.innerHTML = '<div class="empty-state">这次运行没有快照。</div>';
-    return;
-  }
-  renderPagedList(els.snapshotList, snapshots, "snapshots", snapshotPreviewItem, "这次运行没有快照。", 3);
-}
-
-function snapshotPreviewItem(snapshot) {
-  return resourcePreviewItem(snapshot.path, snapshot.snapshot_path, "点击卡片查看操作");
-}
-
-function snapshotItem(snapshot) {
-  const item = document.createElement("article");
-  item.className = "trace-item";
-  item.innerHTML = '<strong></strong><span></span><div class="row-actions"><button type="button">查看差异</button><button type="button">恢复</button></div>';
-  item.querySelector("strong").textContent = snapshot.path;
-  item.querySelector("span").textContent = snapshot.snapshot_path;
-  const buttons = item.querySelectorAll("button");
-  buttons[0].addEventListener("click", () => openDiff(snapshot.path, snapshot.snapshot_path));
-  buttons[1].addEventListener("click", () => restoreSnapshot(snapshot));
-  return item;
-}
-
-function objectRows(value) {
-  if (!value || typeof value !== "object") {
-    return [];
-  }
-  return Object.entries(value)
-    .filter(([, item]) => item !== null && item !== undefined && typeof item !== "object")
-    .map(([key, item]) => [key, String(item)]);
-}
-
-function renderRows(container, rows) {
-  if (!container) {
-    return;
-  }
-  replaceOrEmpty(container, rowElements(rows), "没有记录数据。");
-}
-
-function rowElements(rows) {
-  return rows
-    .filter(([, value]) => value)
-    .map(([label, value]) => {
-      const item = document.createElement("article");
-      item.className = "trace-item";
-      item.innerHTML = '<strong></strong><span></span>';
-      item.querySelector("strong").textContent = label;
-      item.querySelector("span").textContent = value;
-      return item;
-    });
-}
-
-function replaceOrEmpty(container, items, emptyText) {
-  if (!container) {
-    return;
-  }
-  if (!items.length) {
-    container.replaceChildren(emptyStateElement(emptyText));
-    return;
-  }
-  container.replaceChildren(...items);
-}
-
-function emptyStateElement(text) {
-  const element = document.createElement("div");
-  element.className = "empty-state";
-  element.textContent = text;
-  return element;
-}
-
-function parentPath(path) {
-  if (/^[A-Za-z]:\\/.test(path) || path.includes("\\")) {
-    const normalized = path.replace(/\\+$/, "");
-    const index = normalized.lastIndexOf("\\");
-    return index > 2 ? normalized.slice(0, index) : normalized;
-  }
-  const parts = path.split("/").filter(Boolean);
-  parts.pop();
-  return parts.length ? parts.join("/") : ".";
-}
-
-boot().catch((error) => {
-  renderResultNotice(error instanceof Error ? error.message : String(error), "error");
-});

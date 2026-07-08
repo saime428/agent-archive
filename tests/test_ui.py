@@ -1140,16 +1140,27 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     index = static_file_path("index.html").read_text(encoding="utf-8")
     script = _read_static_scripts()
     entry_script = static_file_path("assets/app.js").read_text(encoding="utf-8")
+    sse_script = static_file_path("assets/sse.js").read_text(encoding="utf-8")
+    chat_script = static_file_path("assets/render/chat.js").read_text(encoding="utf-8")
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
     assert "Agent Workbench" in index
     for path in JS_MODULES:
         assert static_file_path(path).is_file()
     assert 'type="module"' in index
-    assert 'from "./state.js"' in entry_script
-    assert 'from "./api.js"' in entry_script
-    assert 'from "./sse.js"' in entry_script
+    assert '"./state.js"' in entry_script
+    assert '"./api.js"' in entry_script
+    assert '"./sse.js"' in entry_script
     assert 'from "./render/' in entry_script
+    assert "void " not in entry_script
+    assert "EventSource" in sse_script
+    assert "return null" not in sse_script
+    assert "function openChatEventSource" not in chat_script
+    assert "export const " not in "\n".join(
+        static_file_path(path).read_text(encoding="utf-8")
+        for path in JS_MODULES
+        if path.startswith("assets/render/") and path != "assets/render/chat.js"
+    )
     assert "TOKEN/CODEX" not in index
     assert "new-task-button" in index
     assert "聊天" in index
@@ -1274,7 +1285,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "网页/视觉设计" not in script
     assert "EventSource" in script
     assert "renderLiveTurnIncrement" in script
-    handle_chat_event = script[script.index("function handleChatEvent") : script.index("function renderLiveTurnIncrement")]
+    handle_chat_event = sse_script[sse_script.index("function handleChatEvent") :]
     assert "renderChatThread" not in handle_chat_event
     assert "renderProcessCards" in script
     assert "process-step-card" in script
