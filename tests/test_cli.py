@@ -206,11 +206,14 @@ def test_start_agent_launcher_points_at_workbench() -> None:
     assert 'cd /d "%~dp0"' in script
     assert 'set "PYTHONPATH=src"' in script
     assert 'set "AGENT_PORT=8000"' in script
+    assert "AGENT_PORT_END=%AGENT_PORT%+19" in script
+    assert 'set "AGENT_LOG=%~dp0.agent\\start-agent.log"' in script
     assert "netstat -ano" in script
-    assert "8019" in script
     assert ":found_port" in script
     assert "http://127.0.0.1:%AGENT_PORT%/" in script
-    assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' in script
+    assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% >> "%AGENT_LOG%" 2>&1' in script
+    assert "Agent Workbench exited with code %AGENT_EXIT%." in script
+    assert "exit /b %AGENT_EXIT%" in script
 
 
 def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:
