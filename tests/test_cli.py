@@ -208,11 +208,19 @@ def test_start_agent_launcher_points_at_workbench() -> None:
     assert 'set "AGENT_PORT=8000"' in script
     assert "AGENT_PORT_END=%AGENT_PORT%+19" in script
     assert 'set "AGENT_LOG=%~dp0.agent\\start-agent.log"' in script
+    assert 'set "AGENT_PYTHON="' in script
+    assert 'if exist "%~dp0.venv\\Scripts\\python.exe"' in script
+    assert 'if not defined AGENT_PYTHON if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\\python.exe"' in script
+    assert 'if not defined AGENT_PYTHON if exist "%USERPROFILE%\\miniconda3\\python.exe"' in script
+    assert 'findstr /I /C:"\\Microsoft\\WindowsApps\\python.exe"' in script
+    assert '"%AGENT_PYTHON%" -c "import agent.cli"' in script
     assert "netstat -ano" in script
     assert ":found_port" in script
     assert "http://127.0.0.1:%AGENT_PORT%/" in script
-    assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% >> "%AGENT_LOG%" 2>&1' in script
+    assert '"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% >> "%AGENT_LOG%" 2>&1' in script
+    assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' not in script
     assert "Agent Workbench exited with code %AGENT_EXIT%." in script
+    assert "Python exited with code %AGENT_EXIT%." in script
     assert "exit /b %AGENT_EXIT%" in script
 
 
