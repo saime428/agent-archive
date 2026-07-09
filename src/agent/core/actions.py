@@ -27,6 +27,16 @@ class ErrorCode(StrEnum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
+RECOVERABLE_ERROR_CODES: frozenset[ErrorCode] = frozenset(
+    {
+        ErrorCode.TOOL_FAILED,
+        ErrorCode.TIMEOUT,
+        ErrorCode.SANDBOX_VIOLATION,
+        ErrorCode.INVALID_ARGUMENT,
+        ErrorCode.POLICY_DENIED,
+    }
+)
+
 class ActionParseError(ValueError):
     def __init__(
         self,
@@ -522,3 +532,4 @@ def _format_observation_id(observation_index: int) -> str:
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+

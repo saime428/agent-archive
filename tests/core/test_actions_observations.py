@@ -58,3 +58,17 @@ def test_make_error_observation_uses_standard_error_shape() -> None:
     assert observation.error.message == "Unknown tool."
     assert observation.error.details == {"tool": "future_tool"}
     assert observation.summary == "Unknown tool."
+
+
+def test_recoverable_error_codes_classification() -> None:
+    from agent.core.actions import RECOVERABLE_ERROR_CODES
+
+    assert ErrorCode.TOOL_FAILED in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.TIMEOUT in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.SANDBOX_VIOLATION in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.INVALID_ARGUMENT in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.POLICY_DENIED in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.APPROVAL_DENIED not in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.APPROVAL_REQUIRED not in RECOVERABLE_ERROR_CODES
+    assert ErrorCode.INTERNAL_ERROR not in RECOVERABLE_ERROR_CODES
+
