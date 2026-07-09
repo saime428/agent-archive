@@ -13,6 +13,7 @@ from agent.core.actions import (
     ErrorCode,
     InternalAction,
     Observation,
+    RECOVERABLE_ERROR_CODES,
     format_action_id,
     make_error_observation,
     make_observation,
@@ -32,7 +33,7 @@ from agent.core.skills import SkillError, SkillMetadata, build_skills_message, l
 from agent.core.summary import final_from_observation, render_summary
 from agent.core.tool_catalog import DRY_RUN_SKIPPED_TOOLS
 from agent.llm.base import LLMClient
-from agent.policy.approvals import LOW_RISK_ACTIONS, classify_action
+from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
 from agent.tools.documents import execute_document_tool
@@ -265,6 +266,8 @@ def run_once(
     repair_attempt = 0
     model_call_index = 0
     completed_action_iterations = 0
+    consecutive_errors = 0
+    budget_warning_sent = False
 
     while completed_action_iterations < effective_max_iterations:
         model_call_index += 1
@@ -383,6 +386,31 @@ def run_once(
                 details={"requested_action": action.action.name},
             )
         observation = truncate_observation(observation, context.budget)
+        error_recoverable = (
+            observation.status == "error"
+            and observation.error is not None
+            and observation.error.code in RECOVERABLE_ERROR_CODES
+        )
+        if observation.status == "error":
+            consecutive_errors += 1
+        else:
+            consecutive_errors = 0
+        errors_exhausted = (
+            observation.status == "error"
+            and consecutive_errors >= effective_config.max_consecutive_errors
+        )
+        terminal = (
+            action.action.name in {"done", "ask_user"}
+            or (observation.status == "error" and not error_recoverable)
+            or errors_exhausted
+        )
+        if errors_exhausted and observation.error is not None:
+            error_details = dict(observation.error.details or {})
+            error_details["consecutive_errors_exhausted"] = True
+            error_details["consecutive_errors"] = consecutive_errors
+            observation = observation.model_copy(
+                update={"error": observation.error.model_copy(update={"details": error_details})}
+            )
         _emit_event(
             event_handler,
             "observation",
@@ -401,7 +429,6 @@ def run_once(
             hooks_path,
             {"run_id": context.run_id, "action": action.action.name, "status": observation.status},
         )
-        terminal = action.action.name in {"done", "ask_user"} or observation.status == "error"
         traces.append(
             TraceRecord(
                 phase="action",
@@ -414,8 +441,7 @@ def run_once(
         )
         if terminal:
             break
-        if _should_append_observation_feedback(action, observation):
-            messages.append(_build_observation_feedback_message(action, observation, context))
+        messages.append(_build_observation_feedback_message(action, observation, context))
     else:
         action = actions[-1]
         observation = make_error_observation(
@@ -832,10 +858,6 @@ def _skill_allowed_tools(skills: list[SkillMetadata]) -> set[str] | None:
     return allowed or None
 
 
-def _should_append_observation_feedback(action: InternalAction, observation: Observation) -> bool:
-    return observation.status == "ok" and action.action.name in (LOW_RISK_ACTIONS - {"done"})
-
-
 def _build_observation_feedback_message(
     action: InternalAction,
     observation: Observation,
@@ -848,6 +870,16 @@ def _build_observation_feedback_message(
         default=str,
     )
     observation_excerpt = truncate_text(observation_json, context.budget.observation_data_chars).value
+    if observation.status == "error":
+        error_code = observation.error.code.value if observation.error is not None else "UNKNOWN"
+        guidance = (
+            f"Error code: {error_code}\n"
+            "The previous action failed. Adjust your approach: fix the arguments, use a different "
+            "tool or path, or narrow the request. Do not repeat the same action with identical args. "
+            "If you are stuck, use ask_user.\n"
+        )
+    else:
+        guidance = ""
     return {
         "role": "user",
         "content": (
@@ -857,6 +889,7 @@ def _build_observation_feedback_message(
             f"Action: {action.action.name}\n"
             f"Observation status: {observation.status}\n"
             f"Observation summary: {observation.summary}\n"
+            f"{guidance}"
             "Observation JSON:\n"
             f"{observation_excerpt}\n"
             "Return exactly one valid JSON action object. Continue with another allowed action if needed, "
@@ -910,6 +943,7 @@ def _trace_config(config: AgentConfig) -> dict[str, object]:
         "dry_run": config.dry_run,
         "web_search_enabled": config.web_search_enabled,
         "computer_read_enabled": config.computer_read_enabled,
+        "max_consecutive_errors": config.max_consecutive_errors,
     }
 
 
