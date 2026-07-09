@@ -442,6 +442,10 @@ def run_once(
         if terminal:
             break
         messages.append(_build_observation_feedback_message(action, observation, context))
+        remaining_iterations = effective_max_iterations - completed_action_iterations
+        if remaining_iterations == 2 and not budget_warning_sent:
+            messages.append(_build_iteration_warning_message(remaining_iterations))
+            budget_warning_sent = True
     else:
         action = actions[-1]
         observation = make_error_observation(
@@ -897,6 +901,17 @@ def _build_observation_feedback_message(
         ),
     }
 
+
+
+def _build_iteration_warning_message(remaining: int) -> dict[str, str]:
+    return {
+        "role": "user",
+        "content": (
+            f"ITERATION BUDGET WARNING: only {remaining} actions remain in this run. "
+            "Wrap up now: return done with your best final answer if the task is complete, "
+            "or ask_user describing progress and remaining work if it is not."
+        ),
+    }
 
 def _policy_details(action: InternalAction, config: AgentConfig) -> dict[str, object]:
     return {

@@ -162,3 +162,21 @@ def test_configured_error_budget_of_one_makes_first_error_terminal(tmp_path) -> 
     assert result.observation.error is not None
     assert result.observation.error.details is not None
     assert result.observation.error.details["consecutive_errors_exhausted"] is True
+
+
+def test_iteration_budget_warning_injected_once(tmp_path) -> None:
+    llm = ScriptedLLM([_list_dir(), _list_dir(), _done()])
+    config = AgentConfig(mode="guided")
+
+    result = run_once("look around", llm, cwd=tmp_path, run_id="run_warning", config=config)
+
+    assert result.action.action.name == "done"
+    all_contents = [
+        message["content"]
+        for call in llm.messages_by_call
+        for message in call
+    ]
+    warnings = [content for content in set(all_contents) if "ITERATION BUDGET WARNING" in content]
+    assert len(warnings) == 1
+    second_call_contents = [message["content"] for message in llm.messages_by_call[1]]
+    assert any("ITERATION BUDGET WARNING" in content for content in second_call_contents)
