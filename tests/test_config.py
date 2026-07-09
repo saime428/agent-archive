@@ -184,3 +184,27 @@ def test_config_accepts_utf8_bom_files_written_by_windows_powershell(tmp_path) -
 
     assert config.mode == "auto"
     assert diagnostics.loaded_files == (project_config,)
+
+
+def test_max_consecutive_errors_defaults_to_three() -> None:
+    assert AgentConfig().max_consecutive_errors == 3
+
+
+def test_max_consecutive_errors_loads_from_project_config(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("max_consecutive_errors = 5\n", encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.max_consecutive_errors == 5
+    assert diagnostics.warnings == []
+
+
+def test_max_consecutive_errors_rejects_non_positive(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("max_consecutive_errors = 0\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")

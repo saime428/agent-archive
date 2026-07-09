@@ -31,6 +31,7 @@ KNOWN_KEYS = {
     "dry_run",
     "web_search_enabled",
     "computer_read_enabled",
+    "max_consecutive_errors",
 }
 
 
@@ -54,6 +55,7 @@ class AgentConfig:
     dry_run: bool = False
     web_search_enabled: bool = False
     computer_read_enabled: bool = False
+    max_consecutive_errors: int = 3
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,7 @@ class ConfigOverrides:
     dry_run: bool | None = None
     web_search_enabled: bool | None = None
     computer_read_enabled: bool | None = None
+    max_consecutive_errors: int | None = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +176,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "dry_run": overrides.dry_run,
         "web_search_enabled": overrides.web_search_enabled,
         "computer_read_enabled": overrides.computer_read_enabled,
+        "max_consecutive_errors": overrides.max_consecutive_errors,
     }
     for key, value in values.items():
         if value is None:
@@ -189,7 +193,7 @@ def _validate_value(key: str, value: Any, path: Path | None) -> None:
         if not isinstance(value, bool):
             raise _invalid_config_value(key, "expected boolean", path)
         return
-    if key == "memory_max_items":
+    if key in {"memory_max_items", "max_consecutive_errors"}:
         if not isinstance(value, int) or value <= 0:
             raise _invalid_config_value(key, "expected positive integer", path)
         return
