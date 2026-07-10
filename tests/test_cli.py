@@ -728,6 +728,49 @@ def test_provider_smoke_rejects_unknown_provider() -> None:
     assert "Unsupported provider smoke target: fake" in result.output
 
 
+def test_provider_smoke_openai_compat_requires_base_url(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "base_url" in result.output
+
+
+def test_provider_smoke_openai_compat_calls_generic_smoke(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_dir = workspace / ".agent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\nmodel = "llama3"\n',
+        encoding="utf-8",
+    )
+    captured: dict = {}
+
+    def fake_smoke(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            provider="openai-compat",
+            model=kwargs["model"],
+            api_key_env=kwargs["api_key_env"],
+            status="ok",
+            action_name="done",
+            final="smoke ok",
+        )
+
+    monkeypatch.setattr("agent.cli.smoke_provider", fake_smoke)
+
+    result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert captured["base_url"] == "http://localhost:11434/v1"
+    assert captured["provider_name"] == "openai-compat"
+    assert "status: ok" in result.output
+
+
 def test_skills_list_and_show_builtin_skill(tmp_path) -> None:
     runner = CliRunner()
 
@@ -884,3 +927,4 @@ def test_runs_show_missing_run_returns_nonzero(tmp_path) -> None:
 
     assert result.exit_code != 0
     assert "Run not found" in result.output
+

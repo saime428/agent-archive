@@ -20,6 +20,7 @@ from agent.core.skills import SkillError, discover_skills, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekError, smoke_deepseek_provider
 from agent.llm.factory import make_llm as make_llm_client
+from agent.llm.openai_compat import ProviderError, smoke_provider
 from agent.secrets import load_workspace_secrets
 from agent.web.server import serve_workbench
 
@@ -78,6 +79,10 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config default_skills: {list(config.default_skills)}")
     console.print(f"deepseek api key env: {config.deepseek_api_key_env}")
     console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
+    if config.provider == "openai-compat":
+        console.print(f"base_url: {config.base_url}")
+        console.print(f"api_key_env: {config.api_key_env}")
+        console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
     console.print(f"config dry_run: {str(config.dry_run).lower()}")
@@ -313,7 +318,9 @@ def chat(
             break
         if command_result == "handled":
             continue
-        stream_handler, stream_was_used = _make_chat_stream_handler(config.provider == "deepseek")
+        stream_handler, stream_was_used = _make_chat_stream_handler(
+            config.provider in {"deepseek", "openai-compat"}
+        )
         try:
             result = session.run_turn(
                 user_input,
@@ -362,6 +369,10 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     console.print(f"deepseek_api_key_env: {config.deepseek_api_key_env}")
+    if config.provider == "openai-compat":
+        console.print(f"base_url: {config.base_url}")
+        console.print(f"api_key_env: {config.api_key_env}")
+        console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
     console.print(f"default_skills: {list(config.default_skills)}")
     console.print(f"memory_auto_write: {str(config.memory_auto_write).lower()}")
     console.print(f"memory_max_items: {config.memory_max_items}")
@@ -396,7 +407,7 @@ def provider_smoke(
     model: str | None = typer.Option(None, "--model", help="Model to smoke-test."),
 ) -> None:
     """Run an explicit provider smoke test without creating an agent run."""
-    if provider_name != "deepseek":
+    if provider_name not in {"deepseek", "openai-compat"}:
         console.print(f"Unsupported provider smoke target: {provider_name}")
         raise typer.Exit(code=1)
     workspace = (cwd or Path.cwd()).resolve()
@@ -407,20 +418,39 @@ def provider_smoke(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
-    api_key = os.environ.get(config.deepseek_api_key_env, "")
-    if not api_key:
-        console.print(f"DeepSeek API key is required in {config.deepseek_api_key_env}.")
-        raise typer.Exit(code=1)
+    if provider_name == "deepseek":
+        api_key = os.environ.get(config.deepseek_api_key_env, "")
+        if not api_key:
+            console.print(f"DeepSeek API key is required in {config.deepseek_api_key_env}.")
+            raise typer.Exit(code=1)
 
-    try:
-        result = smoke_deepseek_provider(
-            api_key=api_key,
-            model=config.model,
-            api_key_env=config.deepseek_api_key_env,
-        )
-    except DeepSeekError as exc:
-        console.print(str(exc))
-        raise typer.Exit(code=1) from exc
+        try:
+            result = smoke_deepseek_provider(
+                api_key=api_key,
+                model=config.model,
+                api_key_env=config.deepseek_api_key_env,
+            )
+        except DeepSeekError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+
+    if provider_name == "openai-compat":
+        if not config.base_url.strip():
+            console.print("openai-compat smoke requires base_url in .agent/config.toml.")
+            raise typer.Exit(code=1)
+        api_key = os.environ.get(config.api_key_env, "")
+        try:
+            result = smoke_provider(
+                provider_name="openai-compat",
+                api_key=api_key,
+                model=config.model,
+                base_url=config.base_url,
+                api_key_env=config.api_key_env,
+                provider_label="openai-compat",
+            )
+        except ProviderError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
 
     console.print(f"provider: {result.provider}")
     console.print(f"model: {result.model}")
@@ -683,3 +713,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
