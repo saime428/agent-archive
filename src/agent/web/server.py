@@ -251,11 +251,6 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
     config = config_payload["config"]
     api_key_env = str(config["deepseek_api_key_env"])
     api_key_present = bool(os.environ.get(api_key_env))
-    notice_api_key_env = api_key_env
-    notice_api_key_present = api_key_present
-    if str(config["provider"]) == "openai-compat":
-        notice_api_key_env = str(config["api_key_env"])
-        notice_api_key_present = bool(os.environ.get(notice_api_key_env))
     return {
         "status": "ok",
         "app": "agent-workbench",
@@ -268,7 +263,7 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "base_url": str(config["base_url"]),
         "api_key_env": str(config["api_key_env"]),
         "provider_notice": _provider_notice(
-            str(config["provider"]), notice_api_key_env, notice_api_key_present, str(config["base_url"])
+            str(config["provider"]), api_key_env, api_key_present, str(config["base_url"])
         ),
         "settings_readiness": _build_settings_readiness(config_payload, api_key_present),
         "workspace_risk": _build_workspace_risk(workspace.resolve()),
