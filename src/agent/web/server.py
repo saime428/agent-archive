@@ -260,14 +260,24 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "mode": config["mode"],
         "deepseek_api_key_env": api_key_env,
         "deepseek_api_key_present": api_key_present,
-        "provider_notice": _provider_notice(str(config["provider"]), api_key_env, api_key_present),
+        "base_url": str(config["base_url"]),
+        "api_key_env": str(config["api_key_env"]),
+        "provider_notice": _provider_notice(
+            str(config["provider"]), api_key_env, api_key_present, str(config["base_url"])
+        ),
         "settings_readiness": _build_settings_readiness(config_payload, api_key_present),
         "workspace_risk": _build_workspace_risk(workspace.resolve()),
         "memory_review": _build_memory_review(workspace.resolve()),
     }
 
 
-def _provider_notice(provider: str, api_key_env: str, api_key_present: bool) -> str:
+def _provider_notice(provider: str, api_key_env: str, api_key_present: bool, base_url: str = "") -> str:
+    if provider == "openai-compat":
+        if not base_url:
+            return "已选择 OpenAI 兼容 Provider，但缺少 base_url。请在 .agent/config.toml 设置 base_url。"
+        if not api_key_present:
+            return f"已选择 OpenAI 兼容 Provider，但缺少 {api_key_env}。"
+        return "已选择 OpenAI 兼容 Provider。"
     if provider != "deepseek":
         return '当前使用 FakeLLM。要使用 DeepSeek，请在 .agent/config.toml 设置 provider = "deepseek"。'
     if not api_key_present:
@@ -297,6 +307,8 @@ def _build_settings_readiness(config_payload: dict[str, Any], api_key_present: b
         "model": str(config["model"]),
         "deepseek_api_key_env": str(config["deepseek_api_key_env"]),
         "deepseek_api_key_present": api_key_present,
+        "base_url": str(config["base_url"]),
+        "api_key_env": str(config["api_key_env"]),
         "loaded_files": list(diagnostics.get("loaded_files", [])),
         "warnings": warnings,
         "checks": checks,
@@ -554,8 +566,8 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
         if key not in allowed:
             continue
         if key == "provider":
-            if value not in {"fake", "deepseek"}:
-                raise ValueError("provider must be fake or deepseek.")
+            if value not in {"fake", "deepseek", "openai-compat"}:
+                raise ValueError("provider must be fake, deepseek, or openai-compat.")
             updates[key] = value
         elif key == "model":
             if not isinstance(value, str) or not value.strip():
@@ -1699,4 +1711,4 @@ def _is_within(path: Path, root: Path) -> bool:
     try:
         return os.path.commonpath([path_text, root_text]) == root_text
     except ValueError:
-        return False
+        return Fa

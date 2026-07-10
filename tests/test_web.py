@@ -33,3 +33,25 @@ def test_build_chat_events_payload_prunes_finished_jobs_after_ttl(monkeypatch, t
         assert old.job_id not in server._CHAT_JOBS
         assert active.job_id in server._CHAT_JOBS
         server._CHAT_JOBS.clear()
+
+
+def test_config_update_accepts_openai_compat_provider(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    payload = server.build_save_config_payload(
+        workspace,
+        {
+            "provider": "openai-compat",
+            "model": "gpt-4o-mini",
+            "sandbox": "workspace-write",
+            "approval": "risky-confirm",
+            "dry_run": True,
+            "web_search_enabled": True,
+            "computer_read_enabled": True,
+            "default_skills": ["code-dev"],
+        },
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["config"]["provider"] == "openai-compat"
