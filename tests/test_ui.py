@@ -859,17 +859,7 @@ def test_build_chat_turn_payload_displays_ask_user_question(monkeypatch, tmp_pat
 def test_build_chat_turn_payload_answers_simple_greeting(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Ask.",
-                "action": {
-                    "name": "ask_user",
-                    "args": {"question": "Please describe the task you want me to complete."},
-                },
-            }
-        ]
-    )
+    llm = FakeLLMClient()
     monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "你好"})

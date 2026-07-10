@@ -37,12 +37,11 @@ def test_roadmap_progress_no_longer_has_stale_later_roadmap_table() -> None:
     assert "## Later Roadmap" not in roadmap
 
 
-def test_project_context_documents_direct_chat_language_limit() -> None:
+def test_project_context_documents_error_recovery() -> None:
     context = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
 
-    assert "_direct_chat_answer" in context
-    assert "_direct_external_list_path" in context
-    assert "Chinese-only" in context
+    assert "max_consecutive_errors" in context
+    assert "direct helpers have been removed" in context
 
 
 def test_readme_quickstart_documents_core_cli_commands() -> None:
