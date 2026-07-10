@@ -46,6 +46,16 @@ Runs write durable files under `.agent/runs/<run-id>/`. Write tools create
 snapshot records before changing files; `agent runs show <run-id>` displays
 snapshot paths and restore hints when a run changed files.
 
+### OpenAI-compatible providers (local models)
+
+```toml
+# .agent/config.toml
+provider = "openai-compat"
+base_url = "http://localhost:11434/v1"   # e.g. Ollama
+model = "llama3"
+# api_key_env = "OPENAI_API_KEY"         # optional; empty key sends no Authorization header
+```
+
 ## v1.0 Release Prep
 
 `agent start` is the one-command Workbench startup alias. It reuses `agent ui`
