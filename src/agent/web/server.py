@@ -1711,4 +1711,4 @@ def _is_within(path: Path, root: Path) -> bool:
     try:
         return os.path.commonpath([path_text, root_text]) == root_text
     except ValueError:
-        return Fa
+        return False
