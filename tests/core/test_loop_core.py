@@ -41,11 +41,6 @@ class SpyLLM:
         }
 
 
-class FailIfCalledLLM:
-    def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
-        raise AssertionError("LLM should not be called for direct computer directory listing.")
-
-
 class RepairLLM:
     def __init__(self, responses: list[object]) -> None:
         self.responses = responses
@@ -124,18 +119,13 @@ def test_run_once_returns_done_action_and_writes_logs(tmp_path) -> None:
     assert "FakeLLM received task: inspect project" in summary
 
 
-def test_run_once_answers_simple_greeting_without_model_clarification(tmp_path) -> None:
+def test_run_once_routes_greeting_through_model(tmp_path) -> None:
     llm = SpyLLM()
 
     result = run_once("你好", llm, cwd=tmp_path, run_id="run_hello")
 
-    assert llm.messages is None
+    assert llm.messages is not None
     assert result.action.action.name == "done"
-    assert result.observation.data is not None
-    assert "你好，我在" in result.observation.data["final"]
-    summary = result.summary_path.read_text(encoding="utf-8")
-    assert "- terminal_reason: done" in summary
-    assert "- action: ask_user" not in summary
 
 
 def test_run_once_redacts_secret_like_values_from_durable_logs(tmp_path) -> None:
@@ -966,28 +956,6 @@ def test_run_once_lists_external_directory_when_computer_read_enabled(tmp_path) 
     assert result.observations[0].status == "ok"
     assert result.observations[0].data is not None
     assert result.observations[0].data["entries"] == [{"name": "notes.txt", "type": "file"}]
-
-
-def test_run_once_directly_lists_requested_computer_path_when_enabled(tmp_path) -> None:
-    workspace = tmp_path / "workspace"
-    external = tmp_path / "external"
-    workspace.mkdir()
-    external.mkdir()
-    (external / "Desktop").mkdir()
-    (external / "notes.txt").write_text("hello", encoding="utf-8")
-
-    result = run_once(
-        f"现在是否有权限，看看 {external} 有哪些文件夹",
-        FailIfCalledLLM(),
-        cwd=workspace,
-        config=AgentConfig(computer_read_enabled=True),
-    )
-
-    assert [observation.status for observation in result.observations] == ["ok", "ok"]
-    assert result.action.action.name == "done"
-    assert result.observation.data is not None
-    assert "有权限读取" in result.observation.data["final"]
-    assert "Desktop" in result.observation.data["final"]
 
 
 def test_search_web_parses_duckduckgo_html(monkeypatch) -> None:

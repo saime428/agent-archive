@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -146,120 +145,6 @@ def run_once(
         context_messages=context_messages,
     )
     _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
-    direct_list_path = _direct_external_list_path(task, effective_config)
-    if direct_list_path is not None:
-        action = InternalAction(
-            run_id=context.run_id,
-            action_id=format_action_id(1),
-            created_at=context.created_at,
-            message="List requested computer path.",
-            action=ActionCall(
-                name="list_dir",
-                args={"path": direct_list_path, "max_entries": 50},
-            ),
-        )
-        observation = truncate_observation(
-            execute_tool(action, context, sandbox, observation_index=1),
-            context.budget,
-        )
-        actions = [action]
-        observations = [observation]
-        traces = [
-            TraceRecord(
-                phase="action",
-                action_index=1,
-                observation_index=1,
-                repair_attempt=None,
-                terminal=observation.status == "error",
-                **_trace_policy(action, effective_config),
-            )
-        ]
-        if observation.status == "ok":
-            final = _list_dir_final(observation)
-            done_action = InternalAction(
-                run_id=context.run_id,
-                action_id=format_action_id(2),
-                created_at=context.created_at,
-                message="Summarized directory listing.",
-                action=ActionCall(
-                    name="done",
-                    args={"final": final, "changed_files": [], "next_steps": []},
-                ),
-            )
-            done_observation = make_observation(
-                done_action,
-                observation_index=2,
-                summary="Done.",
-                data={"final": final},
-            )
-            actions.append(done_action)
-            observations.append(truncate_observation(done_observation, context.budget))
-            traces.append(
-                TraceRecord(
-                    phase="action",
-                    action_index=2,
-                    observation_index=2,
-                    repair_attempt=None,
-                    terminal=True,
-                    **_trace_policy(done_action, effective_config),
-                )
-            )
-        return _finalize_run(
-            context=context,
-            actions=actions,
-            observations=observations,
-            traces=traces,
-            project_instructions=project_instructions,
-            skills=skills,
-            memory_entries=memory_entries,
-            config=effective_config,
-            hooks_path=hooks_path,
-            tool_calls_path=tool_calls_path,
-            summary_path=summary_path,
-        )
-    direct_answer = _direct_chat_answer(task, effective_config)
-    if direct_answer is not None:
-        action = InternalAction(
-            run_id=context.run_id,
-            action_id=format_action_id(1),
-            created_at=context.created_at,
-            message="Answered directly.",
-            action=ActionCall(
-                name="done",
-                args={"final": direct_answer, "changed_files": [], "next_steps": []},
-            ),
-        )
-        observation = make_observation(
-            action,
-            observation_index=1,
-            summary="Done.",
-            data={"final": direct_answer},
-        )
-        actions = [action]
-        observations = [truncate_observation(observation, context.budget)]
-        traces = [
-            TraceRecord(
-                phase="action",
-                action_index=1,
-                observation_index=1,
-                repair_attempt=None,
-                terminal=True,
-                **_trace_policy(action, effective_config),
-            )
-        ]
-        return _finalize_run(
-            context=context,
-            actions=actions,
-            observations=observations,
-            traces=traces,
-            project_instructions=project_instructions,
-            skills=skills,
-            memory_entries=memory_entries,
-            config=effective_config,
-            hooks_path=hooks_path,
-            tool_calls_path=tool_calls_path,
-            summary_path=summary_path,
-        )
     actions: list[InternalAction] = []
     observations: list[Observation] = []
     traces: list[TraceRecord] = []
@@ -676,57 +561,6 @@ def _raw_response_text(raw_response: Any) -> str:
         return json.dumps(raw_response, ensure_ascii=True, sort_keys=True, default=str)
     except TypeError:
         return str(raw_response)
-
-
-def _direct_external_list_path(task: str, config: AgentConfig) -> str | None:
-    if not config.computer_read_enabled:
-        return None
-    text = task.strip()
-    if any(word in text.lower() for word in ("http", "latest", "news")) or any(
-        word in text for word in ("新闻", "最新", "联网", "网页", "网站")
-    ):
-        return None
-    if not any(word in text for word in ("看看", "查看", "列出", "有哪些", "目录", "文件", "文件夹")):
-        return None
-
-    windows_path = re.search(r"[A-Za-z]:[\\/][^，。！？\r\n]*", text)
-    if windows_path:
-        path = windows_path.group(0).strip()
-        for marker in (" 有哪些", " 有什么", " 里", " 下", " 的"):
-            path = path.split(marker, 1)[0].rstrip()
-        return path
-
-    drive = re.search(r"([A-Za-z])\s*盘", text)
-    if drive:
-        return f"{drive.group(1).upper()}:\\"
-    return None
-
-
-def _list_dir_final(observation: Observation) -> str:
-    data = observation.data or {}
-    path = str(data.get("path") or "")
-    entries = data.get("entries") if isinstance(data.get("entries"), list) else []
-    names = [str(item.get("name")) for item in entries[:20] if isinstance(item, dict) and item.get("name")]
-    if not names:
-        return f"有权限读取 `{path}`，但这个目录里没有可显示的条目。"
-    suffix = "，结果已截断。" if data.get("truncated") else "。"
-    return f"有权限读取 `{path}`。前 {len(names)} 项是：{', '.join(names)}{suffix}"
-
-
-def _direct_chat_answer(task: str, config: AgentConfig) -> str | None:
-    text = task.strip()
-    compact = text.lower().strip(" \t\r\n.,!?;:，。！？、~～")
-    if compact in {"你好", "您好", "嗨", "hi", "hello", "hey"}:
-        return "你好，我在。你可以直接告诉我要看哪个文件、改什么代码，或者让我检查当前项目。"
-    if len(compact) <= 16 and any(phrase in compact for phrase in ("你是谁", "你是什么")):
-        return "我是这个本地 Agent Workbench 里的代码助手，可以帮你读项目、改文件、跑命令、看 diff，并把过程和结果留在本地。"
-    if len(compact) <= 24 and any(phrase in compact for phrase in ("什么模型", "哪个模型", "用的模型")):
-        return f"当前工作区配置是 provider: {config.provider}，model: {config.model}。"
-    if len(compact) <= 24 and any(phrase in compact for phrase in ("能做什么", "可以做什么", "会做什么")):
-        web = "联网搜索已开启" if config.web_search_enabled else "联网搜索可在设置里开启"
-        computer_read = "已允许只读查看明确指定的电脑路径" if config.computer_read_enabled else "电脑文件读取可在设置里开启"
-        return f"我可以检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令；{web}；{computer_read}。"
-    return None
 
 
 def _tool_observation(
