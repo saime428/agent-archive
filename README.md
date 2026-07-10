@@ -543,4 +543,9 @@ $env:PYTHONPATH="src"
 python -m agent.cli tools list
 python -m agent.cli doctor
 python -m agent.cli config doctor --cwd F:\agent
-python -m pytest tests/core/test_actions_parse.py tests/core/test_actions_observations.py tests/test_documents.py tests/core/t
+python -m pytest tests/core/test_actions_parse.py tests/core/test_actions_observations.py tests/test_documents.py tests/core/test_loop_core.py tests/core/test_loop_modes.py tests/test_cli.py tests/test_docs.py -q
+python -m pytest -q
+git diff --check
+```
+
+Word report generation remains staged for later v0.3 slices.
