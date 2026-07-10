@@ -208,3 +208,43 @@ def test_max_consecutive_errors_rejects_non_positive(tmp_path) -> None:
 
     with pytest.raises(ConfigError):
         load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_base_url_and_api_key_env_defaults() -> None:
+    config = AgentConfig()
+
+    assert config.base_url == ""
+    assert config.api_key_env == "OPENAI_API_KEY"
+
+
+def test_openai_compat_provider_is_valid(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\n',
+        encoding="utf-8",
+    )
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.provider == "openai-compat"
+    assert config.base_url == "http://localhost:11434/v1"
+    assert diagnostics.warnings == []
+
+
+def test_base_url_rejects_non_string(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("base_url = 3\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_api_key_env_rejects_empty_string(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text('api_key_env = " "\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")

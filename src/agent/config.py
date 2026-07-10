@@ -8,10 +8,10 @@ from typing import Any, Literal
 Mode = Literal["step", "guided", "auto", "plan-first"]
 SandboxMode = Literal["read-only", "workspace-write", "danger-full-access"]
 ApprovalMode = Literal["risky-confirm", "always", "never"]
-Provider = Literal["fake", "deepseek"]
+Provider = Literal["fake", "deepseek", "openai-compat"]
 
 VALID_VALUES = {
-    "provider": {"fake", "deepseek"},
+    "provider": {"fake", "deepseek", "openai-compat"},
     "mode": {"step", "guided", "auto", "plan-first"},
     "sandbox": {"read-only", "workspace-write", "danger-full-access"},
     "approval": {"risky-confirm", "always", "never"},
@@ -20,6 +20,8 @@ KNOWN_KEYS = {
     "provider",
     "model",
     "deepseek_api_key_env",
+    "base_url",
+    "api_key_env",
     "default_skills",
     "memory_auto_write",
     "memory_max_items",
@@ -44,6 +46,8 @@ class AgentConfig:
     provider: Provider = "fake"
     model: str = "deepseek-v4-flash"
     deepseek_api_key_env: str = "DEEPSEEK_API_KEY"
+    base_url: str = ""
+    api_key_env: str = "OPENAI_API_KEY"
     default_skills: tuple[str, ...] = ("code-dev",)
     memory_auto_write: bool = False
     memory_max_items: int = 5
@@ -63,6 +67,8 @@ class ConfigOverrides:
     provider: Provider | None = None
     model: str | None = None
     deepseek_api_key_env: str | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
     default_skills: tuple[str, ...] | None = None
     memory_auto_write: bool | None = None
     memory_max_items: int | None = None
@@ -165,6 +171,8 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "provider": overrides.provider,
         "model": overrides.model,
         "deepseek_api_key_env": overrides.deepseek_api_key_env,
+        "base_url": overrides.base_url,
+        "api_key_env": overrides.api_key_env,
         "default_skills": overrides.default_skills,
         "memory_auto_write": overrides.memory_auto_write,
         "memory_max_items": overrides.memory_max_items,
@@ -197,9 +205,13 @@ def _validate_value(key: str, value: Any, path: Path | None) -> None:
         if not isinstance(value, int) or value <= 0:
             raise _invalid_config_value(key, "expected positive integer", path)
         return
-    if key in {"model", "deepseek_api_key_env"}:
+    if key in {"model", "deepseek_api_key_env", "api_key_env"}:
         if not isinstance(value, str) or not value.strip():
             raise _invalid_config_value(key, "expected non-empty string", path)
+        return
+    if key == "base_url":
+        if not isinstance(value, str):
+            raise _invalid_config_value(key, "expected string", path)
         return
     if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
         type_name = "tuple" if cli else "list"
