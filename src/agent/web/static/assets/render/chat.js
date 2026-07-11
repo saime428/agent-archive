@@ -15,7 +15,14 @@ import {
   showActionError,
   toggleTheme,
 } from "./ui.js";
-import { renderHealth, renderSettings, saveSettings, saveSettingsValues } from "./health.js";
+import {
+  renderChipToggles,
+  renderHealth,
+  renderSettings,
+  saveSettings,
+  saveSettingsValues,
+  toggleConfigKey,
+} from "./health.js";
 import { renderRuns, runButton } from "./runs.js";
 import { loadFiles, renderFileEntries } from "./files.js";
 import { saveOpenFile, showSummary } from "./editor.js";
@@ -64,6 +71,12 @@ function bindEvents() {
   els.settingsForm.addEventListener("submit", (event) => saveSettings(event, refreshWorkbench));
   els.settingsWebSearch.addEventListener("change", () => saveSettingsValues("联网搜索设置已保存。", refreshWorkbench));
   els.settingsComputerRead.addEventListener("change", () => saveSettingsValues("电脑文件只读设置已保存。", refreshWorkbench));
+  els.settingsNativeTools?.addEventListener("change", () => saveSettingsValues("原生工具设置已保存。", refreshWorkbench));
+  els.webSearchToggle?.addEventListener("click", () => toggleConfigKey("web_search_enabled", els.webSearchToggle, refreshWorkbench));
+  els.computerReadToggle?.addEventListener("click", () => toggleConfigKey("computer_read_enabled", els.computerReadToggle, refreshWorkbench));
+  els.nativeToolsToggle?.addEventListener("click", () => toggleConfigKey("native_tools", els.nativeToolsToggle, refreshWorkbench));
+  els.thinkingToggle?.addEventListener("click", toggleThinkingVisibility);
+  applyThinkingVisibility();
   document.addEventListener("click", closeChatMenus);
   for (const panel of els.resourcePanels) {
     panel.addEventListener("click", () => openResourceDetail(panel.dataset.resourcePanel, resourceDetailActions()));
@@ -936,6 +949,10 @@ function startLiveTurn(userMessage) {
 }
 
 function handleLiveChatEvent(payload) {
+  if (payload.event === "model_stream_chunk") {
+    renderStreamChunk(payload);
+    return;
+  }
   state.liveEvents.push(payload);
   if (state.liveTurn) {
     state.liveTurn.events = [...state.liveEvents];
@@ -975,10 +992,12 @@ function renderLiveTurnIncrement(event) {
   const body = article.querySelector(".message-body");
   if (body) {
     body.replaceChildren();
-    if (!isTerminal && !isWaitingApproval) {
-      renderMessageSkeleton(body);
-    } else {
+    if (isTerminal || isWaitingApproval) {
       renderMessageBody(body, friendlyChatText(bodyText));
+    } else if (state.liveTurn.streamText) {
+      body.textContent = state.liveTurn.streamText;
+    } else {
+      renderMessageSkeleton(body);
     }
   }
   const meta = article.querySelector(".message-meta");
@@ -992,8 +1011,64 @@ function renderLiveTurnIncrement(event) {
     details.open = true;
     summary.textContent = processSummary(state.liveTurn.events || []);
     renderProcessCards(processBody, state.liveTurn.events || [], { jobId: state.liveTurn.job_id });
+    attachLiveStreamNode(processBody);
   }
   els.chatThread.scrollTop = els.chatThread.scrollHeight;
+}
+
+function renderStreamChunk(payload) {
+  if (!state.liveTurn || typeof payload.text !== "string" || !payload.text) {
+    return;
+  }
+  const article = els.chatThread.querySelector('[data-live-turn="true"]');
+  if (!article) {
+    return;
+  }
+  if (payload.kind === "content") {
+    state.liveTurn.streamText = (state.liveTurn.streamText || "") + payload.text;
+    const body = article.querySelector(".message-body");
+    if (body) {
+      body.textContent = state.liveTurn.streamText;
+    }
+  } else {
+    state.liveTurn.streamThinking = (state.liveTurn.streamThinking || "") + payload.text;
+    const details = article.querySelector(".thought-process");
+    const processBody = details?.querySelector(".thinking-copy");
+    if (details && processBody) {
+      details.open = true;
+      attachLiveStreamNode(processBody);
+    }
+  }
+  els.chatThread.scrollTop = els.chatThread.scrollHeight;
+}
+
+const THINKING_VISIBLE_KEY = "workbench-show-thinking";
+
+function applyThinkingVisibility() {
+  const visible = localStorage.getItem(THINKING_VISIBLE_KEY) !== "false";
+  document.body.dataset.showThinking = String(visible);
+  els.thinkingToggle?.setAttribute("aria-pressed", String(visible));
+  els.thinkingToggle?.classList.toggle("on", visible);
+}
+
+function toggleThinkingVisibility() {
+  const visible = localStorage.getItem(THINKING_VISIBLE_KEY) !== "false";
+  localStorage.setItem(THINKING_VISIBLE_KEY, String(!visible));
+  applyThinkingVisibility();
+}
+
+function attachLiveStreamNode(processBody) {
+  if (!state.liveTurn?.streamThinking) {
+    return;
+  }
+  let streamNode = processBody.querySelector('[data-stream-text="true"]');
+  if (!streamNode) {
+    streamNode = document.createElement("pre");
+    streamNode.dataset.streamText = "true";
+    streamNode.className = "stream-live-text";
+    processBody.prepend(streamNode);
+  }
+  streamNode.textContent = state.liveTurn.streamThinking;
 }
 
 function liveTurnText(event) {

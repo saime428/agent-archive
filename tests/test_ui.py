@@ -1202,10 +1202,13 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "terminal-output" in index
     assert "side-file-list" in index
     assert "side-chat-list" in index
-    assert "api-key-chip" in index
-    assert "computer-read-chip" in index
-    assert "mode-chip" in index
-    assert "sandbox-chip" in index
+    assert "web-search-toggle" in index
+    assert "computer-read-toggle" in index
+    assert "native-tools-toggle" in index
+    assert "thinking-toggle" in index
+    assert "api-key-chip" not in index
+    assert "mode-chip" not in index
+    assert "sandbox-chip" not in index
     assert "/api/health" in script
     assert "/api/config" in script
     assert "/api/chats" in script
@@ -1234,9 +1237,13 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "scrollToSetting" in script
     assert "scrollIntoView" in script
     assert "computer_read_enabled" in script
-    assert "modeChip" in script
-    assert "sandboxChip" in script
-    assert "沙箱：" in script
+    assert "modeChip" not in script
+    assert "sandboxChip" not in script
+    assert "model_stream_chunk" in script
+    assert "toggleConfigKey" in script
+    assert "renderChipToggles" in script
+    assert "stream-live-text" in styles
+    assert "chip-toggle" in styles
     assert "Recovered after" not in script
     assert "invalid_model_response" not in script
     assert "window.confirm" not in script

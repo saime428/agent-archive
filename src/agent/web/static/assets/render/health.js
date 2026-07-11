@@ -7,21 +7,9 @@ import { renderRows } from "./ui.js";
 export function renderHealth() {
   const health = state.health || {};
   els.workspace.textContent = health.workspace || "workspace";
-  els.provider.textContent = `Codex: ${health.provider || "unknown"}`;
   els.model.textContent = health.model || "DeepSeek";
-  els.apiKey.textContent = `Key: ${health.deepseek_api_key_present ? "已配置" : "缺失"}`;
   const webEnabled = Boolean(state.config?.config?.web_search_enabled);
-  els.webSearch.textContent = `联网：${webEnabled ? "开" : "关"}`;
-  els.webSearch.classList.toggle("active", webEnabled);
-  const computerReadEnabled = Boolean(state.config?.config?.computer_read_enabled);
-  els.computerRead.textContent = `电脑文件：${computerReadEnabled ? "开" : "关"}`;
-  els.computerRead.classList.toggle("active", computerReadEnabled);
-  const mode = health.mode || "guided";
-  els.modeChip.textContent = `模式：${mode}`;
-  els.modeChip.classList.toggle("active", mode !== "guided");
-  const sandbox = health.sandbox || state.config?.config?.sandbox || "workspace-write";
-  els.sandboxChip.textContent = `沙箱：${sandbox}`;
-  els.sandboxChip.classList.toggle("active", sandbox !== "workspace-write");
+  renderChipToggles();
   els.providerNotice.textContent = health.provider_notice || "";
   els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
   if (els.editorWorkspacePath) {
@@ -54,6 +42,7 @@ export function renderSettings() {
   els.settingsDryRun.checked = Boolean(config.dry_run);
   els.settingsWebSearch.checked = Boolean(config.web_search_enabled);
   els.settingsComputerRead.checked = Boolean(config.computer_read_enabled);
+  els.settingsNativeTools.checked = Boolean(config.native_tools);
   const readiness = state.health?.settings_readiness || {};
   renderRows(els.settingsReadinessList, [
     ["状态", readiness.status || "ready"],
@@ -83,6 +72,7 @@ function buildSettingsPayload() {
     dry_run: els.settingsDryRun.checked,
     web_search_enabled: els.settingsWebSearch.checked,
     computer_read_enabled: els.settingsComputerRead.checked,
+    native_tools: els.settingsNativeTools.checked,
     default_skills: els.settingsSkills.value.split(",").map((item) => item.trim()).filter(Boolean),
   };
 }
@@ -100,5 +90,46 @@ export async function saveSettingsValues(successText, refreshWorkbench) {
     els.settingsStatus.textContent = successText || "设置已保存。";
   } catch (error) {
     els.settingsStatus.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+const CHIP_TOGGLE_LABELS = {
+  web_search_enabled: "联网",
+  computer_read_enabled: "电脑文件",
+  native_tools: "原生工具",
+};
+
+export function renderChipToggles() {
+  const config = state.config?.config || {};
+  const toggles = [
+    [els.webSearchToggle, "web_search_enabled"],
+    [els.computerReadToggle, "computer_read_enabled"],
+    [els.nativeToolsToggle, "native_tools"],
+  ];
+  for (const [button, key] of toggles) {
+    if (!button) {
+      continue;
+    }
+    const enabled = Boolean(config[key]);
+    button.textContent = `${CHIP_TOGGLE_LABELS[key]}：${enabled ? "开" : "关"}`;
+    button.classList.toggle("on", enabled);
+    button.setAttribute("aria-pressed", String(enabled));
+  }
+}
+
+export async function toggleConfigKey(key, button, refreshWorkbench) {
+  const current = Boolean(state.config?.config?.[key]);
+  button.disabled = true;
+  try {
+    state.config = await postJson("/api/config", { [key]: !current });
+    renderChipToggles();
+    if (typeof refreshWorkbench === "function") {
+      await refreshWorkbench();
+    }
+  } catch (error) {
+    els.settingsStatus.textContent = error instanceof Error ? error.message : String(error);
+    renderChipToggles();
+  } finally {
+    button.disabled = false;
   }
 }

@@ -5,6 +5,7 @@ const CHAT_EVENT_NAMES = [
   "chat_started",
   "model_call_start",
   "model_stream_start",
+  "model_stream_chunk",
   "action_parsed",
   "tool_start",
   "approval_required",

@@ -122,14 +122,10 @@
           <form id="chat-form" class="input-dock" aria-label="聊天输入">
             <textarea id="message-input" name="message" placeholder="追加消息..." aria-label="消息"></textarea>
             <div class="input-actions">
-              <span id="provider-chip" class="status-pill codex-pill">Codex</span>
-              <span id="api-key-chip" class="status-pill muted">DeepSeek key</span>
-              <span id="web-search-chip" class="status-pill muted">联网：关</span>
-              <span id="computer-read-chip" class="status-pill muted">电脑文件：关</span>
-              <span id="mode-chip" class="status-pill muted">模式：guided</span>
-              <span id="sandbox-chip" class="status-pill muted">沙箱：workspace-write</span>
-              <span class="status-pill approval-pill">审批</span>
-              <span class="status-pill thinking-pill">工作过程</span>
+              <button id="web-search-toggle" class="chip-toggle" type="button" aria-pressed="false">联网：关</button>
+              <button id="computer-read-toggle" class="chip-toggle" type="button" aria-pressed="false">电脑文件：关</button>
+              <button id="native-tools-toggle" class="chip-toggle" type="button" aria-pressed="false">原生工具：关</button>
+              <button id="thinking-toggle" class="chip-toggle" type="button" aria-pressed="true">工作过程</button>
               <button id="send-button" class="send-button" type="submit" aria-label="发送">→</button>
             </div>
           </form>
@@ -236,6 +232,10 @@
             <label class="check-row">
               <input id="settings-computer-read" name="computer_read_enabled" type="checkbox" />
               读取电脑文件（只读）
+            </label>
+            <label class="check-row">
+              <input id="settings-native-tools" name="native_tools" type="checkbox" />
+              原生工具调用（需端点支持）
             </label>
             <section class="settings-card" id="settings-tools-section">
               <h2>Codex 可用工具</h2>
