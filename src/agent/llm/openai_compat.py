@@ -175,7 +175,7 @@ class OpenAICompatClient:
         tools: list[dict],
         *,
         temperature: float | None = None,
-    ) -> Generator[str, None, dict | str]:
+    ) -> Generator[tuple[str, str], None, dict | str]:
         payload: dict[str, object] = {
             "model": self.model,
             "messages": messages,
@@ -207,7 +207,9 @@ class OpenAICompatClient:
                 self.retry_sleep(delay)
         raise RuntimeError("unreachable")
 
-    def _assemble_tool_stream(self, chunks: Iterable[bytes], assembler: "_ToolCallAssembler") -> Iterator[str]:
+    def _assemble_tool_stream(
+        self, chunks: Iterable[bytes], assembler: "_ToolCallAssembler"
+    ) -> Iterator[tuple[str, str]]:
         buffer = ""
         for chunk in chunks:
             try:
@@ -216,17 +218,19 @@ class OpenAICompatClient:
                 raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.") from exc
             while "\n" in buffer:
                 line, buffer = buffer.split("\n", 1)
-                piece = self._tool_stream_piece(line, assembler)
-                if piece is _StreamDone:
+                pieces = self._tool_stream_piece(line, assembler)
+                if pieces is _StreamDone:
                     return
-                if piece:
-                    yield piece
+                if pieces:
+                    yield from pieces
         if buffer.strip():
-            piece = self._tool_stream_piece(buffer, assembler)
-            if piece is not _StreamDone and piece:
-                yield piece
+            pieces = self._tool_stream_piece(buffer, assembler)
+            if pieces is not _StreamDone and pieces:
+                yield from pieces
 
-    def _tool_stream_piece(self, line: str, assembler: "_ToolCallAssembler") -> str | type[_StreamDone] | None:
+    def _tool_stream_piece(
+        self, line: str, assembler: "_ToolCallAssembler"
+    ) -> list[tuple[str, str]] | type[_StreamDone] | None:
         stripped = line.strip()
         if not stripped or stripped.startswith(":"):
             return None
@@ -517,12 +521,15 @@ class _ToolCallAssembler:
         self.tool_name: str | None = None
         self.argument_parts: list[str] = []
 
-    def feed(self, delta: dict) -> str | None:
-        pieces: list[str] = []
+    def feed(self, delta: dict) -> list[tuple[str, str]]:
+        pieces: list[tuple[str, str]] = []
+        reasoning = delta.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning:
+            pieces.append(("thinking", reasoning))
         content = delta.get("content")
         if isinstance(content, str) and content:
             self.content_parts.append(content)
-            pieces.append(content)
+            pieces.append(("content", content))
         tool_calls = delta.get("tool_calls")
         if isinstance(tool_calls, list):
             for fragment in tool_calls:
@@ -537,8 +544,8 @@ class _ToolCallAssembler:
                 arguments = function.get("arguments")
                 if isinstance(arguments, str) and arguments:
                     self.argument_parts.append(arguments)
-                    pieces.append(arguments)
-        return "".join(pieces) or None
+                    pieces.append(("args", arguments))
+        return pieces
 
     def envelope(self) -> dict | str:
         message_obj: dict[str, object] = {"content": "".join(self.content_parts)}

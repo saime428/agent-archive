@@ -194,8 +194,11 @@ def test_stream_chat_tools_assembles_fragmented_tool_call() -> None:
 
     chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
 
-    assert "Think" in "".join(chunks)
-    assert '"final"' in "".join(chunks)
+    text = "".join(part for _kind, part in chunks)
+    assert "Think" in text
+    assert '"final"' in text
+    assert ("content", "Think") in chunks
+    assert {kind for kind, _part in chunks} == {"content", "args"}
     assert envelope == {
         "message": "Think",
         "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
@@ -250,6 +253,25 @@ def test_stream_chat_tools_ignores_non_zero_indexes() -> None:
     _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
 
     assert envelope["action"]["name"] == "done"
+
+
+def test_stream_chat_tools_yields_reasoning_as_thinking() -> None:
+    events = [
+        '{"choices": [{"delta": {"reasoning_content": "let me think"}}]}',
+        '{"choices": [{"delta": {"content": "ok"}}]}',
+    ]
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url="http://localhost:11434/v1",
+        stream_transport=lambda url, headers, body, timeout: iter(_sse(events)),
+    )
+
+    chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert ("thinking", "let me think") in chunks
+    assert ("content", "ok") in chunks
+    assert envelope == {"message": "ok"}
 
 
 def test_stream_chat_tools_reports_invalid_sse() -> None:
