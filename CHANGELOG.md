@@ -6,6 +6,7 @@
 - 移除 run loop 中的中文关键词短路(`_direct_chat_answer` / `_direct_external_list_path`),所有输入统一走模型路径。
 - Provider 泛化:新增 `openai-compat` provider(可配 `base_url` / `api_key_env`,api key 可空),DeepSeek 变为薄预设层,现有配置零破坏;可直接接入 Ollama/vLLM 等本地 OpenAI 兼容端点。
 - 原生 function calling:`native_tools = true` 时 deepseek/openai-compat 走原生工具调用(含流式分片拼装),所有动作皆工具,`tool_choice: "auto"`(thinking 模型不支持 `"required"`),无工具调用的纯文本回复走 repair 通道;JSON 协议保留为 fallback,fake provider 自动回落。
+- Workbench 流式输出:模型思考(reasoning_content)/正文/工具参数分片打标(`model_stream_chunk` 事件含 kind/text)实时渲染;输入区精简为联网/电脑文件/原生工具三个可点开关与工作过程显示开关(localStorage 记忆);`native_tools` 开放 Web 配置写入;修正最大化窗口下用户消息贴左、回复居中的对齐问题。
 
 ## 2.1.0 - 2026-07-08
 

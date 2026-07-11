@@ -236,6 +236,13 @@ summary, and tool-call trace. It also supports a basic browser chat turn from
 the bottom input dock; each turn creates the same durable `.agent/runs` and
 `.agent/chats` records as terminal chat.
 
+Browser chat streams model output live: thinking (`reasoning_content`) and
+tool-argument fragments render into the collapsible 工作过程 area, and plain
+content streams into the reply bubble before the final answer replaces it.
+The input dock has three clickable config toggles (联网 / 电脑文件 / 原生工具)
+that write through `/api/config`, plus a 工作过程 visibility switch remembered
+in localStorage. Other status details live in the settings panel.
+
 Confirmation-required actions use a custom approval panel and then retry the
 same message with one approved action. The Files panel lists workspace files
 and opens text previews in a minimal file editor. The Save button uses the same
@@ -252,9 +259,9 @@ health and runs every 10 seconds without replacing an open file editor or
 pending approval, and the Refresh button performs the same safe refresh on
 demand. The Task Review panel summarizes the selected run's latest action, last
 observation, changed files, snapshot count, and suggested manual checks.
-Current v0.6 limits: browser chat is synchronous, the file editor is a single
-textarea, token-level UI streaming and Electron packaging are deferred to later
-slices.
+Current v0.6 limits: the file editor is a single textarea and Electron
+packaging is deferred. (Browser chat later became asynchronous with SSE, and
+token-level UI streaming landed with the workbench streaming slice.)
 
 v0.6 manual smoke:
 
