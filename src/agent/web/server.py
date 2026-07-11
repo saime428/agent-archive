@@ -566,6 +566,7 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
         "dry_run",
         "web_search_enabled",
         "computer_read_enabled",
+        "native_tools",
         "default_skills",
     }
     updates: dict[str, Any] = {}
@@ -601,6 +602,10 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
         elif key == "computer_read_enabled":
             if not isinstance(value, bool):
                 raise ValueError("computer_read_enabled must be a boolean.")
+            updates[key] = value
+        elif key == "native_tools":
+            if not isinstance(value, bool):
+                raise ValueError("native_tools must be a boolean.")
             updates[key] = value
         elif key == "default_skills":
             if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
@@ -1090,7 +1095,12 @@ def _run_chat_job(
 
     try:
         session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
-        result = session.run_turn(message, approval_handler=handle_approval, event_handler=handle_event)
+        result = session.run_turn(
+            message,
+            approval_handler=handle_approval,
+            event_handler=handle_event,
+            stream_handler=lambda _text: None,
+        )
         payload = _chat_turn_response(root, session, result, diagnostics)
         job.result = payload
         _append_chat_event(job, {"event": "final", **payload})
