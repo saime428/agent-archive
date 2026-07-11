@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from agent.llm.openai_compat import OpenAICompatClient, ProviderError, smoke_provider, smoke_provider_native
+from agent.llm.openai_compat import (
+    OpenAICompatClient,
+    ProviderError,
+    _ReusableHTTPTransport,
+    smoke_provider,
+    smoke_provider_native,
+)
 
 
 class RecordingTransport:
@@ -272,6 +278,68 @@ def test_stream_chat_tools_yields_reasoning_as_thinking() -> None:
     assert ("thinking", "let me think") in chunks
     assert ("content", "ok") in chunks
     assert envelope == {"message": "ok"}
+
+
+def test_stream_chat_tools_closes_transport_stream_after_done() -> None:
+    closed = {"value": False}
+
+    def stream_transport(url, headers, body, timeout):
+        def gen():
+            try:
+                yield from _sse(['{"choices": [{"delta": {"content": "x"}}]}'])
+                yield b"data: must-not-be-consumed\n"
+            finally:
+                closed["value"] = True
+
+        return gen()
+
+    client = OpenAICompatClient(
+        api_key="", model="m", base_url="http://localhost:11434/v1", stream_transport=stream_transport
+    )
+
+    _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert closed["value"] is True
+    assert envelope == {"message": "x"}
+
+
+def test_reusable_transport_drops_connection_when_stream_abandoned() -> None:
+    transport = _ReusableHTTPTransport()
+    url = "http://localhost:11434/v1/chat/completions"
+    key = ("http", "localhost", 11434)
+
+    class FakeResponse:
+        will_close = False
+
+        def __init__(self) -> None:
+            self.closed = False
+
+        def __iter__(self):
+            yield b"data: [DONE]\n"
+            yield b"data: leftover\n"
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    response = FakeResponse()
+    connection = FakeConnection()
+    transport._connections[key] = connection
+    transport._request = lambda *args, **kwargs: response
+
+    stream = transport.stream_bytes(url, {}, b"", 1.0)
+    assert next(stream) == b"data: [DONE]\n"
+    stream.close()
+
+    assert response.closed is True
+    assert key not in transport._connections
+    assert connection.closed is True
 
 
 def test_stream_chat_tools_reports_invalid_sse() -> None:

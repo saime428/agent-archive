@@ -211,22 +211,27 @@ class OpenAICompatClient:
         self, chunks: Iterable[bytes], assembler: "_ToolCallAssembler"
     ) -> Iterator[tuple[str, str]]:
         buffer = ""
-        for chunk in chunks:
-            try:
-                buffer += chunk.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.") from exc
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                pieces = self._tool_stream_piece(line, assembler)
-                if pieces is _StreamDone:
-                    return
-                if pieces:
+        try:
+            for chunk in chunks:
+                try:
+                    buffer += chunk.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.") from exc
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    pieces = self._tool_stream_piece(line, assembler)
+                    if pieces is _StreamDone:
+                        return
+                    if pieces:
+                        yield from pieces
+            if buffer.strip():
+                pieces = self._tool_stream_piece(buffer, assembler)
+                if pieces is not _StreamDone and pieces:
                     yield from pieces
-        if buffer.strip():
-            pieces = self._tool_stream_piece(buffer, assembler)
-            if pieces is not _StreamDone and pieces:
-                yield from pieces
+        finally:
+            close = getattr(chunks, "close", None)
+            if callable(close):
+                close()
 
     def _tool_stream_piece(
         self, line: str, assembler: "_ToolCallAssembler"
@@ -426,10 +431,18 @@ class _ReusableHTTPTransport:
 
     def stream_bytes(self, url: str, headers: dict[str, str], body: bytes, timeout: float) -> Iterable[bytes]:
         response = self._request(url, headers, body, timeout)
+        completed = False
         try:
             yield from response
+            completed = True
         finally:
-            self._drop_closed_connection(url, response.will_close)
+            if not completed or response.will_close:
+                # An abandoned stream leaves unread data on the keep-alive
+                # connection; it must not be reused for the next request.
+                try:
+                    response.close()
+                finally:
+                    self._drop_connection(url)
 
     def _request(self, url: str, headers: dict[str, str], body: bytes, timeout: float):
         parsed = urlparse(url)
@@ -455,6 +468,9 @@ class _ReusableHTTPTransport:
     def _drop_closed_connection(self, url: str, will_close: bool) -> None:
         if not will_close:
             return
+        self._drop_connection(url)
+
+    def _drop_connection(self, url: str) -> None:
         parsed = urlparse(url)
         key = (parsed.scheme, parsed.hostname or "", parsed.port)
         connection = self._connections.pop(key, None)
@@ -558,22 +574,27 @@ class _ToolCallAssembler:
 
 def _parse_streaming_chat_response(chunks: Iterable[bytes], provider_label: str) -> Iterator[str]:
     buffer = ""
-    for chunk in chunks:
-        try:
-            buffer += chunk.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ProviderError(f"{provider_label} API returned an invalid streaming response.") from exc
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            result = _parse_sse_line(line, provider_label)
-            if result is _StreamDone:
-                return
-            if result:
+    try:
+        for chunk in chunks:
+            try:
+                buffer += chunk.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ProviderError(f"{provider_label} API returned an invalid streaming response.") from exc
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                result = _parse_sse_line(line, provider_label)
+                if result is _StreamDone:
+                    return
+                if result:
+                    yield result
+        if buffer.strip():
+            result = _parse_sse_line(buffer, provider_label)
+            if result is not _StreamDone and result:
                 yield result
-    if buffer.strip():
-        result = _parse_sse_line(buffer, provider_label)
-        if result is not _StreamDone and result:
-            yield result
+    finally:
+        close = getattr(chunks, "close", None)
+        if callable(close):
+            close()
 
 
 class _StreamDone:
