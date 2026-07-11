@@ -31,6 +31,7 @@ from agent.core.redaction import redact_record, redact_value
 from agent.core.skills import SkillError, SkillMetadata, build_skills_message, load_selected_skills
 from agent.core.summary import final_from_observation, render_summary
 from agent.core.tool_catalog import DRY_RUN_SKIPPED_TOOLS
+from agent.core.tool_schemas import build_tool_schemas, native_tool_names
 from agent.llm.base import LLMClient
 from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
@@ -109,6 +110,12 @@ def run_once(
     effective_max_iterations = (
         max_iterations if max_iterations is not None else _mode_max_iterations(effective_config.mode)
     )
+    use_native = effective_config.native_tools and callable(getattr(llm, "chat_tools", None))
+    native_tools_payload = (
+        build_tool_schemas(native_tool_names(web_search_enabled=effective_config.web_search_enabled))
+        if use_native
+        else None
+    )
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
     run_dir = context.cwd / ".agent" / "runs" / context.run_id
     tool_calls_path = run_dir / "tool_calls.jsonl"
@@ -143,6 +150,7 @@ def run_once(
         memory_entries,
         config=effective_config,
         context_messages=context_messages,
+        native=use_native,
     )
     _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
     actions: list[InternalAction] = []
@@ -161,7 +169,13 @@ def run_once(
             "model_call_start",
             {"run_id": context.run_id, "action_index": model_call_index},
         )
-        raw_response = _model_response(llm, messages, event_handler=event_handler, stream_handler=stream_handler)
+        raw_response = _model_response(
+            llm,
+            messages,
+            event_handler=event_handler,
+            stream_handler=stream_handler,
+            native_tools_payload=native_tools_payload,
+        )
         try:
             action = parse_model_action(
                 raw_response,
@@ -184,7 +198,15 @@ def run_once(
             observations.append(observation)
             traces.append(trace)
             if not trace.terminal:
-                messages.append(_build_repair_message(exc, raw_response, context, repair_attempt=repair_attempt))
+                messages.append(
+                    _build_repair_message(
+                        exc,
+                        raw_response,
+                        context,
+                        repair_attempt=repair_attempt,
+                        native=use_native,
+                    )
+                )
                 repair_attempt += 1
                 continue
             break
@@ -440,7 +462,22 @@ def _model_response(
     *,
     event_handler: RunEventHandler | None,
     stream_handler: StreamHandler | None,
+    native_tools_payload: list[dict] | None = None,
 ) -> dict | str:
+    if native_tools_payload is not None:
+        stream_chat_tools = getattr(llm, "stream_chat_tools", None)
+        if stream_handler is None or stream_chat_tools is None:
+            return llm.chat_tools(messages, native_tools_payload)
+        _emit_event(event_handler, "model_stream_start", {})
+        generator = stream_chat_tools(messages, native_tools_payload)
+        while True:
+            try:
+                chunk = next(generator)
+            except StopIteration as stop:
+                return stop.value if stop.value is not None else ""
+            text = str(chunk)
+            stream_handler(text)
+            _emit_event(event_handler, "model_stream_chunk", {"chunk_chars": len(text)})
     stream_chat = getattr(llm, "stream_chat", None)
     if stream_handler is None or stream_chat is None:
         return llm.chat(messages)
@@ -509,9 +546,18 @@ def _build_repair_message(
     context: RunContext,
     *,
     repair_attempt: int,
+    native: bool = False,
 ) -> dict[str, str]:
     raw_response_excerpt = _raw_response_excerpt(raw_response, context.budget)
     details = _repair_details(exc)
+    instruction = (
+        "Call exactly one tool. Do not reply with plain text.\n"
+        if native
+        else (
+            "Return exactly one valid JSON action object with top-level keys "
+            '"message" and "action". Do not include markdown fences or extra text.\n'
+        )
+    )
     return {
         "role": "user",
         "content": (
@@ -520,8 +566,7 @@ def _build_repair_message(
             f"Error message: {exc.message}\n"
             f"{details}"
             f"Repair attempt: {repair_attempt + 1} of {context.budget.repair_attempts}\n"
-            "Return exactly one valid JSON action object with top-level keys "
-            '"message" and "action". Do not include markdown fences or extra text.\n'
+            f"{instruction}"
             f"Previous response excerpt:\n{raw_response_excerpt}"
         ),
     }
@@ -793,6 +838,7 @@ def _trace_config(config: AgentConfig) -> dict[str, object]:
         "web_search_enabled": config.web_search_enabled,
         "computer_read_enabled": config.computer_read_enabled,
         "max_consecutive_errors": config.max_consecutive_errors,
+        "native_tools": config.native_tools,
     }
 
 
@@ -804,8 +850,9 @@ def _build_messages(
     *,
     config: AgentConfig,
     context_messages: list[dict[str, str]] | None = None,
+    native: bool = False,
 ) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = [_action_protocol_message(config)]
+    messages: list[dict[str, str]] = [_action_protocol_message(config, native=native)]
     project_message = build_project_instructions_message(project_instructions)
     if project_message is not None:
         messages.append(project_message)
@@ -821,7 +868,31 @@ def _build_messages(
     return messages
 
 
-def _action_protocol_message(config: AgentConfig) -> dict[str, str]:
+def _action_protocol_message(config: AgentConfig, *, native: bool = False) -> dict[str, str]:
+    if native:
+        web_search_rule = (
+            "For current web, news, latest-version, or internet lookup requests, use web_search before done. "
+            if config.web_search_enabled
+            else "Do not use web_search because web search is disabled in Settings. "
+        )
+        computer_read_rule = (
+            "list_dir, read_file, and search_files may read explicit absolute computer paths or ~ paths. "
+            if config.computer_read_enabled
+            else "list_dir, read_file, and search_files are limited to the workspace unless computer file reading is enabled in Settings. "
+        )
+        return {
+            "role": "system",
+            "content": (
+                "Call exactly one tool per turn and do not reply with plain text. "
+                "Use list_dir, read_file, or search_files for file inspection; do not use run_command just to list or read files. "
+                f"{web_search_rule}"
+                f"{computer_read_rule}"
+                "Finish with the done tool when the task is complete. "
+                "When calling done, args.final is the user-facing answer: answer directly in the user's language, "
+                "do not summarize your own behavior. Use the ask_user tool to ask a clarifying question. "
+                + _mode_instruction(config.mode)
+            ),
+        }
     actions = "done, ask_user, list_dir, read_file, search_files, git_status, git_diff"
     if config.web_search_enabled:
         actions += ", and web_search"
