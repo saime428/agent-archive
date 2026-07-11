@@ -163,3 +163,102 @@ def test_chat_tools_returns_actionless_envelope_when_no_tool_call() -> None:
     result = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
 
     assert result == {"message": "just chatting"}
+
+
+def _sse(events: list[str]) -> list[bytes]:
+    return [f"data: {event}\n".encode("utf-8") for event in events] + [b"data: [DONE]\n"]
+
+
+def _drive(generator):
+    chunks: list[str] = []
+    while True:
+        try:
+            chunks.append(next(generator))
+        except StopIteration as stop:
+            return chunks, stop.value
+
+
+def test_stream_chat_tools_assembles_fragmented_tool_call() -> None:
+    events = [
+        '{"choices": [{"delta": {"content": "Think"}}]}',
+        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "c1", "function": {"name": "done", "arguments": ""}}]}}]}',
+        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\\"final\\": \\"o"}}]}}]}',
+        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "k\\", \\"changed_files\\": [], \\"next_steps\\": []}"}}]}}]}',
+    ]
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url="http://localhost:11434/v1",
+        stream_transport=lambda url, headers, body, timeout: iter(_sse(events)),
+    )
+
+    chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert "Think" in "".join(chunks)
+    assert '"final"' in "".join(chunks)
+    assert envelope == {
+        "message": "Think",
+        "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
+    }
+
+
+def test_stream_chat_tools_requests_streaming_with_required_choice() -> None:
+    captured: dict = {}
+
+    def stream_transport(url, headers, body, timeout):
+        captured["body"] = json.loads(body.decode("utf-8"))
+        return iter(_sse(['{"choices": [{"delta": {"content": "x"}}]}']))
+
+    client = OpenAICompatClient(
+        api_key="", model="m", base_url="http://localhost:11434/v1", stream_transport=stream_transport
+    )
+
+    _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert captured["body"]["stream"] is True
+    assert captured["body"]["tool_choice"] == "required"
+    assert captured["body"]["tools"] == TOOLS
+
+
+def test_stream_chat_tools_without_tool_call_returns_actionless_envelope() -> None:
+    events = ['{"choices": [{"delta": {"content": "no tools here"}}]}']
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url="http://localhost:11434/v1",
+        stream_transport=lambda url, headers, body, timeout: iter(_sse(events)),
+    )
+
+    _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert envelope == {"message": "no tools here"}
+
+
+def test_stream_chat_tools_ignores_non_zero_indexes() -> None:
+    events = [
+        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "done", "arguments": ""}}]}}]}',
+        '{"choices": [{"delta": {"tool_calls": [{"index": 1, "function": {"name": "read_file", "arguments": "{}"}}]}}]}',
+        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "' + DONE_ARGS.replace('"', '\\"') + '"}}]}}]}',
+    ]
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url="http://localhost:11434/v1",
+        stream_transport=lambda url, headers, body, timeout: iter(_sse(events)),
+    )
+
+    _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert envelope["action"]["name"] == "done"
+
+
+def test_stream_chat_tools_reports_invalid_sse() -> None:
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url="http://localhost:11434/v1",
+        stream_transport=lambda url, headers, body, timeout: iter([b"not sse\n"]),
+    )
+
+    with pytest.raises(ProviderError):
+        _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))

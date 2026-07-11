@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from http.client import HTTPConnection, HTTPSConnection
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
@@ -168,6 +168,81 @@ class OpenAICompatClient:
         except URLError as exc:
             raise ProviderError(f"{self.provider_label} API request failed: {exc.reason}") from exc
         return _parse_tools_chat_response(response_body, self.provider_label)
+
+    def stream_chat_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        temperature: float | None = None,
+    ) -> Generator[str, None, dict | str]:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "required",
+            "stream": True,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        for delay in [1.0, 2.0, 4.0, None]:
+            assembler = _ToolCallAssembler()
+            try:
+                stream = self.stream_transport(
+                    f"{self.base_url}/chat/completions",
+                    self._headers(),
+                    body,
+                    self.timeout,
+                )
+                yield from self._assemble_tool_stream(stream, assembler)
+                return assembler.envelope()
+            except HTTPError as exc:
+                if delay is None or not _is_retryable_http(exc):
+                    raise ProviderError(f"{self.provider_label} API request failed: {exc.code} {exc.reason}") from exc
+                self.retry_sleep(delay)
+            except URLError as exc:
+                if delay is None:
+                    raise ProviderError(f"{self.provider_label} API request failed: {exc.reason}") from exc
+                self.retry_sleep(delay)
+        raise RuntimeError("unreachable")
+
+    def _assemble_tool_stream(self, chunks: Iterable[bytes], assembler: "_ToolCallAssembler") -> Iterator[str]:
+        buffer = ""
+        for chunk in chunks:
+            try:
+                buffer += chunk.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.") from exc
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                piece = self._tool_stream_piece(line, assembler)
+                if piece is _StreamDone:
+                    return
+                if piece:
+                    yield piece
+        if buffer.strip():
+            piece = self._tool_stream_piece(buffer, assembler)
+            if piece is not _StreamDone and piece:
+                yield piece
+
+    def _tool_stream_piece(self, line: str, assembler: "_ToolCallAssembler") -> str | type[_StreamDone] | None:
+        stripped = line.strip()
+        if not stripped or stripped.startswith(":"):
+            return None
+        if not stripped.startswith("data:"):
+            raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.")
+        payload = stripped[len("data:") :].strip()
+        if payload == "[DONE]":
+            return _StreamDone
+        try:
+            event = json.loads(payload)
+            delta = event["choices"][0].get("delta") or {}
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.") from exc
+        if not isinstance(delta, dict):
+            raise ProviderError(f"{self.provider_label} API returned an invalid streaming response.")
+        return assembler.feed(delta)
 
 
 def smoke_provider(
@@ -378,6 +453,44 @@ def _envelope_from_tool_message(message_obj: dict) -> dict | str:
     if not isinstance(args, dict):
         return arguments
     return {"message": message_text, "action": {"name": name, "args": args}}
+
+
+class _ToolCallAssembler:
+    def __init__(self) -> None:
+        self.content_parts: list[str] = []
+        self.tool_name: str | None = None
+        self.argument_parts: list[str] = []
+
+    def feed(self, delta: dict) -> str | None:
+        pieces: list[str] = []
+        content = delta.get("content")
+        if isinstance(content, str) and content:
+            self.content_parts.append(content)
+            pieces.append(content)
+        tool_calls = delta.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for fragment in tool_calls:
+                if not isinstance(fragment, dict) or fragment.get("index", 0) != 0:
+                    continue
+                function = fragment.get("function")
+                if not isinstance(function, dict):
+                    continue
+                name = function.get("name")
+                if isinstance(name, str) and name and self.tool_name is None:
+                    self.tool_name = name
+                arguments = function.get("arguments")
+                if isinstance(arguments, str) and arguments:
+                    self.argument_parts.append(arguments)
+                    pieces.append(arguments)
+        return "".join(pieces) or None
+
+    def envelope(self) -> dict | str:
+        message_obj: dict[str, object] = {"content": "".join(self.content_parts)}
+        if self.tool_name is not None:
+            message_obj["tool_calls"] = [
+                {"function": {"name": self.tool_name, "arguments": "".join(self.argument_parts)}}
+            ]
+        return _envelope_from_tool_message(message_obj)
 
 
 def _parse_streaming_chat_response(chunks: Iterable[bytes], provider_label: str) -> Iterator[str]:
