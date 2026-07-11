@@ -771,6 +771,34 @@ def test_provider_smoke_openai_compat_calls_generic_smoke(monkeypatch, tmp_path)
     assert "status: ok" in result.output
 
 
+def test_provider_smoke_native_flag_calls_native_smoke(tmp_path, monkeypatch) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\nmodel = "llama3"\n',
+        encoding="utf-8",
+    )
+    captured: dict = {}
+
+    def fake_native_smoke(**kwargs):
+        captured.update(kwargs)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            provider="openai-compat", model=kwargs["model"], api_key_env=kwargs["api_key_env"],
+            status="ok", action_name="done", final="smoke ok",
+        )
+
+    monkeypatch.setattr("agent.cli.smoke_provider_native", fake_native_smoke)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--native", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert captured["provider_name"] == "openai-compat"
+    assert "status: ok" in result.output
+
+
 def test_skills_list_and_show_builtin_skill(tmp_path) -> None:
     runner = CliRunner()
 
@@ -927,4 +955,3 @@ def test_runs_show_missing_run_returns_nonzero(tmp_path) -> None:
 
     assert result.exit_code != 0
     assert "Run not found" in result.output
-

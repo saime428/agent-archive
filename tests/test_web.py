@@ -55,3 +55,12 @@ def test_config_update_accepts_openai_compat_provider(tmp_path) -> None:
 
     assert payload["status"] == "ok"
     assert payload["config"]["provider"] == "openai-compat"
+
+
+def test_build_health_payload_reports_native_tools_disabled_by_default(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    payload = server.build_health_payload(workspace)
+
+    assert payload["native_tools"] is False

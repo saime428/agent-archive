@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from agent.llm.openai_compat import OpenAICompatClient, ProviderError, smoke_provider
+from agent.llm.openai_compat import OpenAICompatClient, ProviderError, smoke_provider, smoke_provider_native
 
 
 class RecordingTransport:
@@ -262,3 +262,23 @@ def test_stream_chat_tools_reports_invalid_sse() -> None:
 
     with pytest.raises(ProviderError):
         _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+
+def test_smoke_provider_native_validates_done_tool_call() -> None:
+    transport = RecordingTransport(_tools_response(_done_tool_call('{"final": "smoke ok", "changed_files": [], "next_steps": []}')))
+
+    result = smoke_provider_native(
+        provider_name="openai-compat",
+        api_key="",
+        model="llama3",
+        base_url="http://localhost:11434/v1",
+        api_key_env="OPENAI_API_KEY",
+        provider_label="openai-compat",
+        transport=transport,
+    )
+
+    assert result.status == "ok"
+    assert result.final == "smoke ok"
+    body = transport.calls[0]["body"]
+    assert body["tool_choice"] == "required"
+    assert [tool["function"]["name"] for tool in body["tools"]] == ["done"]

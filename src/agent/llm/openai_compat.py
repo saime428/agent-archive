@@ -307,6 +307,62 @@ def smoke_provider(
     )
 
 
+def smoke_provider_native(
+    *,
+    provider_name: str,
+    api_key: str,
+    model: str,
+    base_url: str,
+    api_key_env: str,
+    provider_label: str = "Provider",
+    timeout: float = 60.0,
+    transport: Transport | None = None,
+) -> SmokeResult:
+    from agent.core.tool_schemas import build_tool_schemas
+
+    client = OpenAICompatClient(
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        provider_label=provider_label,
+        timeout=timeout,
+        transport=transport,
+    )
+    raw_action = client.chat_tools(
+        [
+            {
+                "role": "system",
+                "content": "You are testing an agent provider connection. Call the done tool exactly once.",
+            },
+            {
+                "role": "user",
+                "content": 'Call the done tool with args {"final":"smoke ok","changed_files":[],"next_steps":[]}.',
+            },
+        ],
+        build_tool_schemas(["done"]),
+        temperature=0,
+    )
+    try:
+        action = parse_model_action(
+            raw_action,
+            run_id="provider_smoke",
+            action_index=1,
+            created_at=datetime.now(timezone.utc),
+        )
+    except ActionParseError as exc:
+        raise ProviderError(f"{provider_label} native smoke returned invalid action: {exc.message}") from exc
+    if action.action.name != "done":
+        raise ProviderError(f"{provider_label} native smoke expected done action, got {action.action.name}.")
+    return SmokeResult(
+        provider=provider_name,
+        model=model,
+        api_key_env=api_key_env,
+        status="ok",
+        action_name=action.action.name,
+        final=str(action.action.args["final"]),
+    )
+
+
 def _normalize_smoke_action(raw_action: dict | str) -> dict | str:
     if not isinstance(raw_action, dict):
         return raw_action
