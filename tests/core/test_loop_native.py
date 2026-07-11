@@ -91,6 +91,46 @@ def test_native_error_recovery_still_works(tmp_path) -> None:
     assert "Error code: TOOL_FAILED" in feedback
 
 
+class StreamingNativeLLM(ScriptedNativeLLM):
+    """stream_chat_tools 先 yield 打标分片,return 值为脚本信封。"""
+
+    def stream_chat_tools(self, messages: list[dict], tools: list[dict], *, temperature: float | None = None):
+        self.calls.append({"messages": [dict(m) for m in messages], "tools": tools})
+        if self._index >= len(self.responses):
+            raise AssertionError("StreamingNativeLLM ran out of responses.")
+        response = self.responses[self._index]
+        self._index += 1
+        yield ("thinking", "considering")
+        yield ("args", '{"final"')
+        return response
+
+
+def test_native_streaming_emits_tagged_chunk_events(tmp_path) -> None:
+    llm = StreamingNativeLLM([_done_envelope("streamed")])
+    config = AgentConfig(native_tools=True)
+    events: list[dict] = []
+    streamed: list[str] = []
+
+    result = run_once(
+        "say done",
+        llm,
+        cwd=tmp_path,
+        run_id="run_native_stream",
+        config=config,
+        event_handler=events.append,
+        stream_handler=streamed.append,
+    )
+
+    assert result.action.action.name == "done"
+    assert result.observation.data == {"final": "streamed"}
+    chunk_events = [event for event in events if event.get("event") == "model_stream_chunk"]
+    assert [(event["kind"], event["text"]) for event in chunk_events] == [
+        ("thinking", "considering"),
+        ("args", '{"final"'),
+    ]
+    assert streamed == ["considering", '{"final"']
+
+
 def test_native_flag_falls_back_to_json_protocol_without_chat_tools(tmp_path) -> None:
     config = AgentConfig(native_tools=True)
 

@@ -475,9 +475,13 @@ def _model_response(
                 chunk = next(generator)
             except StopIteration as stop:
                 return stop.value if stop.value is not None else ""
-            text = str(chunk)
+            kind, text = chunk if isinstance(chunk, tuple) else ("content", str(chunk))
             stream_handler(text)
-            _emit_event(event_handler, "model_stream_chunk", {"chunk_chars": len(text)})
+            _emit_event(
+                event_handler,
+                "model_stream_chunk",
+                {"kind": kind, "text": text, "chunk_chars": len(text)},
+            )
     stream_chat = getattr(llm, "stream_chat", None)
     if stream_handler is None or stream_chat is None:
         return llm.chat(messages)
@@ -488,7 +492,11 @@ def _model_response(
         text = str(chunk)
         chunks.append(text)
         stream_handler(text)
-        _emit_event(event_handler, "model_stream_chunk", {"chunk_chars": len(text)})
+        _emit_event(
+            event_handler,
+            "model_stream_chunk",
+            {"kind": "content", "text": text, "chunk_chars": len(text)},
+        )
     return "".join(chunks)
 
 
