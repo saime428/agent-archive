@@ -54,7 +54,10 @@ provider = "openai-compat"
 base_url = "http://localhost:11434/v1"   # e.g. Ollama
 model = "llama3"
 # api_key_env = "OPENAI_API_KEY"         # optional; empty key sends no Authorization header
+# native_tools = true                    # use native tool calling (requires endpoint tool support)
 ```
+
+With `native_tools = true` the agent uses native function calling (one tool call per turn, `tool_choice: "required"`); endpoints without tool support should keep it `false`.
 
 ## v1.0 Release Prep
 
