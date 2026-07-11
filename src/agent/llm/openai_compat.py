@@ -147,7 +147,7 @@ class OpenAICompatClient:
             "model": self.model,
             "messages": messages,
             "tools": tools,
-            "tool_choice": "required",
+            "tool_choice": "auto",
             "stream": False,
         }
         if temperature is not None:
@@ -180,7 +180,7 @@ class OpenAICompatClient:
             "model": self.model,
             "messages": messages,
             "tools": tools,
-            "tool_choice": "required",
+            "tool_choice": "auto",
             "stream": True,
         }
         if temperature is not None:

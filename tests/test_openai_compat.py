@@ -115,7 +115,7 @@ DONE_ARGS = '{"final": "ok", "changed_files": [], "next_steps": []}'
 TOOLS = [{"type": "function", "function": {"name": "done", "description": "d", "parameters": {"type": "object"}}}]
 
 
-def test_chat_tools_sends_tools_and_required_choice() -> None:
+def test_chat_tools_sends_tools_and_auto_choice() -> None:
     transport = RecordingTransport(_tools_response(_done_tool_call(DONE_ARGS)))
     client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
 
@@ -123,7 +123,7 @@ def test_chat_tools_sends_tools_and_required_choice() -> None:
 
     body = transport.calls[0]["body"]
     assert body["tools"] == TOOLS
-    assert body["tool_choice"] == "required"
+    assert body["tool_choice"] == "auto"
     assert body["stream"] is False
     assert envelope == {
         "message": "Finishing.",
@@ -202,7 +202,7 @@ def test_stream_chat_tools_assembles_fragmented_tool_call() -> None:
     }
 
 
-def test_stream_chat_tools_requests_streaming_with_required_choice() -> None:
+def test_stream_chat_tools_requests_streaming_with_auto_choice() -> None:
     captured: dict = {}
 
     def stream_transport(url, headers, body, timeout):
@@ -216,7 +216,7 @@ def test_stream_chat_tools_requests_streaming_with_required_choice() -> None:
     _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
 
     assert captured["body"]["stream"] is True
-    assert captured["body"]["tool_choice"] == "required"
+    assert captured["body"]["tool_choice"] == "auto"
     assert captured["body"]["tools"] == TOOLS
 
 
@@ -280,5 +280,5 @@ def test_smoke_provider_native_validates_done_tool_call() -> None:
     assert result.status == "ok"
     assert result.final == "smoke ok"
     body = transport.calls[0]["body"]
-    assert body["tool_choice"] == "required"
+    assert body["tool_choice"] == "auto"
     assert [tool["function"]["name"] for tool in body["tools"]] == ["done"]

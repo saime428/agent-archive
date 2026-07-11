@@ -57,7 +57,7 @@ model = "llama3"
 # native_tools = true                    # use native tool calling (requires endpoint tool support)
 ```
 
-With `native_tools = true` the agent uses native function calling (one tool call per turn, `tool_choice: "required"`); endpoints without tool support should keep it `false`.
+With `native_tools = true` the agent uses native function calling with `tool_choice: "auto"` (thinking-mode models such as DeepSeek reject `"required"`); a plain-text reply without a tool call is routed through the repair channel. Endpoints without tool support should keep it `false`.
 
 ## v1.0 Release Prep
 
