@@ -136,6 +136,39 @@ class OpenAICompatClient:
                     raise ProviderError(f"{self.provider_label} API request failed: {exc.reason}") from exc
                 self.retry_sleep(delay)
 
+    def chat_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        *,
+        temperature: float | None = None,
+    ) -> dict | str:
+        payload: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "required",
+            "stream": False,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+        try:
+            response_body = _retry_transient(
+                lambda: self.transport(
+                    f"{self.base_url}/chat/completions",
+                    self._headers(),
+                    body,
+                    self.timeout,
+                ),
+                self.retry_sleep,
+            )
+        except HTTPError as exc:
+            raise ProviderError(f"{self.provider_label} API request failed: {exc.code} {exc.reason}") from exc
+        except URLError as exc:
+            raise ProviderError(f"{self.provider_label} API request failed: {exc.reason}") from exc
+        return _parse_tools_chat_response(response_body, self.provider_label)
+
 
 def smoke_provider(
     *,
@@ -311,6 +344,40 @@ def _parse_chat_response(response_body: bytes, provider_label: str) -> dict | st
     if not isinstance(parsed, dict):
         raise ProviderError(f"{provider_label} model content must be a valid JSON action object.")
     return parsed
+
+
+def _parse_tools_chat_response(response_body: bytes, provider_label: str) -> dict | str:
+    try:
+        response = json.loads(response_body.decode("utf-8"))
+        message_obj = response["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProviderError(f"{provider_label} API returned an invalid chat completion response.") from exc
+    if not isinstance(message_obj, dict):
+        raise ProviderError(f"{provider_label} API returned an invalid chat completion response.")
+    return _envelope_from_tool_message(message_obj)
+
+
+def _envelope_from_tool_message(message_obj: dict) -> dict | str:
+    content = message_obj.get("content")
+    message_text = content if isinstance(content, str) else ""
+    tool_calls = message_obj.get("tool_calls")
+    if not isinstance(tool_calls, list) or not tool_calls:
+        return {"message": message_text}
+    first = tool_calls[0]
+    function = first.get("function") if isinstance(first, dict) else None
+    if not isinstance(function, dict):
+        return {"message": message_text}
+    name = function.get("name")
+    arguments = function.get("arguments")
+    if not isinstance(name, str) or not isinstance(arguments, str):
+        return {"message": message_text}
+    try:
+        args = json.loads(arguments)
+    except json.JSONDecodeError:
+        return arguments
+    if not isinstance(args, dict):
+        return arguments
+    return {"message": message_text, "action": {"name": name, "args": args}}
 
 
 def _parse_streaming_chat_response(chunks: Iterable[bytes], provider_label: str) -> Iterator[str]:

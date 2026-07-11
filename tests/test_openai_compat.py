@@ -96,3 +96,70 @@ def test_smoke_provider_returns_result_with_provider_name() -> None:
     assert result.provider == "openai-compat"
     assert result.status == "ok"
     assert result.action_name == "done"
+
+
+def _tools_response(message_obj: dict) -> bytes:
+    return json.dumps({"choices": [{"message": message_obj}]}).encode("utf-8")
+
+
+def _done_tool_call(arguments: str) -> dict:
+    return {
+        "content": "Finishing.",
+        "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {"name": "done", "arguments": arguments}}
+        ],
+    }
+
+
+DONE_ARGS = '{"final": "ok", "changed_files": [], "next_steps": []}'
+TOOLS = [{"type": "function", "function": {"name": "done", "description": "d", "parameters": {"type": "object"}}}]
+
+
+def test_chat_tools_sends_tools_and_required_choice() -> None:
+    transport = RecordingTransport(_tools_response(_done_tool_call(DONE_ARGS)))
+    client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
+
+    envelope = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
+
+    body = transport.calls[0]["body"]
+    assert body["tools"] == TOOLS
+    assert body["tool_choice"] == "required"
+    assert body["stream"] is False
+    assert envelope == {
+        "message": "Finishing.",
+        "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
+    }
+
+
+def test_chat_tools_takes_first_of_multiple_tool_calls() -> None:
+    message_obj = {
+        "content": "",
+        "tool_calls": [
+            {"function": {"name": "done", "arguments": DONE_ARGS}},
+            {"function": {"name": "read_file", "arguments": '{"path": "x"}'}},
+        ],
+    }
+    transport = RecordingTransport(_tools_response(message_obj))
+    client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
+
+    envelope = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
+
+    assert envelope["action"]["name"] == "done"
+
+
+def test_chat_tools_returns_raw_string_for_invalid_arguments_json() -> None:
+    transport = RecordingTransport(_tools_response(_done_tool_call('{"final": broken')))
+    client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
+
+    result = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
+
+    assert result == '{"final": broken'
+
+
+def test_chat_tools_returns_actionless_envelope_when_no_tool_call() -> None:
+    transport = RecordingTransport(_tools_response({"content": "just chatting"}))
+    client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
+
+    result = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
+
+    assert result == {"message": "just chatting"}
