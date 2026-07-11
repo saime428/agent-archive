@@ -34,6 +34,7 @@ KNOWN_KEYS = {
     "web_search_enabled",
     "computer_read_enabled",
     "max_consecutive_errors",
+    "native_tools",
 }
 
 
@@ -60,6 +61,7 @@ class AgentConfig:
     web_search_enabled: bool = False
     computer_read_enabled: bool = False
     max_consecutive_errors: int = 3
+    native_tools: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,7 @@ class ConfigOverrides:
     web_search_enabled: bool | None = None
     computer_read_enabled: bool | None = None
     max_consecutive_errors: int | None = None
+    native_tools: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "web_search_enabled": overrides.web_search_enabled,
         "computer_read_enabled": overrides.computer_read_enabled,
         "max_consecutive_errors": overrides.max_consecutive_errors,
+        "native_tools": overrides.native_tools,
     }
     for key, value in values.items():
         if value is None:
@@ -197,7 +201,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
 def _validate_value(key: str, value: Any, path: Path | None) -> None:
     cli = path is None
     sequence_type = tuple if cli else list
-    if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled"}:
+    if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled", "native_tools"}:
         if not isinstance(value, bool):
             raise _invalid_config_value(key, "expected boolean", path)
         return

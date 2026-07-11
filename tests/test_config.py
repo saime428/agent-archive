@@ -248,3 +248,27 @@ def test_api_key_env_rejects_empty_string(tmp_path) -> None:
 
     with pytest.raises(ConfigError):
         load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_native_tools_defaults_to_false() -> None:
+    assert AgentConfig().native_tools is False
+
+
+def test_native_tools_loads_from_project_config(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("native_tools = true\n", encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.native_tools is True
+    assert diagnostics.warnings == []
+
+
+def test_native_tools_rejects_non_boolean(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text('native_tools = "yes"\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
