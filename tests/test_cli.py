@@ -25,6 +25,7 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "config mode:" in result.output
     assert "config provider:" in result.output
     assert "config model:" in result.output
+    assert "config allowed_commands:" in result.output
     assert "deepseek api key env:" in result.output
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
@@ -50,6 +51,7 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "config mode:" in result.output
     assert "config provider:" in result.output
     assert "config model:" in result.output
+    assert "config allowed_commands:" in result.output
     assert "deepseek api key env:" in result.output
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
@@ -890,6 +892,7 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "computer_read_enabled: false" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
+    assert "allowed_commands: []" in result.output
     assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output
     assert f"cwd: {workspace.resolve()}" in result.output
     assert "loaded files: none" in result.output
@@ -900,12 +903,16 @@ def test_config_show_outputs_project_config_and_warning(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     config_path = workspace / ".agent" / "config.toml"
     config_path.parent.mkdir(parents=True)
-    config_path.write_text('mode = "auto"\nsurprise = true\n', encoding="utf-8")
+    config_path.write_text(
+        'mode = "auto"\nallowed_commands = ["python", "pip show"]\nsurprise = true\n',
+        encoding="utf-8",
+    )
 
     result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
 
     assert result.exit_code == 0
     assert "mode: auto" in result.output
+    assert "allowed_commands: ['python', 'pip show']" in result.output
     assert f"loaded file: {config_path.resolve()}" in result.output
     assert "config warning: Ignoring unknown config key surprise" in result.output
 

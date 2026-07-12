@@ -150,6 +150,7 @@ def _config_lines(config: AgentConfig) -> list[str]:
         f"- config_model: {config.model}",
         f"- config_deepseek_api_key_env: {config.deepseek_api_key_env}",
         f"- config_default_skills: {list(config.default_skills)}",
+        f"- config_allowed_commands: {list(config.allowed_commands)}",
         f"- config_memory_auto_write: {str(config.memory_auto_write).lower()}",
         f"- config_memory_max_items: {config.memory_max_items}",
         f"- config_enabled_hooks: {list(config.enabled_hooks)}",

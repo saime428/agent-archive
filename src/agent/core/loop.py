@@ -836,6 +836,7 @@ def _trace_config(config: AgentConfig) -> dict[str, object]:
         "provider": config.provider,
         "model": config.model,
         "default_skills": list(config.default_skills),
+        "allowed_commands": list(config.allowed_commands),
         "memory_auto_write": config.memory_auto_write,
         "memory_max_items": config.memory_max_items,
         "enabled_hooks": list(config.enabled_hooks),

@@ -201,7 +201,13 @@ def test_run_once_redacts_action_args_without_mutating_runtime_result(tmp_path) 
 
 
 def test_run_once_exposes_effective_config(tmp_path) -> None:
-    config = AgentConfig(mode="auto", sandbox="read-only", approval="always", dry_run=True)
+    config = AgentConfig(
+        mode="auto",
+        sandbox="read-only",
+        approval="always",
+        dry_run=True,
+        allowed_commands=("python",),
+    )
 
     result = run_once(
         "inspect project",
@@ -217,6 +223,7 @@ def test_run_once_exposes_effective_config(tmp_path) -> None:
     assert "config_sandbox: read-only" in summary
     assert "config_approval: always" in summary
     assert "config_dry_run: true" in summary
+    assert "config_allowed_commands: ['python']" in summary
 
 
 def test_tool_call_log_records_policy_and_config_for_allowed_tool(tmp_path) -> None:
@@ -244,6 +251,7 @@ def test_tool_call_log_records_policy_and_config_for_allowed_tool(tmp_path) -> N
     assert record["trace"]["config"]["provider"] == "fake"
     assert record["trace"]["config"]["model"] == "deepseek-v4-flash"
     assert record["trace"]["config"]["default_skills"] == ["code-dev"]
+    assert record["trace"]["config"]["allowed_commands"] == []
     assert record["trace"]["config"]["mode"] == "guided"
     assert record["trace"]["config"]["sandbox"] == "workspace-write"
     assert record["trace"]["config"]["approval"] == "risky-confirm"

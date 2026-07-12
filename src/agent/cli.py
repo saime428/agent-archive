@@ -80,6 +80,7 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config provider: {config.provider}")
     console.print(f"config model: {config.model}")
     console.print(f"config default_skills: {list(config.default_skills)}")
+    console.print(f"config allowed_commands: {list(config.allowed_commands)}")
     console.print(f"deepseek api key env: {config.deepseek_api_key_env}")
     console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
     if config.provider == "openai-compat":
@@ -380,6 +381,7 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
         console.print(f"api_key_env: {config.api_key_env}")
         console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
     console.print(f"default_skills: {list(config.default_skills)}")
+    console.print(f"allowed_commands: {list(config.allowed_commands)}")
     console.print(f"memory_auto_write: {str(config.memory_auto_write).lower()}")
     console.print(f"memory_max_items: {config.memory_max_items}")
     console.print(f"sandbox: {config.sandbox}")
