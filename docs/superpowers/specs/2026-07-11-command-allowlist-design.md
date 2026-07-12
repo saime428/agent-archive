@@ -54,13 +54,14 @@ allowed_commands: tuple[str, ...] = ()
 
 ## 匹配语义
 
-每个配置项按空白拆成 token 前缀。首 token 复用现有 executable 规范化：取 basename、转小写、忽略可选 `.exe`；其余 token 精确比较。必须按完整 token 边界匹配。
+每个配置项按空白拆成 token 前缀。首 token 复用现有 executable 规范化：取 basename、转小写、忽略可选 `.exe`；其余 token 精确且区分大小写。必须按完整 token 边界匹配。因此 `pip Show` 不匹配配置项 `pip show`。
 
 | 配置项 | argv | 结果 |
 | --- | --- | --- |
 | `python` | `python script.py` | 匹配 |
 | `python` | `C:\\Python313\\python.exe script.py` | 匹配 |
 | `pip show` | `pip show pydantic` | 匹配 |
+| `pip show` | `pip Show pydantic` | 不匹配 |
 | `pip show` | `pip install pydantic` | 不匹配 |
 | `npm test` | `npm testing` | 不匹配 |
 
@@ -106,11 +107,19 @@ Workbench：
 - 设置页现有“运行就绪”列表增加“命令白名单”一行。
 - `_validated_config_updates` 明确不加入 `allowed_commands`；浏览器 POST 不能新增或覆盖白名单，现有配置值必须保留。
 
+## 模型提示决策
+
+第一期不把 `allowed_commands` 注入 JSON/native 系统提示。白名单属于执行策略，不是新增工具；模型仍只看到既有 `run_command` schema。命令未获策略放行时，现有 `POLICY_DENIED` 错误恢复会把结果回喂模型，由模型改用其他命令或询问用户。
+
+这样避免系统提示复制配置状态，也不把用户配置内容扩散到模型上下文。只有实际试错率证明错误恢复不足时，才考虑加入一行经过预算和转义的只读提示。
+
 ## 风险与缓解
 
 ### 配置过宽
 
 `allowed_commands = ["python"]` 会允许任意 Python 脚本进入审批阶段。README 必须明确：优先声明最窄前缀，并仅在理解命令能力时配置。
+
+README 还必须明确举例：`allowed_commands = ["git commit"]` 会有意越过默认只读 Git 策略并进入审批阶段；首 token 不区分大小写/`.exe`，后续 token 区分大小写。
 
 缓解：审批不变、硬拒绝优先、路径沙箱不变、trace 记录白名单。
 

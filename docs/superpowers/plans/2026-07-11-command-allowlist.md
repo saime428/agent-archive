@@ -16,6 +16,7 @@
 - `run_command` 仍是 confirmation-required；`approval`、sandbox、路径校验、超时和输出预算不变。
 - `allowed_commands = []` 时行为逐字兼容当前 HEAD。
 - Web 第一阶段只读展示；`_validated_config_updates` 不加入该键。
+- 第一阶段不把白名单注入模型系统提示；策略拒绝由既有错误恢复回喂。
 - 每个任务只 stage 列出的文件；提交前运行 focused tests 与 `git diff --check`。
 
 ---
@@ -92,6 +93,7 @@ def _matches_allowed_command(argv: list[str], allowed_commands: tuple[str, ...])
 - 无白名单时 `python script.py` 仍返回默认拒绝。
 - `("python",)` 匹配 `python.exe script.py`。
 - `("pip show",)` 匹配 `pip show pydantic`，不匹配 `pip install pydantic`。
+- `("pip show",)` 不匹配 `pip Show pydantic`；仅首 token 做大小写规范化。
 - `("npm test",)` 不匹配 `npm testing`。
 - 白名单含 `powershell`、`curl`、`rm` 时仍分别被硬拒绝。
 - allowlisted Python 脚本在工作区内可执行；同一命令携带越界路径时仍返回 `SANDBOX_VIOLATION`。
@@ -177,7 +179,7 @@ def _matches_allowed_command(argv: list[str], allowed_commands: tuple[str, ...])
 - [ ] Step 1: 写后端行为失败测试
 - [ ] Step 2: 实现 payload 规范化与只读行
 - [ ] Step 3: 运行 `python -m pytest tests/test_ui.py -q`
-- [ ] Step 4: 运行 `node --check src/agent/web/static/assets/render/health.js`
+- [ ] Step 4: 若 `node` 可用，运行 `node --check src/agent/web/static/assets/render/health.js`；若不可用，记录 fallback，并用 `rg` 核对 import/export 与 `allowed_commands` 只读引用，不得因此阻塞门禁
 - [ ] Step 5: 运行 `git diff --check`
 - [ ] Step 6: 仅提交本任务文件
   `git -c core.autocrlf=input commit -m "feat: show command allowlist in workbench"`
@@ -202,8 +204,10 @@ allowed_commands = ["python", "pip show", "npm test"]
 
 2. README 明确：
    - 按 argv token 前缀匹配；
+   - 首 token 规范化为小写并忽略 `.exe`，后续 token 精确且区分大小写（`pip Show` 不匹配 `pip show`）；
    - 前缀越短权限越宽；
    - shell/network/dangerous 拒绝不可覆盖；
+   - `allowed_commands = ["git commit"]` 会有意越过默认只读 Git 限制，但仍会进入审批；
    - allowlisted 命令仍需审批和路径沙箱。
 3. CHANGELOG `Unreleased` 记录命令白名单。
 4. `docs/next-feature-candidates.md` 将候选 1 标为已完成，并保留候选 2/3 的排序与触发条件，避免下一会话重复选题。
