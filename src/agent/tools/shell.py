@@ -211,6 +211,7 @@ def _policy_denial(argv: list[str], allowed_commands: tuple[str, ...] = ()) -> s
 
 def _matches_allowed_command(argv: list[str], allowed_commands: tuple[str, ...]) -> bool:
     for command in allowed_commands:
+        # ponytail: whitespace splitting cannot express one argv token containing spaces; use token arrays if needed.
         prefix = command.split()
         if not prefix or len(prefix) > len(argv):
             continue
