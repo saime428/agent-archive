@@ -4,7 +4,6 @@ setlocal
 cd /d "%~dp0"
 set "PYTHONPATH=src"
 if "%AGENT_PORT%"=="" set "AGENT_PORT=8000"
-set /a AGENT_PORT_END=%AGENT_PORT%+19
 set "AGENT_LOG=%~dp0.agent\start-agent.log"
 set "AGENT_PYTHON="
 
@@ -42,27 +41,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
-for /l %%P in (%AGENT_PORT%,1,%AGENT_PORT_END%) do (
-  netstat -ano | findstr /R /C:":%%P .*LISTENING" >nul
-  if errorlevel 1 (
-    set "AGENT_PORT=%%P"
-    goto found_port
-  )
-)
-
-echo No free Agent Workbench port found from %AGENT_PORT% to %AGENT_PORT_END%.
-echo No free Agent Workbench port found from %AGENT_PORT% to %AGENT_PORT_END%.>> "%AGENT_LOG%"
-pause >nul
-exit /b 1
-
-:found_port
-set "AGENT_URL=http://127.0.0.1:%AGENT_PORT%/"
-
-echo Starting Agent Workbench at %AGENT_URL%
+echo Starting Agent Workbench from port %AGENT_PORT%. Browser opens after the server starts.
 echo Workspace: %CD%
-echo URL: %AGENT_URL%>> "%AGENT_LOG%"
-start "" "%AGENT_URL%"
-"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% >> "%AGENT_LOG%" 2>&1
+echo Requested port: %AGENT_PORT%>> "%AGENT_LOG%"
+"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% --open-browser >> "%AGENT_LOG%" 2>&1
 set "AGENT_EXIT=%ERRORLEVEL%"
 echo Python exited with code %AGENT_EXIT%.>> "%AGENT_LOG%"
 

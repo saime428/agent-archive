@@ -139,6 +139,7 @@ def test_start_command_is_workbench_start_alias(monkeypatch, tmp_path) -> None:
     assert calls[0]["workspace"] == workspace.resolve()
     assert calls[0]["host"] == "127.0.0.1"
     assert calls[0]["port"] == 8767
+    assert calls[0]["open_browser"] is False
 
 
 def test_start_command_defaults_to_safe_workbench_port(monkeypatch, tmp_path) -> None:
@@ -199,6 +200,28 @@ def test_start_command_tries_next_port_when_windows_denies_bind(monkeypatch, tmp
     assert [call["port"] for call in calls] == [8765, 8766]
 
 
+def test_start_command_scans_past_short_denied_port_block(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        if kwargs["port"] < 8020:
+            error = OSError("Access denied")
+            error.winerror = 10013
+            raise error
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--port", "8000"])
+
+    assert result.exit_code == 0
+    assert calls[0]["port"] == 8000
+    assert calls[-1]["port"] == 8020
+
+
 def test_start_agent_launcher_points_at_workbench() -> None:
     launcher = Path(__file__).resolve().parents[1] / "start-agent.cmd"
     script = launcher.read_text(encoding="utf-8")
@@ -206,7 +229,6 @@ def test_start_agent_launcher_points_at_workbench() -> None:
     assert 'cd /d "%~dp0"' in script
     assert 'set "PYTHONPATH=src"' in script
     assert 'set "AGENT_PORT=8000"' in script
-    assert "AGENT_PORT_END=%AGENT_PORT%+19" in script
     assert 'set "AGENT_LOG=%~dp0.agent\\start-agent.log"' in script
     assert 'set "AGENT_PYTHON="' in script
     assert 'if exist "%~dp0.venv\\Scripts\\python.exe"' in script
@@ -214,10 +236,10 @@ def test_start_agent_launcher_points_at_workbench() -> None:
     assert 'if not defined AGENT_PYTHON if exist "%USERPROFILE%\\miniconda3\\python.exe"' in script
     assert 'findstr /I /C:"\\Microsoft\\WindowsApps\\python.exe"' in script
     assert '"%AGENT_PYTHON%" -c "import agent.cli"' in script
-    assert "netstat -ano" in script
-    assert ":found_port" in script
-    assert "http://127.0.0.1:%AGENT_PORT%/" in script
-    assert '"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% >> "%AGENT_LOG%" 2>&1' in script
+    assert "netstat -ano" not in script
+    assert ":found_port" not in script
+    assert 'start ""' not in script
+    assert '"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% --open-browser >> "%AGENT_LOG%" 2>&1' in script
     assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' not in script
     assert "Agent Workbench exited with code %AGENT_EXIT%." in script
     assert "Python exited with code %AGENT_EXIT%." in script

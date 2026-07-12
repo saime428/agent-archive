@@ -39,6 +39,8 @@ app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(provider_app, name="provider")
 app.add_typer(release_app, name="release")
+
+WORKBENCH_PORT_ATTEMPTS = 200
 console = Console(highlight=False)
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
@@ -200,10 +202,11 @@ def ui(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
     port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
+    open_browser: bool = typer.Option(False, "--open-browser/--no-open-browser", help="Open the selected workbench URL."),
 ) -> None:
     """Start the local read-only web workbench."""
     workspace = (cwd or Path.cwd()).resolve()
-    _start_workbench(workspace, host, port)
+    _start_workbench(workspace, host, port, open_browser=open_browser)
 
 
 @app.command()
@@ -211,13 +214,14 @@ def start(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
     port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
+    open_browser: bool = typer.Option(False, "--open-browser/--no-open-browser", help="Open the selected workbench URL."),
 ) -> None:
     """Start Agent Workbench."""
     workspace = (cwd or Path.cwd()).resolve()
-    _start_workbench(workspace, host, port)
+    _start_workbench(workspace, host, port, open_browser=open_browser)
 
 
-def _start_workbench(workspace: Path, host: str, port: int) -> None:
+def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: bool = False) -> None:
     load_workspace_secrets(workspace)
     try:
         load_config(workspace)
@@ -225,11 +229,11 @@ def _start_workbench(workspace: Path, host: str, port: int) -> None:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     last_error: OSError | None = None
-    for candidate in range(port, port + 20):
+    for candidate in range(port, port + WORKBENCH_PORT_ATTEMPTS):
         try:
             if candidate != port:
                 console.print(f"Port {candidate - 1} is busy; trying {candidate}.")
-            serve_workbench(workspace=workspace, host=host, port=candidate)
+            serve_workbench(workspace=workspace, host=host, port=candidate, open_browser=open_browser)
             return
         except OSError as exc:
             if not _is_address_in_use(exc):

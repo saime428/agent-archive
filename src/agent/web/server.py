@@ -10,6 +10,7 @@ import threading
 import time
 import tomllib
 import uuid
+import webbrowser
 from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -65,12 +66,14 @@ def static_file_path(relative_path: str) -> Path:
     return candidate
 
 
-def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
+def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
     handler = create_workbench_handler(workspace.resolve())
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{port}"
-    print(f"Agent Workbench: {url}")
-    print(f"workspace: {workspace.resolve()}")
+    print(f"Agent Workbench: {url}", flush=True)
+    print(f"workspace: {workspace.resolve()}", flush=True)
+    if open_browser:
+        threading.Timer(0.2, webbrowser.open, args=(url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
