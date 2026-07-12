@@ -124,3 +124,41 @@ def test_chat_job_streams_tagged_model_chunks(monkeypatch, tmp_path) -> None:
         ("args", '{"final"'),
     ]
     assert any(event.get("event") == "final" for event in events)
+
+
+def test_chat_job_batches_tiny_model_chunks(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / ".agent").mkdir(parents=True)
+    (workspace / ".agent" / "config.toml").write_text("native_tools = true\n", encoding="utf-8")
+    streamed = "x" * 130
+
+    class StreamingFake:
+        def chat_tools(self, messages, tools, *, temperature=None):
+            raise AssertionError("streaming path expected when stream_handler is provided")
+
+        def stream_chat_tools(self, messages, tools, *, temperature=None):
+            for character in streamed:
+                yield ("thinking", character)
+            return {
+                "message": "",
+                "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
+            }
+
+    monkeypatch.setattr(server, "make_llm", lambda config: StreamingFake())
+
+    started = server.build_chat_start_payload(workspace, {"message": "hi"})
+    events: list[dict] = []
+    after = 0
+    for _ in range(50):
+        payload = server.build_chat_events_payload(started["job_id"], after=after, timeout=5.0)
+        events.extend(payload["events"])
+        after = payload["next"]
+        if payload["done"]:
+            break
+    with server._CHAT_JOBS_LOCK:
+        server._CHAT_JOBS.clear()
+
+    chunk_events = [event for event in events if event.get("event") == "model_stream_chunk"]
+    assert "".join(event["text"] for event in chunk_events) == streamed
+    assert [event["chunk_chars"] for event in chunk_events] == [len(event["text"]) for event in chunk_events]
+    assert len(chunk_events) <= 3

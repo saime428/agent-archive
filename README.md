@@ -72,6 +72,17 @@ Prefixes match complete argv tokens. The executable token is case-insensitive an
 
 An allowlist cannot override hard-denied shell wrappers, network commands, or dangerous commands. Every allowlisted command still requires approval and passes the existing workspace path sandbox. For example, `allowed_commands = ["git commit"]` intentionally bypasses the default read-only Git restriction, but `git commit` still requires approval before execution.
 
+### Run mode for coding tasks
+
+The default `guided` mode allows three actions, which is useful for short conversations but often too small for a coding task that must inspect, edit, and verify files. Select `auto` in Workbench Settings, or set it in project configuration:
+
+```toml
+# .agent/config.toml
+mode = "auto"
+```
+
+`auto` raises the action budget to ten without changing approval or sandbox rules.
+
 ## v1.0 Release Prep
 
 `agent start` is the one-command Workbench startup alias. It reuses `agent ui`

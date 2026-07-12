@@ -36,6 +36,7 @@ from agent.tools.filesystem import create_snapshot
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 CHAT_JOB_TTL_SECONDS = 300.0
+STREAM_EVENT_BATCH_CHARS = 64
 
 
 @dataclass
@@ -564,6 +565,7 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         "provider",
         "model",
+        "mode",
         "sandbox",
         "approval",
         "dry_run",
@@ -584,6 +586,10 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError("model must be a non-empty string.")
             updates[key] = value.strip()
+        elif key == "mode":
+            if not isinstance(value, str) or value not in {"step", "guided", "auto", "plan-first"}:
+                raise ValueError("mode must be step, guided, auto, or plan-first.")
+            updates[key] = value
         elif key == "sandbox":
             if value not in {"read-only", "workspace-write"}:
                 raise ValueError("sandbox must be read-only or workspace-write.")
@@ -1084,8 +1090,32 @@ def _run_chat_job(
     message: str,
 ) -> None:
     job = _get_chat_job(job_id)
+    pending_stream_event: dict[str, Any] | None = None
+
+    def flush_stream_event() -> None:
+        nonlocal pending_stream_event
+        if pending_stream_event is not None:
+            _append_chat_event(job, pending_stream_event)
+            pending_stream_event = None
 
     def handle_event(event: dict[str, Any]) -> None:
+        nonlocal pending_stream_event
+        if event.get("event") == "model_stream_chunk":
+            kind = str(event.get("kind") or "content")
+            text = str(event.get("text") or "")
+            if pending_stream_event is not None and pending_stream_event["kind"] != kind:
+                flush_stream_event()
+            if not text:
+                return
+            if pending_stream_event is None:
+                pending_stream_event = {**event, "kind": kind, "text": ""}
+            pending_stream_event["text"] += text
+            pending_stream_event["chunk_chars"] = len(pending_stream_event["text"])
+            # ponytail: size batching removes per-token SSE churn; add timed flushing only if latency is measured.
+            if len(pending_stream_event["text"]) >= STREAM_EVENT_BATCH_CHARS:
+                flush_stream_event()
+            return
+        flush_stream_event()
         _append_chat_event(job, event)
 
     def handle_approval(_action: Any) -> bool:
@@ -1106,10 +1136,10 @@ def _run_chat_job(
         )
         payload = _chat_turn_response(root, session, result, diagnostics)
         job.result = payload
-        _append_chat_event(job, {"event": "final", **payload})
+        handle_event({"event": "final", **payload})
     except Exception as exc:  # pragma: no cover - kept visible through SSE for local UI failures
         job.error = str(exc)
-        _append_chat_event(job, {"event": "error", "error": str(exc)})
+        handle_event({"event": "error", "error": str(exc)})
     finally:
         with job.condition:
             job.done = True

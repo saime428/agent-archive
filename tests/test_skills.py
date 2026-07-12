@@ -35,6 +35,17 @@ def test_load_selected_skills_loads_body_with_budget(tmp_path) -> None:
     assert loaded[0].body.endswith("\n[truncated]")
 
 
+def test_builtin_code_dev_prefers_the_simplest_standard_library_fix(tmp_path) -> None:
+    loaded = load_selected_skills(tmp_path, ["code-dev"], max_chars=2_000)
+
+    assert "simplest correct change" in loaded[0].body
+    assert "standard library" in loaded[0].body
+    assert "built-in language features" in loaded[0].body
+    assert "Do not add an import" in loaded[0].body
+    assert "split()/join()" in loaded[0].body
+    assert "re.sub" in loaded[0].body
+
+
 def test_load_selected_skills_rejects_unknown_skill(tmp_path) -> None:
     try:
         load_selected_skills(tmp_path, ["missing"], max_chars=100)

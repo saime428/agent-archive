@@ -85,6 +85,7 @@ export const els = {
   settingsForm: document.querySelector("#settings-form"),
   settingsProvider: document.querySelector("#settings-provider"),
   settingsModel: document.querySelector("#settings-model"),
+  settingsMode: document.querySelector("#settings-mode"),
   settingsSandbox: document.querySelector("#settings-sandbox"),
   settingsApproval: document.querySelector("#settings-approval"),
   settingsSkills: document.querySelector("#settings-skills"),

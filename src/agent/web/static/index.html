@@ -203,6 +203,15 @@
               模型
               <input id="settings-model" name="model" type="text" />
             </label>
+            <label>
+              运行模式
+              <select id="settings-mode" name="mode">
+                <option value="guided">guided（3 步）</option>
+                <option value="auto">auto（10 步，适合编码任务）</option>
+                <option value="plan-first">plan-first（6 步）</option>
+                <option value="step">step（1 步）</option>
+              </select>
+            </label>
             <label id="settings-runtime-section">
               沙箱
               <select id="settings-sandbox" name="sandbox">

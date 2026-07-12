@@ -36,6 +36,7 @@ export function renderSettings() {
   const config = state.config?.config || {};
   els.settingsProvider.value = config.provider || "deepseek";
   els.settingsModel.value = config.model || "deepseek-v4-flash";
+  els.settingsMode.value = config.mode || "guided";
   els.settingsSandbox.value = config.sandbox || "workspace-write";
   els.settingsApproval.value = config.approval || "risky-confirm";
   els.settingsSkills.value = (config.default_skills || ["code-dev"]).join(", ");
@@ -49,6 +50,7 @@ export function renderSettings() {
     ["服务商", readiness.provider || config.provider || "unknown"],
     ["模型", readiness.model || config.model || "unknown"],
     ["DeepSeek key", readiness.deepseek_api_key_present ? "已配置" : "缺失"],
+    ["运行模式", config.mode || "guided"],
     ["联网搜索", config.web_search_enabled ? "开" : "关"],
     ["读取电脑文件", config.computer_read_enabled ? "开（只读）" : "关"],
     ["命令白名单", (config.allowed_commands || []).join(", ") || "未配置"],
@@ -68,6 +70,7 @@ function buildSettingsPayload() {
   return {
     provider: els.settingsProvider.value,
     model: els.settingsModel.value.trim(),
+    mode: els.settingsMode.value,
     sandbox: els.settingsSandbox.value,
     approval: els.settingsApproval.value,
     dry_run: els.settingsDryRun.checked,

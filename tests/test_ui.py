@@ -101,6 +101,53 @@ def test_build_save_config_payload_preserves_allowed_commands(tmp_path: Path) ->
     assert "dry_run = true" in config_text
 
 
+def test_build_save_config_payload_writes_auto_mode(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    payload = build_save_config_payload(workspace, {"mode": "auto"})
+
+    config_text = (workspace / ".agent" / "config.toml").read_text(encoding="utf-8")
+    assert payload["config"]["mode"] == "auto"
+    assert 'mode = "auto"' in config_text
+
+
+def test_build_save_config_payload_rejects_unknown_mode(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    try:
+        build_save_config_payload(workspace, {"mode": "turbo"})
+    except ValueError as exc:
+        assert "mode must be" in str(exc)
+    else:
+        raise AssertionError("browser config must reject unknown modes")
+
+
+def test_build_save_config_payload_rejects_non_string_mode(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    try:
+        build_save_config_payload(workspace, {"mode": ["auto"]})
+    except ValueError as exc:
+        assert "mode must be" in str(exc)
+    else:
+        raise AssertionError("browser config must reject non-string modes")
+
+
+def test_settings_form_writes_run_mode() -> None:
+    index = static_file_path("index.html").read_text(encoding="utf-8")
+    state_script = static_file_path("assets/state.js").read_text(encoding="utf-8")
+    health_script = static_file_path("assets/render/health.js").read_text(encoding="utf-8")
+
+    assert 'id="settings-mode"' in index
+    assert '<option value="auto">' in index
+    assert 'settingsMode: document.querySelector("#settings-mode")' in state_script
+    assert 'els.settingsMode.value = config.mode || "guided"' in health_script
+    assert "mode: els.settingsMode.value" in health_script
+
+
 def test_build_save_config_payload_ignores_allowed_commands_update(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     config_path = workspace / ".agent" / "config.toml"

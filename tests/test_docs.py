@@ -68,6 +68,14 @@ def test_readme_documents_command_allowlist_security_boundaries() -> None:
     assert "still requires approval" in readme
 
 
+def test_readme_documents_auto_mode_for_coding_tasks() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert 'mode = "auto"' in readme
+    assert "default `guided` mode allows three actions" in readme
+    assert "without changing approval or sandbox rules" in readme
+
+
 def test_next_feature_handoff_marks_command_allowlist_complete() -> None:
     handoff = (ROOT / "docs" / "next-feature-candidates.md").read_text(encoding="utf-8")
 
