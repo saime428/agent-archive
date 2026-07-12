@@ -56,6 +56,24 @@ def test_readme_quickstart_documents_core_cli_commands() -> None:
     assert "snapshot" in readme.lower()
 
 
+def test_readme_documents_command_allowlist_security_boundaries() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert 'allowed_commands = ["python", "pip show", "npm test"]' in readme
+    assert 'allowed_commands = ["git commit"]' in readme
+    assert "intentionally bypasses the default read-only Git restriction" in readme
+    assert "The executable token is case-insensitive" in readme
+    assert "later tokens are case-sensitive" in readme
+    assert "hard-denied shell wrappers, network commands, or dangerous commands" in readme
+    assert "still requires approval" in readme
+
+
+def test_next_feature_handoff_marks_command_allowlist_complete() -> None:
+    handoff = (ROOT / "docs" / "next-feature-candidates.md").read_text(encoding="utf-8")
+
+    assert "命令白名单扩展（已完成）" in handoff
+
+
 def test_v01_acceptance_checklist_records_statuses_and_deferrals() -> None:
     checklist = (ROOT / "docs" / "v0.1-acceptance.md").read_text(encoding="utf-8")
 

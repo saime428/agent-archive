@@ -1,12 +1,12 @@
 # 下一步功能候选（2026-07-11 交接）
 
-上一功能「Workbench 流式输出与输入区精简」已完成验收（提交 8b5a954→1b49f02）。
+上一功能「命令白名单扩展」已完成验收（实现提交 bcd6e1e→4968657）。
 本文档供新会话选题使用。做法沿用既有流程：先写 spec（docs/superpowers/specs/）
 和 plan（docs/superpowers/plans/），按任务 TDD 实现，pytest 在用户机器统一门禁。
 
 ## 交接必读
 
-- 分支:codex/v3.0-frontend-modules,领先 origin 十几个提交,先 push。
+- 分支:codex/v3.0-frontend-modules,包含本地未推送提交,交接前先 push。
 - `native_tools = true` 已是日常配置;DeepSeek thinking 模型只支持 `tool_choice: "auto"`。
 - 沙箱挂载不可信(曾多次损坏提交):git 提交在用户机器跑,只 stage 任务列出的文件,
   `-c core.autocrlf=input`;校验用 pytest→commit→`git status --short` 为空,
@@ -14,7 +14,7 @@
 - 沙箱 Python 3.10 无法 import 本项目(需 3.11+ StrEnum),验证只能 py_compile。
 - Workbench 端口:8000–8019 被 Windows winnat 保留,用 `--port 18080`。
 
-## 候选 1:命令白名单扩展（推荐先做）
+## 候选 1:命令白名单扩展（已完成）
 
 **动机:** `run_command` 是目前 agent 能力的最大瓶颈。现状(src/agent/tools/shell.py
 `_policy_denial`)默认只放行:pytest、rg、只读 git、`python -c`、`python -m pytest`,
@@ -34,6 +34,11 @@
 
 **风险:** 用户把危险命令写进白名单——靠拒绝清单优先级 + 文档警告 + 审批兜底。
 **验收:** 白名单命令可执行、拒绝清单不可越过、默认行为零变化、真实 run 冒烟。
+
+**完成:** 配置、token 前缀匹配、硬拒绝优先、loop 接线、CLI/trace/summary、Workbench
+只读展示和 Web 写保护均已实现。设计与计划见
+`docs/superpowers/specs/2026-07-11-command-allowlist-design.md`、
+`docs/superpowers/plans/2026-07-11-command-allowlist.md`。
 
 ## 候选 2:端点能力自动探测
 

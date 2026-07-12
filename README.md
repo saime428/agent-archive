@@ -59,6 +59,19 @@ model = "llama3"
 
 With `native_tools = true` the agent uses native function calling with `tool_choice: "auto"` (thinking-mode models such as DeepSeek reject `"required"`); a plain-text reply without a tool call is routed through the repair channel. Endpoints without tool support should keep it `false`.
 
+### Additional command allowlist
+
+`run_command` keeps a small safe default set. Add explicit argv prefixes only when a project needs more commands:
+
+```toml
+# .agent/config.toml
+allowed_commands = ["python", "pip show", "npm test"]
+```
+
+Prefixes match complete argv tokens. The executable token is case-insensitive and ignores a trailing `.exe`; later tokens are case-sensitive, so `pip Show` does not match `pip show`. Short prefixes grant more capability, so prefer the narrowest useful entry.
+
+An allowlist cannot override hard-denied shell wrappers, network commands, or dangerous commands. Every allowlisted command still requires approval and passes the existing workspace path sandbox. For example, `allowed_commands = ["git commit"]` intentionally bypasses the default read-only Git restriction, but `git commit` still requires approval before execution.
+
 ## v1.0 Release Prep
 
 `agent start` is the one-command Workbench startup alias. It reuses `agent ui`
