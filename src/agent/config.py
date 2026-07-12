@@ -23,6 +23,7 @@ KNOWN_KEYS = {
     "base_url",
     "api_key_env",
     "default_skills",
+    "allowed_commands",
     "memory_auto_write",
     "memory_max_items",
     "enabled_hooks",
@@ -50,6 +51,7 @@ class AgentConfig:
     base_url: str = ""
     api_key_env: str = "OPENAI_API_KEY"
     default_skills: tuple[str, ...] = ("code-dev",)
+    allowed_commands: tuple[str, ...] = ()
     memory_auto_write: bool = False
     memory_max_items: int = 5
     enabled_hooks: tuple[str, ...] = ()
@@ -72,6 +74,7 @@ class ConfigOverrides:
     base_url: str | None = None
     api_key_env: str | None = None
     default_skills: tuple[str, ...] | None = None
+    allowed_commands: tuple[str, ...] | None = None
     memory_auto_write: bool | None = None
     memory_max_items: int | None = None
     enabled_hooks: tuple[str, ...] | None = None
@@ -177,6 +180,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "base_url": overrides.base_url,
         "api_key_env": overrides.api_key_env,
         "default_skills": overrides.default_skills,
+        "allowed_commands": overrides.allowed_commands,
         "memory_auto_write": overrides.memory_auto_write,
         "memory_max_items": overrides.memory_max_items,
         "enabled_hooks": overrides.enabled_hooks,
@@ -217,7 +221,7 @@ def _validate_value(key: str, value: Any, path: Path | None) -> None:
         if not isinstance(value, str):
             raise _invalid_config_value(key, "expected string", path)
         return
-    if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
+    if key in {"default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"}:
         type_name = "tuple" if cli else "list"
         if not isinstance(value, sequence_type) or any(not isinstance(item, str) or not item.strip() for item in value):
             raise _invalid_config_value(key, f"expected {type_name} of non-empty strings", path)
@@ -235,6 +239,6 @@ def _invalid_config_value(key: str, message: str, path: Path | None) -> ConfigEr
 
 
 def _normalize_value(key: str, value: Any) -> Any:
-    if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
+    if key in {"default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"}:
         return tuple(value)
     return value

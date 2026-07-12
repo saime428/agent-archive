@@ -272,3 +272,60 @@ def test_native_tools_rejects_non_boolean(tmp_path) -> None:
 
     with pytest.raises(ConfigError):
         load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_allowed_commands_defaults_to_empty_tuple() -> None:
+    assert AgentConfig().allowed_commands == ()
+
+
+def test_allowed_commands_loads_from_project_config(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'allowed_commands = ["python", "pip show"]\n',
+        encoding="utf-8",
+    )
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.allowed_commands == ("python", "pip show")
+    assert diagnostics.warnings == []
+
+
+def test_allowed_commands_accepts_empty_project_list(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("allowed_commands = []\n", encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.allowed_commands == ()
+    assert diagnostics.warnings == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '"python"',
+        '["python", " "]',
+        '["python", 3]',
+    ],
+)
+def test_allowed_commands_rejects_invalid_project_values(tmp_path, value: str) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(f"allowed_commands = {value}\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_allowed_commands_accepts_cli_override(tmp_path) -> None:
+    config, diagnostics = load_config(
+        tmp_path,
+        home=tmp_path / "home",
+        overrides=ConfigOverrides(allowed_commands=("npm test",)),
+    )
+
+    assert config.allowed_commands == ("npm test",)
+    assert diagnostics.warnings == []
