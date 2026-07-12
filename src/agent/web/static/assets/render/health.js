@@ -51,6 +51,7 @@ export function renderSettings() {
     ["DeepSeek key", readiness.deepseek_api_key_present ? "已配置" : "缺失"],
     ["联网搜索", config.web_search_enabled ? "开" : "关"],
     ["读取电脑文件", config.computer_read_enabled ? "开（只读）" : "关"],
+    ["命令白名单", (config.allowed_commands || []).join(", ") || "未配置"],
   ]);
   renderRows(
     els.settingsToolList,

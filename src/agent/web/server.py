@@ -450,7 +450,7 @@ def _memory_entry_payload(entry: MemoryEntry) -> dict[str, str | None]:
 def build_config_payload(workspace: Path) -> dict[str, Any]:
     config, diagnostics = load_config(workspace.resolve())
     config_record = asdict(config)
-    for key in ("default_skills", "enabled_hooks", "blocking_hooks"):
+    for key in ("default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"):
         config_record[key] = list(config_record[key])
     return {
         "workspace": str(workspace.resolve()),

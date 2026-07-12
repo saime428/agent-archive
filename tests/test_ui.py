@@ -73,14 +73,46 @@ def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path)
     workspace = tmp_path / "workspace"
     config_path = workspace / ".agent" / "config.toml"
     config_path.parent.mkdir(parents=True)
-    config_path.write_text('provider = "fake"\nmode = "auto"\n', encoding="utf-8")
+    config_path.write_text(
+        'provider = "fake"\nmode = "auto"\nallowed_commands = ["python", "pip show"]\n',
+        encoding="utf-8",
+    )
 
     payload = build_config_payload(workspace)
 
     assert payload["workspace"] == str(workspace.resolve())
     assert payload["config"]["provider"] == "fake"
     assert payload["config"]["mode"] == "auto"
+    assert payload["config"]["allowed_commands"] == ["python", "pip show"]
     assert str(config_path.resolve()) in payload["diagnostics"]["loaded_files"]
+
+
+def test_build_save_config_payload_preserves_allowed_commands(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('allowed_commands = ["python"]\ndry_run = false\n', encoding="utf-8")
+
+    payload = build_save_config_payload(workspace, {"dry_run": True})
+
+    config_text = config_path.read_text(encoding="utf-8")
+    assert payload["config"]["allowed_commands"] == ["python"]
+    assert 'allowed_commands = ["python"]' in config_text
+    assert "dry_run = true" in config_text
+
+
+def test_build_save_config_payload_ignores_allowed_commands_update(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('allowed_commands = ["python"]\n', encoding="utf-8")
+
+    payload = build_save_config_payload(workspace, {"allowed_commands": ["rm"]})
+
+    config_text = config_path.read_text(encoding="utf-8")
+    assert payload["config"]["allowed_commands"] == ["python"]
+    assert 'allowed_commands = ["python"]' in config_text
+    assert "rm" not in config_text
 
 
 def test_build_save_config_payload_writes_project_config_without_secrets(tmp_path: Path) -> None:
@@ -1242,6 +1274,9 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "model_stream_chunk" in script
     assert "toggleConfigKey" in script
     assert "renderChipToggles" in script
+    assert "config.allowed_commands" in script
+    assert "命令白名单" in script
+    assert "allowed_commands:" not in script
     assert "stream-live-text" in styles
     assert "chip-toggle" in styles
     assert "Recovered after" not in script
