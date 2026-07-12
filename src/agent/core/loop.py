@@ -716,6 +716,7 @@ def _tool_observation(
             context,
             sandbox,
             observation_index=observation_index,
+            allowed_commands=config.allowed_commands,
         )
     if action.action.name in {"git_status", "git_diff"}:
         return execute_git_tool(

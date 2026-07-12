@@ -1176,6 +1176,44 @@ def test_run_once_blocks_run_command_without_approval(tmp_path) -> None:
     assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 1
 
 
+def test_run_once_executes_approved_allowlisted_python_script(tmp_path) -> None:
+    (tmp_path / "script.py").write_text("print('allowed from loop')\n", encoding="utf-8")
+    llm = ObservationFeedbackLLM(
+        {
+            "message": "Run script.",
+            "action": {
+                "name": "run_command",
+                "args": {
+                    "argv": [sys.executable, "script.py"],
+                    "cwd": None,
+                    "timeout_seconds": 5,
+                },
+            },
+        },
+        final="Script completed.",
+    )
+
+    result = run_once(
+        "run script",
+        llm,
+        cwd=tmp_path,
+        run_id="run_allowed_command",
+        config=AgentConfig(allowed_commands=("python",)),
+        approval_handler=lambda _action: True,
+    )
+
+    assert result.action.action.name == "done"
+    assert result.observations[0].status == "ok"
+    assert result.observations[0].data is not None
+    assert result.observations[0].data["stdout"] == "allowed from loop\n"
+    feedback = next(
+        message["content"]
+        for message in llm.messages_by_call[1]
+        if "UNTRUSTED TOOL OBSERVATION" in message["content"]
+    )
+    assert "Command exited with code 0." in feedback
+
+
 def test_run_once_dry_run_skips_write_file_and_continues_to_done(tmp_path) -> None:
     result = run_once(
         "write notes",
