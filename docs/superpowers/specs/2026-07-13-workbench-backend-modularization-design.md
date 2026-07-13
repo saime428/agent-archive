@@ -1,11 +1,11 @@
 # 设计：Workbench 后端解体——以 ChatRuntime seam 拆分 `server.py`
 
 日期：2026-07-13
-状态：已通过对抗审查，待实现计划
+状态：设计已通过对抗审查，实施计划待审查
 依据：`docs/code-review-2026-07-12.md` 3.1、5.4
 实现基线：`679e2ff`
 实现分支：`codex/v3.1-workbench-backend`
-计划：待本设计通过对抗审查后编写
+计划：`docs/superpowers/plans/2026-07-13-workbench-backend-modularization.md`
 
 ## 背景
 
@@ -32,9 +32,11 @@
 
 ## 设计原则
 
-### 先建立 seam，再移动代码
+### 先固定行为和依赖，再建立 seam
 
 真正复杂且有状态的是 chat job 生命周期。`ChatRuntime` 的删除测试成立：若删除它，锁、条件变量、TTL、审批截止时间、事件序列和 worker 收尾会重新散回 HTTP handler 与测试，因此该模块有实际深度。
+
+但 runtime 的 worker 需要复用同步聊天的状态准备和响应投影。为保持 `chat_runtime.py ─> chats.py` 的单向依赖，必须先把 `ConversationState.delete` 与无状态 chat 投影移到稳定归属，再提取 runtime；否则只能让 runtime 反向导入 `server.py`、临时复制投影实现或增加一次性 callback seam。该前置移动不改变 `ChatRuntime` 是本轮主要 seam 的判断。
 
 设置、文件和 run payload 主要是无状态或本地文件系统逻辑，不为它们新增 class、port 或 adapter。它们继续使用普通函数；拆分的收益来自 locality，而不是制造可替换性。
 
@@ -44,9 +46,9 @@
 
 ```text
 server.py
-  ├─> settings.py
+  ├─> settings.py ─> runs.py
   ├─> files.py
-  ├─> chats.py
+  ├─> chats.py ─> runs.py
   ├─> chat_runtime.py ─> chats.py
   └─> runs.py
 
@@ -57,7 +59,7 @@ web domain modules ─> agent.core / agent.policy / agent.tools / agent.llm
 
 - 任何领域模块导入 `agent.web.server`；
 - 为共享一两个私有函数新增 `web/utils.py`；
-- `settings.py`、`files.py`、`runs.py` 互相调用；
+- 除 `settings.py ─> runs.py`、`chats.py ─> runs.py` 与 `chat_runtime.py ─> chats.py` 外，领域模块互相调用；
 - 通过 `server.py` re-export 搬走的 test-only 函数，保留旧的宽 interface。
 
 若移动时出现循环依赖，优先把行为放回拥有该状态或 payload 的领域模块，而不是新增抽象层绕开循环。
@@ -68,10 +70,10 @@ web domain modules ─> agent.core / agent.policy / agent.tools / agent.llm
 | --- | --- | --- |
 | `web/server.py` | `serve_workbench`、handler、显式 GET/POST 路由、JSON/SSE/static 传输、query 读取、HTTP 错误映射 | `serve_workbench`、`create_workbench_handler`、`static_file_path` |
 | `web/chat_runtime.py` | `_ChatJob`、registry、lock、condition、worker、事件追加/轮询、审批、TTL、stream batching | `ChatRuntime.start`、`poll`、`decide` |
-| `web/chats.py` | 会话列表/详情、同步 `/api/chat/turn`、重命名/删除、turn payload、状态与展示投影 | 当前 chat payload builders 及供 runtime 使用的 turn/state helper |
-| `web/settings.py` | health、provider readiness、workspace risk、memory review、config 读取/校验/写入、tool inventory | 对应 settings/health/tools payload builders |
+| `web/chats.py` | 会话列表/详情、同步 `/api/chat/turn`、重命名/删除、turn payload、状态与展示投影 | 当前 chat payload builders 及供 runtime 使用的 turn/state helper；复用 runs 的 replay 投影 |
+| `web/settings.py` | health、provider readiness、workspace risk、memory review、config 读取/校验/写入、tool inventory | 对应 settings/health/tools payload builders；复用 runs 的 failure summary |
 | `web/files.py` | 文件列表/读取/保存、diff、snapshot restore、Workbench save trace、路径与 snapshot 私有 helper | 对应 file/diff/snapshot payload builders |
-| `web/runs.py` | run 列表/详情、task review、workflow hints、failure、patch review、recovery、replay | `build_runs_payload`、`build_run_detail_payload` |
+| `web/runs.py` | run 列表/详情、task review、workflow hints、failure、patch review、recovery、replay | `build_runs_payload`、`build_run_detail_payload`、`build_failure_summary`、`build_run_replay` |
 
 聊天会话的持久化路径、session id 校验与目录删除统一由 `ConversationState` 拥有。`chats.py` 的删除 payload builder 只做请求字段校验、调用 `ConversationState.delete(cwd, session_id)` 并投影响应；它不复制 session id 正则或自行删除目录。`ConversationState.delete` 先复用既有 `_session_path` 校验 id，再对 chats root 与 session directory 执行当前的 `resolve()` + normalized `commonpath` containment，不能假设合法 id 足以阻止预先存在的 symlink/junction 越界。通过检查后只删除目录而不读取 `session.json`，因此仍可删除内容损坏的会话，并保持现有非法路径与不存在会话错误文案。snapshot containment 与聊天存储不是同一领域，现有同类检查随 snapshot helper 迁入 `files.py`；两处各自保留安全边界，不为数行安全逻辑新增共享 `web/utils.py`。
 
@@ -113,7 +115,7 @@ runtime.decide(job_id=job_id, approve=approve)
 
 HTTP adapter 在信任边界校验 `message`、可选 `session_id`、`job_id` 与 `approve`，保留现有 `ValueError` 文案，再把 typed 参数传入 runtime。`ChatRuntime` 不接收原始 HTTP `dict`，避免其 interface 泄漏传输 payload 形状。校验直接留在对应路由分支，不新增只做转发的 chat payload builder，也不会形成 `chats.py` 与 `chat_runtime.py` 的循环依赖。同步兼容 `/api/chat/turn` 继续由 `chats.py` 直接运行，不伪装成异步 job。
 
-`start` 保持现有同步/异步失败边界：它先在请求线程加载 workspace secrets、config/diagnostics 与已有或新建的 `ConversationState`，这些步骤全部成功后才注册 job、追加 `chat_started` 并启动 worker。配置或 session 错误因此仍直接抛给 HTTP adapter，不能创建一个随后只发 `error` 的空壳 job。`make_llm`、`ChatSession.run_turn` 和响应投影留在 worker；provider 构造或执行期错误继续通过 SSE `error` 事件报告，并最终以 `done=True` 收口。
+`start` 在请求线程加载 workspace secrets、config/diagnostics 与已有或新建的 `ConversationState`，这些步骤全部成功后才注册 job、追加 `chat_started` 并启动 worker。当前 `ConversationState.create` 对请求指定的新 session id 延迟到保存时才校验，本轮在 create 内复用 `_session_path` 提前校验：非法 id 改为同步 HTTP `400`，不创建 job、不调用 LLM，错误文案不变。`make_llm`、`ChatSession.run_turn` 和响应投影留在 worker；provider 构造或执行期错误继续通过 SSE `error` 事件报告，并最终以 `done=True` 收口。
 
 本轮保持现有同 session 并发语义：runtime 不新增 per-session lock，也不阻止两个 job 同时加载并写回同一 `ConversationState`；`ConversationState.delete` 也不查询 runtime 中是否有活跃 job。直接 API 调用因此仍可能出现后写覆盖先写，或运行中的 worker 在删除后重新保存会话。当前前端通过活跃 turn 期间禁用发送按钮降低概率，但这不是服务端一致性保证。若要修复，需单独设计 start/rename/delete 的串行化、冲突响应和锁回收，不夹带在模块搬移 PR 中。
 
@@ -165,7 +167,36 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 
 ## 迁移顺序
 
-### 1. 提取 `ChatRuntime`
+### 1. 固定 HTTP adapter 派发
+
+- 先用 route-dispatch characterization matrix 锁定所有显式 GET/POST 分支；
+- 只增加测试，不修改生产路由；
+- chat runtime 尚未存在时以当前 chat builders 作为 sentinel，runtime 提取后把同一组断言切换到 fake runtime。
+
+### 2. 收口聊天会话删除
+
+- 让 `ConversationState.create` 在构造前复用 `_session_path` 校验显式 session id；
+- 在 `ConversationState` 增加 `delete(cwd, session_id)`；
+- 复用既有 session id 校验与 `_session_path`，同时保留当前 resolved normalized-commonpath containment，拒绝合法名称的外部 symlink/junction；
+- 只检查并删除会话目录，不加载或解析 `session.json`；
+- 保持现有成功 payload、非法路径及会话不存在错误文案；
+- 先让仍位于 `server.py` 的删除 builder 调用该方法，保持 commit 可运行。
+
+### 3. 提取 run 投影
+
+- 新建 `runs.py` 并一次移动 run 列表/详情、task review、workflow、failure、patch review、recovery 与 replay；
+- 将 `_build_failure_summary`、`_build_run_replay` 改为仓库内部可复用的 `build_failure_summary`、`build_run_replay`；
+- server 立即接线并更新 tests import，保持该 commit 可运行；
+- 后续只允许 settings/chats 单向复用这两个 helper。
+
+### 4. 提取无状态 chat 逻辑与投影
+
+- 新建 `chats.py`，移动会话列表/详情、同步 turn、重命名/删除和展示投影；
+- 对 runtime 暴露最小的 state preparation 与 response projection helper；
+- server 立即接线、测试立即更新 import，不留下临时 facade；
+- 异步 job、registry、审批与 SSE batching 暂留 `server.py`，下一步再整体迁移。
+
+### 5. 提取 `ChatRuntime`
 
 - 先用现有行为测试锁定 start/poll/approve/timeout/finish；
 - 把 `_ChatJob`、全局 registry 与异步 worker 移入 runtime；
@@ -175,22 +206,15 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 
 这是本轮主要的结构性设计判断。
 
-### 2. 收口聊天会话删除
+### 6. 移动其余无状态领域逻辑
 
-- 在 `ConversationState` 增加 `delete(cwd, session_id)`；
-- 复用既有 session id 校验与 `_session_path`，同时保留当前 resolved normalized-commonpath containment，拒绝合法名称的外部 symlink/junction；
-- 只检查并删除会话目录，不加载或解析 `session.json`；
-- 保持现有成功 payload、非法路径及会话不存在错误文案。
-
-### 3. 按领域移动无状态逻辑
-
-依次移动 `runs.py`、`files.py`、`settings.py`、`chats.py`。每次只做 import/path 调整，避免在移动 commit 中顺手改文案、payload 或算法。
+依次移动 `files.py`、`settings.py`。`_read_sandbox` 只被文件 payload 使用，随 `files.py` 移动；settings 的 workspace risk 从 `runs.py` 导入 `build_failure_summary`。每次只做 import/path 调整，避免在移动 commit 中顺手改文案、payload 或算法。
 
 不新增兼容 facade。仓库内测试直接改为从新模块导入；生产入口仍只从 `server.py` 导入 `serve_workbench`。
 
 仓库扫描确认生产代码仅从 `agent.web.server` 导入 `serve_workbench`；`build_*_payload` 的旧路径只有仓库测试使用，README 与当前产品文档没有把它们声明为公共 API。因此 builder 搬迁后不从 `server.py` re-export：这是有意的内部 Python import 路径变更。`server.py` 的保留 interface 仅为 `serve_workbench`、`create_workbench_handler`、`static_file_path`。
 
-### 4. 收窄 `server.py`
+### 7. 收窄 `server.py`
 
 - 删除已经迁出的 imports、globals、payload builders 和私有 helper；
 - handler 调用新模块或 runtime；
@@ -213,7 +237,7 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 
 字典 key 的序列化顺序和 JSON 缩进不是稳定 interface；语义 payload 与浏览器消费行为才是兼容目标。
 
-有意的运行期行为变化限于两项：registry 从进程全局改为 runtime-local，以及过期 job 从“仅在 poll 时清理”改为“任一 runtime 操作进入时清理”。同一 Workbench 的正常 HTTP 行为不变；不再支持另一 handler 凭 job id 读取前一实例任务，也不保证 job 超过 TTL 后仍可通过非 poll 操作取得。这些都不是已支持的产品路径，前者避免跨工作区串 job 与测试污染，后者以三个入口的一次 prune 代替额外后台线程。另有一项不影响运行期行为的内部 import 路径变更：builder 不再从 `agent.web.server` re-export。
+有意的运行期行为变化限于三项：registry 从进程全局改为 runtime-local，过期 job 从“仅在 poll 时清理”改为“任一 runtime 操作进入时清理”，以及非法的新 session id 从 worker 保存阶段的 SSE `error` 改为创建 job 前的 HTTP `400`。前两项不是已支持的跨实例/过期 job 路径，分别避免跨工作区串 job 与测试污染、以三个入口的一次 prune 代替额外后台线程；第三项复用既有校验和错误文案，只把失败提前到信任边界。另有一项不影响运行期行为的内部 import 路径变更：builder 不再从 `agent.web.server` re-export。
 
 ## 测试策略
 
@@ -227,7 +251,7 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 - pending approval 的批准、拒绝、超时和 late decision；
 - final/error 可先出现，但继续轮询后必须得到 `done=True` 且 waiter 已被唤醒；
 - 两个 runtime 的 registry 互不相见；
-- start 的 config/session 准备失败同步抛出且不调用 `llm_factory`，provider/turn 失败则产生 `error` 事件并最终完成。
+- start 的 config/session 准备失败（含非法的新 session id）同步抛出且不调用 `llm_factory`，provider/turn 失败则产生 `error` 事件并最终完成。
 
 旧测试与新 interface 测试重复时，删除旧测试，不叠加两套实现细节断言。
 
@@ -308,12 +332,12 @@ git diff --check
 
 1. spec 与 plan；
 2. HTTP route-dispatch characterization matrix；
-3. `ChatRuntime` 提取、对应 server 接线及 interface 测试；
-4. `ConversationState.delete` ownership 修正、调用方切换及聚焦测试；
-5. `runs.py` 移动、server 接线与测试 import 更新；
-6. `files.py` 移动、server 接线与测试 import 更新；
-7. `settings.py` 移动、server 接线与测试 import 更新；
-8. `chats.py` 移动、server 接线与测试 import 更新；
+3. `ConversationState` 显式 id 校验与 delete ownership 修正、现有调用方切换及聚焦测试；
+4. `runs.py` 移动、可复用 failure/replay 投影、server 接线与测试 import 更新；
+5. `chats.py` 无状态逻辑/投影移动、server 接线与测试 import 更新；
+6. `ChatRuntime` 提取、对应 server 接线及 interface 测试；
+7. `files.py` 移动、server 接线与测试 import 更新；
+8. `settings.py` 移动、server 接线与测试 import 更新；
 9. `server.py` 清理、全量测试与真实 Workbench 验收收口。
 
 每个实现 commit 必须保持仓库可运行且不破坏全量测试；每步至少运行对应聚焦测试与 `git diff --check`，最终再运行全量验收。不得出现“先删除旧实现、后续 commit 才接线”的断点。模块移动、server 接线和该模块测试 import 更新视为同一原子提交。不得把状态性 runtime 重构和无状态函数搬移揉进同一实现提交。spec、plan 和实现可以在同一新分支分批提交，但在本设计与后续 plan 通过对抗审查前不搬生产代码。
