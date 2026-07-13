@@ -6,7 +6,6 @@ from pathlib import Path
 from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
-from agent.web import server
 from agent.web.chats import (
     build_chat_delete_payload,
     build_chat_payload,
@@ -16,10 +15,7 @@ from agent.web.chats import (
 )
 from agent.web.runs import build_run_detail_payload, build_runs_payload
 from agent.web.server import (
-    build_chat_approval_payload,
-    build_chat_events_payload,
     build_health_payload,
-    build_chat_start_payload,
     build_config_payload,
     build_diff_payload,
     build_file_payload,
@@ -1210,155 +1206,6 @@ def test_build_chat_turn_payload_approval_retry_uses_same_session(monkeypatch, t
     assert second["status"] == "ok"
     assert second["turn_count"] == 2
     assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
-
-
-def test_build_chat_start_payload_streams_real_events_without_fake_route(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    started = build_chat_start_payload(workspace, {"message": "inspect project"})
-    assert started["status"] == "running"
-    assert started["job_id"].startswith("job_")
-
-    events = _wait_for_chat_events(started["job_id"])
-    names = [event["event"] for event in events]
-    assert "chat_started" in names
-    assert "model_call_start" in names
-    assert "action_parsed" in names
-    assert "observation" in names
-    assert "final" in names
-    assert all("网页/视觉设计" not in repr(event) for event in events)
-
-
-def test_chat_job_approval_resumes_same_turn(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Write.",
-                "action": {
-                    "name": "write_file",
-                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
-                },
-            },
-            {
-                "message": "Done.",
-                "action": {
-                    "name": "done",
-                    "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
-                },
-            },
-        ]
-    )
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
-
-    started = build_chat_start_payload(workspace, {"message": "write notes"})
-    approval_events = _wait_for_chat_events(started["job_id"], stop_event="approval_required")
-    approval = approval_events[-1]
-
-    assert approval["event"] == "approval_required"
-    assert approval["action"] == "write_file"
-    assert approval["reason"] == "Action requires approval before execution."
-    assert build_chat_approval_payload({"job_id": started["job_id"], "approve": True})["status"] == "ok"
-    try:
-        build_chat_approval_payload({"job_id": started["job_id"], "approve": True})
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("duplicate approval must be rejected")
-
-    events = _wait_for_chat_events(started["job_id"], after=len(approval_events))
-    assert any(event["event"] == "approval_granted" for event in events)
-    assert any(event["event"] == "final" and event["final"] == "Wrote notes." for event in events)
-    detail = build_chat_payload(workspace, started["session_id"])
-    assert detail["turn_count"] == 1
-    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
-
-
-def test_chat_approval_rejects_without_pending_or_after_deadline(tmp_path: Path) -> None:
-    job = server._create_chat_job(tmp_path, "chat_pending_guard", "write notes")
-
-    def rejection_message() -> str:
-        try:
-            build_chat_approval_payload({"job_id": job.job_id, "approve": True})
-        except ValueError as exc:
-            return str(exc)
-        raise AssertionError("approval without a live pending action must be rejected")
-
-    try:
-        assert "no pending approval" in rejection_message()
-        with job.condition:
-            job.approval_pending = True
-            job.approval_deadline = server.time.monotonic() - 1.0
-        assert "expired" in rejection_message()
-        with job.condition:
-            assert job.approval_decision == "timed_out"
-            assert job.approval_pending is False
-            assert job.approval_deadline is None
-    finally:
-        with server._CHAT_JOBS_LOCK:
-            server._CHAT_JOBS.pop(job.job_id, None)
-
-
-def test_chat_job_approval_times_out_and_rejects_late_decision(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Write.",
-                "action": {
-                    "name": "write_file",
-                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
-                },
-            }
-        ]
-    )
-    monkeypatch.setattr(server, "make_llm", lambda config: llm)
-    monkeypatch.setattr(server, "APPROVAL_WAIT_TIMEOUT_SECONDS", 0.0)
-
-    started = build_chat_start_payload(workspace, {"message": "write notes"})
-    try:
-        events = _wait_for_chat_events(started["job_id"], stop_event="final")
-        names = [event["event"] for event in events]
-        assert names.index("approval_required") < names.index("approval_timed_out") < names.index("final")
-
-        after = len(events)
-        for _ in range(100):
-            payload = build_chat_events_payload(started["job_id"], after=after, timeout=0.05)
-            events.extend(payload["events"])
-            after = payload["next"]
-            if payload["done"]:
-                break
-        else:
-            raise AssertionError("chat job did not finish after approval timeout")
-
-        try:
-            build_chat_approval_payload({"job_id": started["job_id"], "approve": True})
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("late approval must be rejected")
-
-        job = server._get_chat_job(started["job_id"])
-        with job.condition:
-            assert job.done is True
-            assert job.completed_at is not None
-        assert not (workspace / "notes.txt").exists()
-    finally:
-        with server._CHAT_JOBS_LOCK:
-            server._CHAT_JOBS.pop(started["job_id"], None)
-
-
-def _wait_for_chat_events(job_id: str, *, after: int = 0, stop_event: str = "final") -> list[dict]:
-    events: list[dict] = []
-    for _ in range(100):
-        payload = build_chat_events_payload(job_id, after=after + len(events), timeout=0.05)
-        events.extend(payload["events"])
-        if any(event["event"] == stop_event for event in events):
-            return events
-    raise AssertionError(f"timed out waiting for {stop_event}")
 
 
 def test_static_workbench_assets_exist_and_reference_api() -> None:

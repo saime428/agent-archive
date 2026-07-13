@@ -7,28 +7,24 @@ import os
 import shutil
 import subprocess
 import threading
-import time
 import tomllib
-import uuid
 import webbrowser
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent.config import ConfigError, load_config
 from agent.core.actions import ActionCall, InternalAction, make_observation
 from agent.core.budget import ContextBudget, truncate_text
-from agent.core.chat import ChatSession, ConversationState
 from agent.core.context import RunContext
 from agent.core.memory import MemoryCandidate, MemoryEntry, MemoryStore
 from agent.core.redaction import redact_record, redact_value
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DeepSeekError
-from agent.llm.factory import make_llm
 from agent.secrets import load_workspace_secrets
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 from agent.tools.filesystem import create_snapshot
@@ -37,10 +33,9 @@ from agent.web.chats import (
     build_chat_payload as _build_chat_payload,
     build_chat_rename_payload as _build_chat_rename_payload,
     build_chat_turn_payload as _build_chat_turn_payload,
-    build_chat_turn_response as _chat_turn_response,
     build_chats_payload as _build_chats_payload,
-    load_or_create_chat_state as _load_or_create_chat_state,
 )
+from agent.web.chat_runtime import ChatRuntime
 from agent.web.runs import (
     build_failure_summary as _build_failure_summary,
     build_run_detail_payload as _build_run_detail_payload,
@@ -49,31 +44,6 @@ from agent.web.runs import (
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-CHAT_JOB_TTL_SECONDS = 300.0
-APPROVAL_WAIT_TIMEOUT_SECONDS = CHAT_JOB_TTL_SECONDS
-STREAM_EVENT_BATCH_CHARS = 64
-
-
-@dataclass
-class _ChatJob:
-    job_id: str
-    workspace: Path
-    session_id: str
-    message: str
-    started_at: float = field(default_factory=time.monotonic)
-    events: list[dict[str, Any]] = field(default_factory=list)
-    condition: threading.Condition = field(default_factory=threading.Condition)
-    approval_pending: bool = False
-    approval_deadline: float | None = None
-    approval_decision: bool | Literal["timed_out"] | None = None
-    done: bool = False
-    completed_at: float | None = None
-    result: dict[str, Any] | None = None
-    error: str | None = None
-
-
-_CHAT_JOBS: dict[str, _ChatJob] = {}
-_CHAT_JOBS_LOCK = threading.Lock()
 
 
 def static_file_path(relative_path: str) -> Path:
@@ -102,6 +72,7 @@ def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 876
 
 def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
     root = workspace.resolve()
+    runtime = ChatRuntime(root)
 
     class WorkbenchHandler(BaseHTTPRequestHandler):
         server_version = "AgentWorkbench/0.1"
@@ -169,10 +140,24 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                     self._send_json(_build_chat_turn_payload(root, self._read_json_body()))
                     return
                 if path == "/api/chat/start":
-                    self._send_json(build_chat_start_payload(root, self._read_json_body()))
+                    request = self._read_json_body()
+                    message = request.get("message")
+                    if not isinstance(message, str) or not message.strip():
+                        raise ValueError("message is required.")
+                    session_id = request.get("session_id")
+                    if session_id is not None and not isinstance(session_id, str):
+                        raise ValueError("session_id must be a string.")
+                    self._send_json(runtime.start(message=message.strip(), session_id=session_id))
                     return
                 if path == "/api/chat/approval":
-                    self._send_json(build_chat_approval_payload(self._read_json_body()))
+                    request = self._read_json_body()
+                    job_id = request.get("job_id")
+                    approve = request.get("approve")
+                    if not isinstance(job_id, str) or not job_id:
+                        raise ValueError("job_id is required.")
+                    if not isinstance(approve, bool):
+                        raise ValueError("approve must be a boolean.")
+                    self._send_json(runtime.decide(job_id=job_id, approve=approve))
                     return
                 if path == "/api/chat/rename":
                     self._send_json(_build_chat_rename_payload(root, self._read_json_body()))
@@ -241,27 +226,29 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             if not job_id:
                 self._send_json({"error": "job_id is required."}, status=HTTPStatus.BAD_REQUEST)
                 return
-            _get_chat_job(job_id)
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
-            after = 0
-            while True:
-                payload = build_chat_events_payload(job_id, after=after, timeout=10.0)
-                events = payload["events"]
-                for event in events:
-                    data = json.dumps(event, ensure_ascii=False, default=str)
-                    chunk = f"id: {event['sequence']}\nevent: {event['event']}\ndata: {data}\n\n"
-                    try:
+            payload = runtime.poll(job_id, after=0, timeout=0)
+            try:
+                self.close_connection = True
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                while True:
+                    events = payload["events"]
+                    for event in events:
+                        data = json.dumps(event, ensure_ascii=False, default=str)
+                        chunk = f"id: {event['sequence']}\nevent: {event['event']}\ndata: {data}\n\n"
                         self.wfile.write(chunk.encode("utf-8"))
                         self.wfile.flush()
-                    except OSError:
+                    if payload["done"]:
                         return
-                after = payload["next"]
-                if payload["done"] and not events:
-                    return
+                    try:
+                        payload = runtime.poll(job_id, after=payload["next"], timeout=10.0)
+                    except ValueError:
+                        return
+            except OSError:
+                return
 
     return WorkbenchHandler
 
@@ -789,198 +776,6 @@ def build_restore_snapshot_payload(workspace: Path, request: dict[str, Any]) -> 
         "path": _display_path(target_path, root),
         "snapshot_path": _display_path(snapshot_path, root),
     }
-
-
-def build_chat_start_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
-    message = request.get("message")
-    if not isinstance(message, str) or not message.strip():
-        raise ValueError("message is required.")
-    session_id = request.get("session_id")
-    if session_id is not None and not isinstance(session_id, str):
-        raise ValueError("session_id must be a string.")
-
-    root = workspace.resolve()
-    load_workspace_secrets(root)
-    config, diagnostics = load_config(root)
-    state = _load_or_create_chat_state(root, session_id)
-    job = _create_chat_job(root, state.session_id, message.strip())
-    _append_chat_event(job, {"event": "chat_started", "session_id": state.session_id})
-    thread = threading.Thread(
-        target=_run_chat_job,
-        args=(job.job_id, root, state, config, diagnostics, message.strip()),
-        daemon=True,
-        name=f"chat-job-{job.job_id}",
-    )
-    thread.start()
-    return {"status": "running", "job_id": job.job_id, "session_id": state.session_id}
-
-
-def build_chat_events_payload(job_id: str, *, after: int = 0, timeout: float = 0.0) -> dict[str, Any]:
-    if after < 0:
-        raise ValueError("after must be non-negative.")
-    _prune_chat_jobs()
-    job = _get_chat_job(job_id)
-    deadline = time.monotonic() + max(timeout, 0.0)
-    with job.condition:
-        while len(job.events) <= after and not job.done:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            job.condition.wait(remaining)
-        events = [dict(event) for event in job.events[after:]]
-        return {
-            "job_id": job.job_id,
-            "events": events,
-            "done": job.done,
-            "next": after + len(events),
-        }
-
-
-def build_chat_approval_payload(request: dict[str, Any]) -> dict[str, Any]:
-    job_id = request.get("job_id")
-    approve = request.get("approve")
-    if not isinstance(job_id, str) or not job_id:
-        raise ValueError("job_id is required.")
-    if not isinstance(approve, bool):
-        raise ValueError("approve must be a boolean.")
-    job = _get_chat_job(job_id)
-    with job.condition:
-        if job.done:
-            raise ValueError("chat job is already finished.")
-        if not job.approval_pending:
-            raise ValueError("chat job has no pending approval.")
-        if job.approval_deadline is None or job.approval_deadline <= time.monotonic():
-            job.approval_pending = False
-            job.approval_deadline = None
-            job.approval_decision = "timed_out"
-            job.condition.notify_all()
-            raise ValueError("chat approval has expired.")
-        job.approval_pending = False
-        job.approval_deadline = None
-        job.approval_decision = approve
-        job.condition.notify_all()
-    return {"status": "ok", "job_id": job.job_id, "approved": approve}
-
-
-def _prune_chat_jobs() -> None:
-    now = time.monotonic()
-    with _CHAT_JOBS_LOCK:
-        expired = [
-            job_id
-            for job_id, job in _CHAT_JOBS.items()
-            if job.done and job.completed_at is not None and now - job.completed_at > CHAT_JOB_TTL_SECONDS
-        ]
-        for job_id in expired:
-            del _CHAT_JOBS[job_id]
-
-
-def _create_chat_job(root: Path, session_id: str, message: str) -> _ChatJob:
-    job = _ChatJob(
-        job_id=f"job_{uuid.uuid4().hex[:12]}",
-        workspace=root,
-        session_id=session_id,
-        message=message,
-    )
-    with _CHAT_JOBS_LOCK:
-        _CHAT_JOBS[job.job_id] = job
-    return job
-
-
-def _get_chat_job(job_id: str) -> _ChatJob:
-    with _CHAT_JOBS_LOCK:
-        job = _CHAT_JOBS.get(job_id)
-    if job is None:
-        raise ValueError(f"Unknown chat job: {job_id}")
-    return job
-
-
-def _append_chat_event(job: _ChatJob, event: dict[str, Any]) -> None:
-    with job.condition:
-        now = time.monotonic()
-        if event.get("event") == "approval_required":
-            job.approval_pending = True
-            job.approval_deadline = now + APPROVAL_WAIT_TIMEOUT_SECONDS
-        record = dict(event)
-        record["sequence"] = len(job.events)
-        record["elapsed_ms"] = int((now - job.started_at) * 1000)
-        job.events.append(record)
-        job.condition.notify_all()
-
-
-def _run_chat_job(
-    job_id: str,
-    root: Path,
-    state: ConversationState,
-    config: Any,
-    diagnostics: Any,
-    message: str,
-) -> None:
-    job = _get_chat_job(job_id)
-    pending_stream_event: dict[str, Any] | None = None
-
-    def flush_stream_event() -> None:
-        nonlocal pending_stream_event
-        if pending_stream_event is not None:
-            _append_chat_event(job, pending_stream_event)
-            pending_stream_event = None
-
-    def handle_event(event: dict[str, Any]) -> None:
-        nonlocal pending_stream_event
-        if event.get("event") == "model_stream_chunk":
-            kind = str(event.get("kind") or "content")
-            text = str(event.get("text") or "")
-            if pending_stream_event is not None and pending_stream_event["kind"] != kind:
-                flush_stream_event()
-            if not text:
-                return
-            if pending_stream_event is None:
-                pending_stream_event = {**event, "kind": kind, "text": ""}
-            pending_stream_event["text"] += text
-            pending_stream_event["chunk_chars"] = len(pending_stream_event["text"])
-            # ponytail: size batching removes per-token SSE churn; add timed flushing only if latency is measured.
-            if len(pending_stream_event["text"]) >= STREAM_EVENT_BATCH_CHARS:
-                flush_stream_event()
-            return
-        flush_stream_event()
-        _append_chat_event(job, event)
-
-    def handle_approval(_action: Any) -> bool | Literal["timed_out"]:
-        with job.condition:
-            while job.approval_decision is None and job.approval_pending and not job.done:
-                deadline = job.approval_deadline
-                remaining = (deadline - time.monotonic()) if deadline is not None else 0.0
-                if remaining <= 0:
-                    job.approval_pending = False
-                    job.approval_deadline = None
-                    return "timed_out"
-                job.condition.wait(remaining)
-            decision = job.approval_decision
-            job.approval_decision = None
-            job.approval_pending = False
-            job.approval_deadline = None
-            return "timed_out" if decision in {None, "timed_out"} else decision
-
-    try:
-        session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
-        result = session.run_turn(
-            message,
-            approval_handler=handle_approval,
-            event_handler=handle_event,
-            stream_handler=lambda _text: None,
-        )
-        payload = _chat_turn_response(root, session, result, diagnostics)
-        job.result = payload
-        handle_event({"event": "final", **payload})
-    except Exception as exc:  # pragma: no cover - kept visible through SSE for local UI failures
-        job.error = str(exc)
-        handle_event({"event": "error", "error": str(exc)})
-    finally:
-        with job.condition:
-            job.approval_pending = False
-            job.approval_deadline = None
-            job.done = True
-            job.completed_at = time.monotonic()
-            job.condition.notify_all()
 
 
 def _query_value(query: str, key: str) -> str | None:
