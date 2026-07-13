@@ -60,7 +60,7 @@ def _http_request(
     [
         pytest.param("GET", "/api/health", "build_health_payload", _NO_BODY, (_ROOT,), id="health"),
         pytest.param("GET", "/api/config", "build_config_payload", _NO_BODY, (_ROOT,), id="config-get"),
-        pytest.param("GET", "/api/chats", "build_chats_payload", _NO_BODY, (_ROOT,), id="chats"),
+        pytest.param("GET", "/api/chats", "_build_chats_payload", _NO_BODY, (_ROOT,), id="chats"),
         pytest.param("GET", "/api/tools", "build_tools_payload", _NO_BODY, (), id="tools"),
         pytest.param("GET", "/api/runs", "_build_runs_payload", _NO_BODY, (_ROOT,), id="runs"),
         pytest.param("GET", "/api/files?path=src", "build_files_payload", _NO_BODY, (_ROOT, "src"), id="files"),
@@ -76,12 +76,12 @@ def _http_request(
             id="diff",
         ),
         pytest.param(
-            "GET", "/api/chats/chat_1", "build_chat_payload", _NO_BODY, (_ROOT, "chat_1"), id="chat-detail"
+            "GET", "/api/chats/chat_1", "_build_chat_payload", _NO_BODY, (_ROOT, "chat_1"), id="chat-detail"
         ),
         pytest.param(
             "GET", "/api/runs/run_1", "_build_run_detail_payload", _NO_BODY, (_ROOT, "run_1"), id="run-detail"
         ),
-        pytest.param("POST", "/api/chat/turn", "build_chat_turn_payload", {"value": "turn"}, (_ROOT, _BODY), id="turn"),
+        pytest.param("POST", "/api/chat/turn", "_build_chat_turn_payload", {"value": "turn"}, (_ROOT, _BODY), id="turn"),
         pytest.param(
             "POST", "/api/chat/start", "build_chat_start_payload", {"value": "start"}, (_ROOT, _BODY), id="start"
         ),
@@ -89,10 +89,10 @@ def _http_request(
             "POST", "/api/chat/approval", "build_chat_approval_payload", {"value": "approval"}, (_BODY,), id="approval"
         ),
         pytest.param(
-            "POST", "/api/chat/rename", "build_chat_rename_payload", {"value": "rename"}, (_ROOT, _BODY), id="rename"
+            "POST", "/api/chat/rename", "_build_chat_rename_payload", {"value": "rename"}, (_ROOT, _BODY), id="rename"
         ),
         pytest.param(
-            "POST", "/api/chat/delete", "build_chat_delete_payload", {"value": "delete"}, (_ROOT, _BODY), id="delete"
+            "POST", "/api/chat/delete", "_build_chat_delete_payload", {"value": "delete"}, (_ROOT, _BODY), id="delete"
         ),
         pytest.param("POST", "/api/config", "build_save_config_payload", {"value": "config"}, (_ROOT, _BODY), id="config-post"),
         pytest.param(

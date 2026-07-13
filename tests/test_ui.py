@@ -7,17 +7,19 @@ from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web import server
+from agent.web.chats import (
+    build_chat_delete_payload,
+    build_chat_payload,
+    build_chat_rename_payload,
+    build_chat_turn_payload,
+    build_chats_payload,
+)
 from agent.web.runs import build_run_detail_payload, build_runs_payload
 from agent.web.server import (
     build_chat_approval_payload,
-    build_chat_delete_payload,
     build_chat_events_payload,
     build_health_payload,
-    build_chat_payload,
-    build_chat_rename_payload,
     build_chat_start_payload,
-    build_chat_turn_payload,
-    build_chats_payload,
     build_config_payload,
     build_diff_payload,
     build_file_payload,
@@ -899,7 +901,7 @@ def test_build_chat_turn_payload_creates_requested_new_session(tmp_path: Path) -
 def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: RepairThenDoneLLM())
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: RepairThenDoneLLM())
 
     payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
 
@@ -928,7 +930,7 @@ def test_build_chat_turn_payload_displays_ask_user_question(monkeypatch, tmp_pat
             }
         ]
     )
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
 
@@ -943,7 +945,7 @@ def test_build_chat_turn_payload_answers_simple_greeting(monkeypatch, tmp_path: 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     llm = FakeLLMClient()
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "你好"})
 
@@ -1058,7 +1060,7 @@ def test_build_chat_turn_payload_includes_public_action_message_in_process(monke
             },
         ]
     )
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "inspect files"})
 
@@ -1092,7 +1094,7 @@ def test_build_chat_turn_payload_reports_approval_required(monkeypatch, tmp_path
             }
         ]
     )
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "write notes"})
 
@@ -1129,7 +1131,7 @@ def test_build_chat_turn_payload_translates_run_command_capability_warning(monke
             }
         ]
     )
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "run command"})
 
@@ -1160,7 +1162,7 @@ def test_build_chat_turn_payload_approve_once_executes_one_required_action(monke
             },
         ]
     )
-    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
 
     payload = build_chat_turn_payload(workspace, {"message": "write notes", "approve_once": True})
 
@@ -1195,7 +1197,7 @@ def test_build_chat_turn_payload_approval_retry_uses_same_session(monkeypatch, t
             ]
         )
 
-    monkeypatch.setattr("agent.web.server.make_llm", make_write_llm)
+    monkeypatch.setattr("agent.web.chats.make_llm", make_write_llm)
 
     first = build_chat_turn_payload(workspace, {"message": "write notes"})
     second = build_chat_turn_payload(
