@@ -8,15 +8,13 @@ from pathlib import Path
 from typing import Callable
 
 from agent.config import AgentConfig
-from agent.core.actions import InternalAction
 from agent.core.budget import ContextBudget, truncate_text
-from agent.core.loop import RunResult, run_once
+from agent.core.loop import ApprovalHandler, RunResult, run_once
 from agent.core.redaction import redact_record
 from agent.llm.base import LLMClient
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
 
-ApprovalHandler = Callable[[InternalAction], bool]
 RunEventHandler = Callable[[dict], None]
 
 
