@@ -1,7 +1,7 @@
 # 计划：Workbench 后端模块化——建立 `ChatRuntime` seam
 
 日期：2026-07-13
-状态：已通过对抗审查，待执行
+状态：已执行（自动门禁与真实 DeepSeek Workbench 验收通过）
 设计：`docs/superpowers/specs/2026-07-13-workbench-backend-modularization-design.md`
 
 ## 实施约束
@@ -440,6 +440,15 @@ Remove-Item -LiteralPath $scratch -Recurse -Force
 ```
 
 若 `server.py` 无额外 cleanup，Task 8 仍以 spec/plan 的实际验收记录形成非空收口提交，不回写或重排已经通过的 Task 7 commit。
+
+## 执行结果（2026-07-13）
+
+- Task 1-7 已按原子边界提交：HTTP characterization、ConversationState storage/identity、runs、chats、ChatRuntime、files、settings 均各自通过对应聚焦门禁后提交。
+- Task 8 负向扫描无输出：`server.py` 不再定义领域 builder/job/worker，测试不导入 server builders 或访问 runtime 私有状态，领域模块没有反向导入 `server.py`，direct chat storage 只由 `ConversationState` 拥有。
+- 自动门禁结果：指定聚焦套件 223 passed、1 skipped；全量套件 573 passed、1 skipped；修改范围 Ruff、`git diff --check 944673f..HEAD` 与 `git diff --check 679e2ff..HEAD` 均通过。全仓 Ruff 另报告 5 个本分支未修改的既有问题，不属于本计划 diff。
+- doctor 确认 DeepSeek key 可用，且实际配置满足 `sandbox=workspace-write`、`approval=risky-confirm`、`dry_run=false`。
+- 真实 Workbench run `run_20260713_214907_523487` 验证页面/API、连续 SSE sequence、`thinking/content/args` batching、final、完整 run-command capability reason、同 turn 审批续跑、`workbench-approval-ok` stdout 与 trace/summary。
+- 主动断开 SSE 后 worker 未取消且 health 返回 200；不存在 job 返回 JSON 400；本地 config 验收前后字节一致，无需恢复写入。
 
 ## 独立 PR 发布门禁
 

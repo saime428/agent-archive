@@ -1,7 +1,7 @@
 # 设计：Workbench 后端解体——以 ChatRuntime seam 拆分 `server.py`
 
 日期：2026-07-13
-状态：设计与实施计划已通过对抗审查，待实现
+状态：已实现（自动门禁与真实 DeepSeek Workbench 验收通过）
 依据：`docs/code-review-2026-07-12.md` 3.1、5.4
 实现基线：`679e2ff`
 实现分支：`codex/v3.1-workbench-backend`
@@ -344,6 +344,15 @@ git diff --check
 4. 领域模块不导入 `server.py`，依赖方向与本文一致。
 5. 现有 HTTP/JSON/SSE/审批/文件/run 合约保持，聚焦测试与全量测试通过。
 6. 真实 Workbench streaming + approval 验收通过。
+
+## 实施结果（2026-07-13）
+
+- `server.py` 已收窄为 261 行，只保留 serve/handler、显式路由、query、JSON/SSE/static 传输与 HTTP 错误映射；负向扫描确认其中没有 payload builder、job registry、worker 或领域 helper。
+- `runs.py`、`chats.py`、`chat_runtime.py`、`files.py`、`settings.py` 已按设计依赖方向落地；`ChatRuntime` 的公开运行期方法只有 `start`、`poll`、`decide`，测试不再访问 job、registry、lock 或 condition。
+- 聚焦门禁 `tests/test_web.py tests/test_ui.py tests/test_chat.py tests/test_cli.py tests/test_docs.py`：223 passed、1 skipped；全量 pytest：573 passed、1 skipped。修改范围的 Ruff 与两条基线 `git diff --check` 均通过。
+- `python -m agent.cli doctor` 确认真实配置为 DeepSeek、`sandbox=workspace-write`、`approval=risky-confirm`、`dry_run=false`，且 API key 可用。
+- 真实 Workbench 通过页面及 health/config/files/chats/runs API；run `run_20260713_214907_523487` 产生 25 个连续 sequence 的 SSE events，实际包含 `thinking`、`content`、`args` 三类 batching，批准 `run_command` 后同一 turn 最终输出 `workbench-approval-ok`。
+- 审批 event 与 trace 保留完整 capability reason，trace/summary 均记录命令 stdout；主动断开首个 SSE client 后 health 仍返回 200，worker 继续完成；不存在 job 在发 SSE headers 前返回 JSON 400。验收前后 `.agent/config.toml` 字节一致。
 
 ## PR 策略
 
