@@ -1435,6 +1435,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "恢复" in script
     assert "refreshWorkbench" in script
     assert "renderDiagnostics" in script
+    assert 'id="tool-call-list"' in index
     assert "const warning = call.data?.trace?.warning;" in diagnostics_script
     assert "warning ? `${warning}\\n${summary}` : summary" in diagnostics_script
     assert "DeepSeek key" in script
