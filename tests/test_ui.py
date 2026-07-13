@@ -7,6 +7,7 @@ from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web import server
+from agent.web.runs import build_run_detail_payload, build_runs_payload
 from agent.web.server import (
     build_chat_approval_payload,
     build_chat_delete_payload,
@@ -22,8 +23,6 @@ from agent.web.server import (
     build_file_payload,
     build_files_payload,
     build_restore_snapshot_payload,
-    build_run_detail_payload,
-    build_runs_payload,
     build_save_config_payload,
     build_save_file_payload,
     build_tools_payload,

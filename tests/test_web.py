@@ -62,7 +62,7 @@ def _http_request(
         pytest.param("GET", "/api/config", "build_config_payload", _NO_BODY, (_ROOT,), id="config-get"),
         pytest.param("GET", "/api/chats", "build_chats_payload", _NO_BODY, (_ROOT,), id="chats"),
         pytest.param("GET", "/api/tools", "build_tools_payload", _NO_BODY, (), id="tools"),
-        pytest.param("GET", "/api/runs", "build_runs_payload", _NO_BODY, (_ROOT,), id="runs"),
+        pytest.param("GET", "/api/runs", "_build_runs_payload", _NO_BODY, (_ROOT,), id="runs"),
         pytest.param("GET", "/api/files?path=src", "build_files_payload", _NO_BODY, (_ROOT, "src"), id="files"),
         pytest.param(
             "GET", "/api/file?path=README.md", "build_file_payload", _NO_BODY, (_ROOT, "README.md"), id="file"
@@ -79,7 +79,7 @@ def _http_request(
             "GET", "/api/chats/chat_1", "build_chat_payload", _NO_BODY, (_ROOT, "chat_1"), id="chat-detail"
         ),
         pytest.param(
-            "GET", "/api/runs/run_1", "build_run_detail_payload", _NO_BODY, (_ROOT, "run_1"), id="run-detail"
+            "GET", "/api/runs/run_1", "_build_run_detail_payload", _NO_BODY, (_ROOT, "run_1"), id="run-detail"
         ),
         pytest.param("POST", "/api/chat/turn", "build_chat_turn_payload", {"value": "turn"}, (_ROOT, _BODY), id="turn"),
         pytest.param(
@@ -224,7 +224,7 @@ def test_workbench_rejects_invalid_json(tmp_path) -> None:
         pytest.param("GET", "/api/health", "build_health_payload", "config", 400, id="get-config"),
         pytest.param("GET", "/api/health", "build_health_payload", "value", 400, id="get-value"),
         pytest.param("GET", "/api/health", "build_health_payload", "sandbox", 400, id="get-sandbox"),
-        pytest.param("GET", "/api/runs", "build_runs_payload", "run-store", 404, id="get-run-store"),
+        pytest.param("GET", "/api/runs", "_build_runs_payload", "run-store", 404, id="get-run-store"),
         pytest.param("GET", "/api/health", "build_health_payload", "os", 500, id="get-os"),
         pytest.param("POST", "/api/config", "build_save_config_payload", "config", 400, id="post-config"),
         pytest.param("POST", "/api/config", "build_save_config_payload", "value", 400, id="post-value"),
