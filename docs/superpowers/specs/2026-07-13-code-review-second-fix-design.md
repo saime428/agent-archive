@@ -1,246 +1,115 @@
-# 设计：代码审查第二刀——显式授权 `python -c`
+# 设计：代码审查第二刀——运行命令能力透明化
 
 日期：2026-07-13
-状态：草案，待确认
+状态：已确认，待写计划
 依据：`docs/code-review-2026-07-12.md` 2.5
-前置：`docs/superpowers/specs/2026-07-11-command-allowlist-design.md`
-计划：待本 spec 确认后另写
+计划：待本 spec 落定后另写
 
 ## 背景
 
-首轮 5.5 修复已经完成。审查中尚未解决、且无需等待外部触发条件的最高风险项，是 `run_command` 默认放行 `python -c`：
+`run_command` 会启动拥有 Agent 当前操作系统权限的本地进程。现有 argv 与工作区路径检查可以拦住部分明显越界输入，但不能限制进程内部继续访问文件、网络或子进程。
 
-- `_python_policy_denial` 将任意 `python -c <code>` 视为默认允许命令；
-- `_validate_path_arguments` 无法从 Python 源码字符串可靠提取路径，因此该形态跳过 argv 路径校验；
-- 动作仍需审批，但一旦批准，Python 代码可以自行读写文件、发起网络访问或调用其他进程；
-- 这属于能力授权，不是工作区级隔离。
+对抗审查还确认：单独禁止 `python -c` 不能形成可信隔离，因为默认保留的 `pytest` / `python -m pytest` 会执行项目代码，`rg` 等程序也可能提供启动其他进程的参数。继续扩展字符串黑名单只会增加摩擦，并制造“已经被限制在工作区”的错觉。
 
-项目已经有 `allowed_commands`，无需再设计脚本长度限制、AST 检查或第二套权限配置。下一刀只把默认隐式授权改成现有白名单上的显式授权。
-
-## 为什么现在不做端点能力自动探测
-
-审查 5.2 和 `docs/next-feature-candidates.md` 把端点探测标为“有触发再做”：当前日常 provider 是已通过 native smoke 的 DeepSeek，近期没有接入不支持 tools 的 Ollama 或其他本地端点。
-
-现有 `agent provider smoke <provider> --native` 已提供显式在线验证 seam。没有真实端点兼容问题前，不新增：
-
-- `native_tools = "auto"` 第三种配置值；
-- 首次请求前的额外探测调用；
-- 进程缓存或 `.agent/` 能力状态文件；
-- 基于不同厂商 400 文案的脆弱分类器。
-
-真正接入新端点时，再以实际错误响应设计探测规则。
+本轮不改变命令能力，只把真实能力在批准前说清楚。审批是用户确认 seam，不是进程沙箱。
 
 ## 目标
 
-1. 默认配置下，`python -c` 在命令策略层 fail-closed。
-2. 用户可以复用 `allowed_commands` 显式授权 `python -c`。
-3. `python -m pytest`、直接 `pytest`、`rg` 和只读 Git 的默认能力不变。
-4. shell wrapper、网络命令和危险命令的硬拒绝优先级不变。
-5. `run_command` 的审批、超时、输出预算和 `shell=False` 全部不变。
-6. 拒绝结果明确告诉用户如何显式启用，不伪装成沙箱保护。
+1. 所有需要审批的 `run_command` 使用一条明确、稳定的能力警告。
+2. 英文原文进入 approval event、observation 与 trace，便于审计和测试。
+3. CLI 在询问批准前显示该原因。
+4. Workbench 在实时事件、历史事件及兼容摘要中显示固定中文映射。
+5. README 明确说明：工作区路径检查和命令白名单都不构成完整进程隔离。
 
-## 非目标
+## 固定文案
 
-- 不解析或审计 `-c` 后的 Python 源码。
-- 不用字符数、关键字或正则判断脚本“安全”。
-- 不给 Python 增加进程、文件系统或网络隔离。
-- 不改变 `allowed_commands` 的 token 前缀语义。
-- 不禁止用户显式配置宽前缀 `allowed_commands = ["python"]`。
-- 不改变 `run_command` 的 confirmation-required 分类。
-- 不改 CLI、config schema、Workbench 设置写接口或 trace 结构。
-- 不处理端点自动探测、真正并行 `tool_calls`、文档 optional extras 或 `server.py` 拆分。
-
-## 当前执行链
-
-`run_command` 经过两个已有 seam：
-
-1. `policy/approvals.py` 判断动作是否需要审批；
-2. `tools/shell.py::_policy_denial` 判断 argv 是否可进入 `subprocess.run`。
-
-本设计只改第二个 seam。调用链仍为：
+核心英文原文：
 
 ```text
-classify_action
-  -> approval handler
-  -> execute_run_command
-  -> _policy_denial
-  -> _validate_path_arguments
-  -> subprocess.run(shell=False)
+Run commands execute local processes with the agent's OS permissions; workspace path checks do not fully contain file, network, or subprocess access. Approval is required.
 ```
 
-因此：
+Workbench 中文映射：
 
-- `approval=never` 会在进入 shell 模块前拒绝 `run_command`；
-- `risky-confirm`/`always` 下，即使用户批准，未显式授权的 `python -c` 仍会被命令策略拒绝；
-- 显式授权只让命令通过 `_policy_denial`，不会跳过审批。
-
-## 核心决策
-
-### 1. 复用 `allowed_commands`，不新增配置
-
-`_policy_denial` 已在 Python 默认规则前检查 `_matches_allowed_command`。因此只需删除 `_python_policy_denial` 对 `-c` 的默认放行：
-
-```python
-def _python_policy_denial(argv: list[str]) -> str | None:
-    if len(argv) >= 2 and argv[1] == "-c":
-        return "Python -c is disabled by default; add an explicit allowed_commands prefix to enable it."
-    if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "pytest":
-        return None
-    return "Only pytest module runs are allowed by default."
+```text
+运行命令会以 Agent 当前的操作系统权限启动本地进程；工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。
 ```
 
-不在 `_python_policy_denial` 内再次读取配置；白名单判断继续只存在于 `_policy_denial`，保持 locality。
+测试按完整字符串锁定两者，避免安全含义被普通文案调整削弱。
 
-### 2. 显式授权语义
+## 设计
 
-推荐最窄配置：
+### 策略 seam
 
-```toml
-allowed_commands = ["python -c"]
-```
+`policy/approvals.py::classify_action` 是原因产生的唯一 seam。`run_command` 在 `approval=always` 和 `risky-confirm` 两条需要审批的路径上均返回上述英文原文。
 
-匹配结果沿用现有 token 前缀规则：
+优先级保持不变：
 
-| 配置 | argv | 命令策略结果 |
+- `sandbox=read-only` 仍直接拒绝；
+- `approval=never` 仍直接拒绝 confirmation-required 动作；
+- 非 `run_command` 动作继续使用现有通用审批原因。
+
+`core/loop.py` 不翻译、不重写原因，只沿现有链路把 `decision.reason` 写入 approval event、无 handler 时的 observation 和 trace。
+
+### 展示映射 seam
+
+翻译只放在展示 adapter，不进入策略模块或 trace：
+
+| 位置 | 改动 | 覆盖路径 |
 | --- | --- | --- |
-| `[]` | `python -c "print(1)"` | deny |
-| `["python -c"]` | `python -c "print(1)"` | allow，随后仍需审批 |
-| `["python"]` | `python -c "print(1)"` | allow，属于用户选择的宽授权 |
-| `["python -c"]` | `py -c "print(1)"` | deny，首 token 不同 |
-| `["py -c"]` | `py -c "print(1)"` | allow，随后仍需审批 |
-| `[]` | `python -m pytest -q` | 保持默认 allow，随后仍需审批 |
+| `web/static/assets/render/chat.js::friendlyChatText` | 增加英文到中文的固定映射 | 浏览器展示 |
+| `web/static/assets/render/chat.js::processDetail` | 对 `event.reason` 调用 `friendlyChatText` | 实时及重载后的审批事件卡片 |
+| `web/server.py::_friendly_observation_summary` | 增加相同映射 | 历史摘要与旧同步接口 |
+| `cli.py::_chat_event_handler` | 原样打印 `event.reason` | CLI 审批前提示 |
 
-不自动把 `python`、`python3` 与 `py` 视为同一 executable；用户应按实际 argv 配置，避免扩大既有匹配接口。
+Workbench 存在浏览器直接渲染事件和服务端返回摘要两条路径，因此 Python 与 JavaScript 各保留一条相同映射。这个最小重复是有意的：只改一处会让另一条路径泄漏英文；为一条文案新增跨语言 i18n 或生成模块则没有收益。映射规模明显增长时再单独设计集中管理。
 
-### 3. 路径语义保持诚实
-
-`python -c` 的源码位于单个 argv token 中，通用路径扫描无法可靠判断其实际访问目标。显式授权后，现有 `_validate_path_arguments` 仍不解析源码，也不能声称 Python 被 workspace sandbox 限制。
-
-安全契约是：
-
-```text
-explicit allowed_commands opt-in + run_command approval
-```
-
-而不是：
-
-```text
-Python code is contained inside the workspace
-```
-
-README 必须明确这一区别，并提醒 `allowed_commands = ["python"]` 同时授权脚本文件、`-c` 和其他 Python 参数形态。
-
-本改动也不消除所有 Python 代码执行能力：默认保留的 `pytest` / `python -m pytest` 会执行项目测试及其插件。它们是 coding agent 的既有验证路径，仍属于 confirmation-required 的 `run_command`。本 spec 只移除无需显式命令白名单即可进入的直接 inline interpreter，不把结果描述成完整代码执行隔离。
-
-### 4. 错误与模型恢复
-
-默认拒绝返回现有 `POLICY_DENIED` observation，message 固定为：
-
-```text
-Python -c is disabled by default; add an explicit allowed_commands prefix to enable it.
-```
-
-不新增错误码或专用事件。现有 observation feedback 会把拒绝原因回喂模型；模型可以改用 `python -m pytest`、已有工具，或请求用户配置授权。
-
-## 文档与界面
-
-只修改 README 的命令白名单段落：
-
-- 默认 `python -c` 已关闭；
-- 最窄启用方式是 `allowed_commands = ["python -c"]`；
-- `allowed_commands = ["python"]` 是更宽授权；
-- 显式授权与审批不是 Python sandbox。
-
-不新增 doctor 输出：`agent doctor` 和 `agent config doctor` 已显示生效的 `allowed_commands`。不改 Workbench：设置页已只读展示同一配置。
-
-## 测试设计
-
-### 命令策略
-
-在 `tests/test_tools_shell.py` 锁住：
-
-1. 默认 `python -c` 返回新的精确拒绝文案；
-2. `allowed_commands=("python -c",)` 可放行 inline Python；
-3. 既有宽授权 `allowed_commands=("python",)` 仍可放行，避免静默改变已有显式配置；
-4. `python -m pytest` 仍默认放行；
-5. hard-deny 优先级测试保持不变。
-
-现有直接执行 `python -c` 的 shell 测试，是测试自身需要该能力，不代表产品默认策略。它们应显式传入 `allowed_commands=("python -c",)`，继续覆盖 cwd、timeout、输出截断和执行结果。
-
-### 不执行证明
-
-新增一个最小用例，让 inline Python 尝试创建 marker：
-
-```python
-argv = [sys.executable, "-c", "from pathlib import Path; Path('escaped.txt').write_text('x')"]
-```
-
-默认空白名单下断言：
-
-- observation code 为 `POLICY_DENIED`；
-- marker 不存在；
-- 不需要 monkeypatch 源码解析或 subprocess internals。
-
-再用 `allowed_commands=("python -c",)` 执行同一动作，断言 marker 只在测试工作区内产生，证明迁移路径有效。该测试只证明显式授权链路，不把工作区内写入描述为安全隔离。
+CLI 保留英文原文，与 trace 的审计语义一致，不增加第二套终端本地化。
 
 ### 文档
 
-`tests/test_docs.py` 只增加一个 README 契约测试，断言包含：
+README 在 `run_command` / allowlist 说明附近补充：
 
-- `allowed_commands = ["python -c"]`；
-- `python -c` 默认关闭；
-- 明确说明它不是 Python sandbox。
-- 明确说明 pytest 仍会执行项目代码。
+- 命令以 Agent 的操作系统权限启动本地进程；
+- 路径检查不能完整限制进程后续的文件、网络或子进程访问；
+- `allowed_commands` 是能力授权，approval 是执行确认，两者都不是 OS/容器沙箱；
+- `pytest`、`python -m pytest` 和其他获准命令仍可能执行项目代码。
 
-不为纯文案增加新的测试文件。
+## 非目标
+
+- 不禁止 `python -c`、`rg --pre`、pytest 或其他新命令形态。
+- 不新增风险分级、第二次确认、配置项、错误码或事件类型。
+- 不修改 `tools/shell.py`、`allowed_commands`、argv 路径检查或审批语义。
+- 不新增 i18n 框架、doctor 检查或 OS/容器隔离。
+- 不处理端点能力探测、真正并行 `tool_calls` 或其他审查项。
+
+## 测试
+
+- `tests/test_approvals.py`：锁定两种审批模式下 `run_command` 的精确原因；确认 read-only、never 以及其他动作语义不变。
+- `tests/core/test_loop_core.py`：锁定 approval event、无 handler observation 和 trace 中的英文原因。
+- `tests/test_cli.py`：确认 CLI 在批准问题前打印原因。
+- `tests/test_ui.py`：锁定前后端中文映射和 `processDetail(event.reason)` 的使用。
+- `tests/test_docs.py`：锁定 README 对“审批不等于隔离”的说明。
+
+不新增测试文件，不为固定文案建立新抽象。
 
 ## 预计文件
 
-- `src/agent/tools/shell.py`
-- `tests/test_tools_shell.py`
+- `src/agent/policy/approvals.py`
+- `src/agent/cli.py`
+- `src/agent/web/server.py`
+- `src/agent/web/static/assets/render/chat.js`
+- 上述对应测试
 - `README.md`
-- `tests/test_docs.py`
-
-不预计修改 `config.py`、`loop.py`、`approvals.py`、CLI、Workbench 或增加依赖。
 
 ## 验收
 
-自动门禁：
-
 ```powershell
-python -m pytest tests/test_tools_shell.py tests/test_docs.py tests/test_approvals.py tests/core/test_loop_core.py -q
+python -m pytest tests/test_approvals.py tests/core/test_loop_core.py tests/test_cli.py tests/test_ui.py tests/test_docs.py -q
 python -m pytest -q
+node --check src/agent/web/static/assets/render/chat.js
 python -m agent.cli doctor
 git diff --check
 ```
 
-真实路径检查使用 `D:\CodexScratch` 临时工作区：
-
-1. 默认配置运行 inline Python 写 marker，确认返回 `POLICY_DENIED` 且 marker 不存在；
-2. 加入 `allowed_commands = ["python -c"]` 后显式批准同一动作，确认命令执行；
-3. `approval=never` 下即使存在白名单仍不出现审批，并在进入 shell 前拒绝；
-4. 验收完成后清理临时工作区。
-
-## 迁移
-
-依赖默认 `python -c` 的项目需要在 global 或 project config 显式加入：
-
-```toml
-allowed_commands = ["python -c"]
-```
-
-已有 `allowed_commands = ["python"]` 的项目无需迁移，但 README 会标明它比 `python -c` 更宽。不会自动改写用户配置。
-
-## 风险与回退
-
-### 现有编码流程被拒绝
-
-这是预期的安全默认值变化。固定拒绝文案和 README 给出一行迁移配置；不做隐式兼容回退，否则仍是原来的默认高能力面。
-
-### 用户误以为显式授权等于隔离
-
-README 与 spec 明确：allowlist 是能力授权，approval 是执行确认，两者都不是 Python 进程 sandbox；保留的 pytest 路径仍会执行项目代码。真正需要隔离时，应另立基于 OS/容器能力的设计，而不是扩展字符串检查。
-
-### 回退
-
-若真实工作流证明迁移成本不可接受，只需恢复 `_python_policy_denial` 的 `-c` allow 分支和对应测试/README；不涉及配置迁移、持久化格式或日志兼容。
+真实浏览器验收一次 `run_command`：审批卡片同时显示中文能力警告与命令参数，批准后命令仍按原流程执行；刷新页面后历史事件不回退为英文。
