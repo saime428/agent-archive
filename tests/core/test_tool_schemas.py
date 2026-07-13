@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agent.core.actions import ARGS_MODELS
+from agent.core.loop import SUPPORTED_TOOL_ACTIONS
 from agent.core.tool_schemas import ACTION_DESCRIPTIONS, build_tool_schemas, native_tool_names
 
 
@@ -23,6 +24,10 @@ def test_native_tool_names_hide_web_search_when_disabled() -> None:
 
     assert "web_search" not in names
     assert "read_file" in names
+
+
+def test_native_tool_names_match_loop_execution_actions() -> None:
+    assert set(native_tool_names(web_search_enabled=True)) == SUPPORTED_TOOL_ACTIONS | {"done", "ask_user"}
 
 
 def test_build_tool_schemas_shape() -> None:

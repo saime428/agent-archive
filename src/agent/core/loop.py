@@ -913,9 +913,7 @@ def _action_protocol_message(config: AgentConfig, *, native: bool = False) -> di
                 + _mode_instruction(config.mode)
             ),
         }
-    actions = "done, ask_user, list_dir, read_file, search_files, git_status, git_diff"
-    if config.web_search_enabled:
-        actions += ", and web_search"
+    actions = ", ".join(native_tool_names(web_search_enabled=config.web_search_enabled))
     web_search_rule = "For current web, news, latest-version, or internet lookup requests, use web_search before done. " if config.web_search_enabled else (
         "Do not use web_search because web search is disabled in Settings. "
     )
@@ -931,7 +929,7 @@ def _action_protocol_message(config: AgentConfig, *, native: bool = False) -> di
             "Return exactly one valid JSON action object and no other text. "
             'The top-level object must have keys "message" and "action". '
             'The action object must have keys "name" and "args". '
-            f"Use available actions such as {actions}. "
+            f"Supported actions: {actions}. "
             f"{web_search_rule}"
             f"{computer_read_rule}"
             "Use list_dir, read_file, or search_files for file inspection; do not use run_command just to list or read files. "

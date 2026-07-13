@@ -953,6 +953,34 @@ def test_action_protocol_prompts_real_web_search_and_file_read_tools(tmp_path) -
     assert "use web_search before done" in system
     assert "explicit absolute computer paths" in system
     assert "do not use run_command just to list or read files" in system
+    supported_actions = system.split("Supported actions: ", 1)[1].split(". ", 1)[0]
+    for action in (
+        "write_file",
+        "apply_patch",
+        "run_command",
+        "write_markdown_report",
+        "read_pdf",
+        "read_docx",
+        "read_xlsx",
+        "read_pptx",
+    ):
+        assert action in supported_actions
+
+
+def test_action_protocol_supported_actions_hide_disabled_web_search(tmp_path) -> None:
+    llm = SpyLLM()
+
+    run_once(
+        "inspect project",
+        llm,
+        cwd=tmp_path,
+        config=AgentConfig(web_search_enabled=False),
+    )
+
+    assert llm.messages is not None
+    system = llm.messages[0]["content"]
+    supported_actions = system.split("Supported actions: ", 1)[1].split(". ", 1)[0]
+    assert "web_search" not in supported_actions
 
 
 def test_run_once_lists_external_directory_when_computer_read_enabled(tmp_path) -> None:
