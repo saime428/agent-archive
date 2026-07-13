@@ -73,6 +73,16 @@ def test_mode_auto_allows_more_iterations(tmp_path) -> None:
     assert len(result.observations) == 6
 
 
+def test_mode_auto_prompt_requires_sequential_actions_across_turns(tmp_path) -> None:
+    llm = SpyLLMMode()
+
+    run_once("test", llm, cwd=tmp_path, run_id="run_auto_prompt", config=AgentConfig(mode="auto"))
+
+    system = next(message["content"] for message in llm.messages if message["role"] == "system")
+    assert "multiple sequential actions across turns" in system
+    assert "may use multiple tool calls" not in system
+
+
 def test_mode_plan_first_adds_plan_instruction(tmp_path) -> None:
     llm = SpyLLMMode()
     config = AgentConfig(mode="plan-first")

@@ -89,6 +89,8 @@ def test_native_error_recovery_still_works(tmp_path) -> None:
         if "UNTRUSTED TOOL OBSERVATION" in message["content"]
     )
     assert "Error code: TOOL_FAILED" in feedback
+    assert "Call exactly one tool" in feedback
+    assert "JSON action object" not in feedback
 
 
 class StreamingNativeLLM(ScriptedNativeLLM):

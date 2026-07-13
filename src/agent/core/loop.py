@@ -348,7 +348,7 @@ def run_once(
         )
         if terminal:
             break
-        messages.append(_build_observation_feedback_message(action, observation, context))
+        messages.append(_build_observation_feedback_message(action, observation, context, native=use_native))
         remaining_iterations = effective_max_iterations - completed_action_iterations
         if remaining_iterations == 2 and not budget_warning_sent:
             messages.append(_build_iteration_warning_message(remaining_iterations))
@@ -754,6 +754,8 @@ def _build_observation_feedback_message(
     action: InternalAction,
     observation: Observation,
     context: RunContext,
+    *,
+    native: bool = False,
 ) -> dict[str, str]:
     observation_json = json.dumps(
         observation.model_dump(mode="json"),
@@ -772,6 +774,15 @@ def _build_observation_feedback_message(
         )
     else:
         guidance = ""
+    next_action_instruction = (
+        "Call exactly one tool. Continue with another allowed tool if needed, "
+        "or call done if the task is complete."
+        if native
+        else (
+            "Return exactly one valid JSON action object. Continue with another allowed action if needed, "
+            "or return done with a concise final answer if the task is complete."
+        )
+    )
     return {
         "role": "user",
         "content": (
@@ -784,8 +795,7 @@ def _build_observation_feedback_message(
             f"{guidance}"
             "Observation JSON:\n"
             f"{observation_excerpt}\n"
-            "Return exactly one valid JSON action object. Continue with another allowed action if needed, "
-            "or return done with a concise final answer if the task is complete."
+            f"{next_action_instruction}"
         ),
     }
 
@@ -945,7 +955,7 @@ def _mode_instruction(mode: str) -> str:
         )
     if mode == "auto":
         return (
-            "Auto mode: you may use multiple tool calls to complete the task thoroughly. "
+            "Auto mode: you may use multiple sequential actions across turns to complete the task thoroughly. "
             "Explore, verify edge cases, and only return done when the task is fully complete. "
         )
     if mode == "plan-first":
