@@ -1401,6 +1401,10 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "chat-row" in script
     assert "renderThinkingText" in script
     assert "renderThinkingTextTyping" in script
+    typing_renderer = chat_script[
+        chat_script.index("function renderThinkingTextTyping") : chat_script.index("function renderProcessCards")
+    ]
+    assert "if (!container.contains(target))" in typing_renderer
     assert "keydown" in script
     assert "isComposing" in script
     assert "shiftKey" in script

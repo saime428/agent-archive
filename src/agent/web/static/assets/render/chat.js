@@ -524,6 +524,10 @@ function renderThinkingTextTyping(container, text) {
   container.append(target);
   let index = 0;
   const tick = () => {
+    if (!container.contains(target)) {
+      container.classList.remove("typing");
+      return;
+    }
     index += 1;
     target.textContent = value.slice(0, index);
     if (index < value.length) {
