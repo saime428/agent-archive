@@ -7,6 +7,10 @@ from agent.core.actions import parse_model_action
 from agent.policy.approvals import classify_action
 
 CREATED_AT = datetime(2026, 6, 6, 12, 0, 0, tzinfo=timezone.utc)
+RUN_COMMAND_APPROVAL_REASON = (
+    "Run commands execute local processes with the agent's OS permissions; "
+    "workspace path checks do not fully contain file, network, or subprocess access. Approval is required."
+)
 
 
 def _action(name: str, args: dict):
@@ -41,6 +45,15 @@ def test_write_file_requires_approval_by_default() -> None:
     assert decision.reason == "Action requires approval before execution."
 
 
+def test_run_command_requires_capability_approval_by_default() -> None:
+    action = _action("run_command", {"argv": ["python", "-c", "print('hi')"], "cwd": None, "timeout_seconds": 5})
+
+    decision = classify_action(action, AgentConfig())
+
+    assert decision.status == "approval_required"
+    assert decision.reason == RUN_COMMAND_APPROVAL_REASON
+
+
 def test_run_command_is_denied_when_approval_never() -> None:
     action = _action("run_command", {"argv": ["python", "-c", "print('hi')"], "cwd": None, "timeout_seconds": 5})
 
@@ -68,6 +81,16 @@ def test_approval_always_requires_approval_for_list_dir() -> None:
     decision = classify_action(action, AgentConfig(approval="always"))
 
     assert decision.status == "approval_required"
+    assert decision.reason == "Action requires approval before execution."
+
+
+def test_approval_always_uses_run_command_capability_reason() -> None:
+    action = _action("run_command", {"argv": ["python", "-c", "print('hi')"], "cwd": None, "timeout_seconds": 5})
+
+    decision = classify_action(action, AgentConfig(approval="always"))
+
+    assert decision.status == "approval_required"
+    assert decision.reason == RUN_COMMAND_APPROVAL_REASON
 
 
 def test_approval_always_still_allows_done() -> None:

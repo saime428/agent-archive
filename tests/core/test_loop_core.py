@@ -11,6 +11,12 @@ from agent.config import AgentConfig
 from agent.llm.fake import FakeLLMClient
 
 
+RUN_COMMAND_APPROVAL_REASON = (
+    "Run commands execute local processes with the agent's OS permissions; "
+    "workspace path checks do not fully contain file, network, or subprocess access. Approval is required."
+)
+
+
 class ListDirLLM:
     def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
         return {
@@ -1204,12 +1210,52 @@ def test_run_once_blocks_run_command_without_approval(tmp_path) -> None:
     assert result.observation.status == "error"
     assert result.observation.error is not None
     assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
+    assert result.observation.error.message == RUN_COMMAND_APPROVAL_REASON
     assert result.observation.error.details == {
         "requested_action": "run_command",
         "approval": "risky-confirm",
         "dry_run": False,
     }
-    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 1
+    records = result.tool_calls_path.read_text(encoding="utf-8").splitlines()
+    assert len(records) == 1
+    assert json.loads(records[0])["trace"]["policy_reason"] == RUN_COMMAND_APPROVAL_REASON
+
+
+def test_run_once_emits_run_command_capability_reason_before_denial(tmp_path) -> None:
+    marker = tmp_path / "should-not-exist.txt"
+    events: list[dict] = []
+    result = run_once(
+        "run command",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Run command.",
+                    "action": {
+                        "name": "run_command",
+                        "args": {
+                            "argv": [
+                                sys.executable,
+                                "-c",
+                                "from pathlib import Path; Path('should-not-exist.txt').write_text('x')",
+                            ],
+                            "cwd": None,
+                            "timeout_seconds": 5,
+                        },
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_command_denied_event",
+        approval_handler=lambda _action: False,
+        event_handler=events.append,
+    )
+
+    approval = next(event for event in events if event["event"] == "approval_required")
+    assert approval["reason"] == RUN_COMMAND_APPROVAL_REASON
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_DENIED
+    assert not marker.exists()
 
 
 def test_run_once_executes_approved_allowlisted_python_script(tmp_path) -> None:

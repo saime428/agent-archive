@@ -37,6 +37,12 @@ class PolicyDecision:
 
 def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecision:
     action_name = action.action.name
+    approval_reason = "Action requires approval before execution."
+    if action_name == "run_command":
+        approval_reason = (
+            "Run commands execute local processes with the agent's OS permissions; "
+            "workspace path checks do not fully contain file, network, or subprocess access. Approval is required."
+        )
     if action_name == "done":
         return PolicyDecision("allow", "Done actions are always allowed.")
     if action_name == "ask_user":
@@ -47,7 +53,7 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
         return PolicyDecision("deny", "Action is blocked by read-only sandbox.")
 
     if config.approval == "always":
-        return PolicyDecision("approval_required", "Action requires approval before execution.")
+        return PolicyDecision("approval_required", approval_reason)
 
     if action_name in LOW_RISK_ACTIONS:
         return PolicyDecision("allow", "Low-risk action is allowed.")
@@ -58,6 +64,6 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
                 "deny",
                 "Approval is disabled; confirmation-required actions are denied.",
             )
-        return PolicyDecision("approval_required", "Action requires approval before execution.")
+        return PolicyDecision("approval_required", approval_reason)
 
     return PolicyDecision("deny", "Action is not supported by policy.")
