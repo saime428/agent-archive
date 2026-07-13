@@ -1250,6 +1250,38 @@ def test_run_once_executes_approved_allowlisted_python_script(tmp_path) -> None:
     assert "Command exited with code 0." in feedback
 
 
+def test_run_once_reports_approval_timeout_without_user_denial_event(tmp_path) -> None:
+    events: list[dict] = []
+    result = run_once(
+        "write notes",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_approval_timeout",
+        approval_handler=lambda _action: "timed_out",
+        event_handler=events.append,
+    )
+
+    event_names = [event["event"] for event in events]
+    assert "approval_timed_out" in event_names
+    assert "approval_denied" not in event_names
+    assert not (tmp_path / "notes.txt").exists()
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.APPROVAL_DENIED
+    assert result.observation.error.message == "Approval timed out; action was not executed."
+    assert result.observation.error.details is not None
+    assert result.observation.error.details["approval_outcome"] == "timed_out"
+
+
 def test_run_once_dry_run_skips_write_file_and_continues_to_done(tmp_path) -> None:
     result = run_once(
         "write notes",

@@ -11,6 +11,7 @@ const CHAT_EVENT_NAMES = [
   "approval_required",
   "approval_granted",
   "approval_denied",
+  "approval_timed_out",
   "observation",
   "final",
   "error",

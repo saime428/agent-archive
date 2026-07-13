@@ -560,7 +560,7 @@ function renderProcessCards(container, events, { jobId } = {}) {
       const resolved = events.some(
         (item) =>
           item.action_index === event.action_index &&
-          ["approval_granted", "approval_denied"].includes(item.event),
+          ["approval_granted", "approval_denied", "approval_timed_out"].includes(item.event),
       );
       const approveButton = document.createElement("button");
       approveButton.type = "button";
@@ -597,7 +597,7 @@ function approvalPreview(args) {
 }
 
 function processStatus(event) {
-  if (event.event === "error" || event.status === "error" || event.event === "approval_denied") {
+  if (event.event === "error" || event.status === "error" || ["approval_denied", "approval_timed_out"].includes(event.event)) {
     return "error";
   }
   if (["final", "observation", "approval_granted"].includes(event.event)) {
@@ -619,6 +619,7 @@ function processTitle(event) {
     approval_required: `等待审批 ${actionLabel(event.action)}`,
     approval_granted: "审批通过",
     approval_denied: "审批拒绝",
+    approval_timed_out: "审批超时",
     observation: `工具返回 ${actionLabel(event.action)}`,
     final: "整理最终回答",
     error: "运行出错",
@@ -987,7 +988,7 @@ function renderLiveTurnIncrement(event) {
     return;
   }
   const bodyText = state.liveTurn.final || state.liveTurn.last_observation_summary || state.liveTurn.status || "姝ｅ湪杩愯...";
-  const isTerminal = ["final", "error"].includes(event.event);
+  const isTerminal = ["final", "error", "approval_timed_out"].includes(event.event);
   const isWaitingApproval = event.event === "approval_required";
   const body = article.querySelector(".message-body");
   if (body) {
@@ -1080,6 +1081,9 @@ function liveTurnText(event) {
   }
   if (event.event === "approval_required") {
     return "等待审批。";
+  }
+  if (event.event === "approval_timed_out") {
+    return "审批超时。";
   }
   return "正在运行...";
 }

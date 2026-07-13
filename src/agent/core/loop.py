@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from agent.config import AgentConfig
 from agent.core.actions import (
@@ -68,7 +68,7 @@ class TraceRecord:
     config: dict[str, object]
 
 
-ApprovalHandler = Callable[[InternalAction], bool]
+ApprovalHandler = Callable[[InternalAction], bool | Literal["timed_out"]]
 RunEventHandler = Callable[[dict[str, Any]], None]
 StreamHandler = Callable[[str], None]
 
@@ -666,7 +666,24 @@ def _tool_observation(
                     reason=decision.reason,
                 ),
             )
-            if approval_handler(action):
+            approval_outcome = approval_handler(action)
+            if approval_outcome == "timed_out":
+                _emit_event(
+                    event_handler,
+                    "approval_timed_out",
+                    _event_action_payload(context.run_id, observation_index, action),
+                )
+                details = _policy_details(action, config)
+                details["approval_outcome"] = "timed_out"
+                return make_error_observation(
+                    action.action_id,
+                    action.run_id,
+                    observation_index=observation_index,
+                    code=ErrorCode.APPROVAL_DENIED,
+                    message="Approval timed out; action was not executed.",
+                    details=details,
+                )
+            if approval_outcome:
                 _emit_event(
                     event_handler,
                     "approval_granted",

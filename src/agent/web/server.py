@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import unquote, urlparse
 
 from agent.config import ConfigError, load_config
@@ -36,6 +36,7 @@ from agent.tools.filesystem import create_snapshot
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 CHAT_JOB_TTL_SECONDS = 300.0
+APPROVAL_WAIT_TIMEOUT_SECONDS = CHAT_JOB_TTL_SECONDS
 STREAM_EVENT_BATCH_CHARS = 64
 
 
@@ -48,7 +49,9 @@ class _ChatJob:
     started_at: float = field(default_factory=time.monotonic)
     events: list[dict[str, Any]] = field(default_factory=list)
     condition: threading.Condition = field(default_factory=threading.Condition)
-    approval_decision: bool | None = None
+    approval_pending: bool = False
+    approval_deadline: float | None = None
+    approval_decision: bool | Literal["timed_out"] | None = None
     done: bool = False
     completed_at: float | None = None
     result: dict[str, Any] | None = None
@@ -965,6 +968,16 @@ def build_chat_approval_payload(request: dict[str, Any]) -> dict[str, Any]:
     with job.condition:
         if job.done:
             raise ValueError("chat job is already finished.")
+        if not job.approval_pending:
+            raise ValueError("chat job has no pending approval.")
+        if job.approval_deadline is None or job.approval_deadline <= time.monotonic():
+            job.approval_pending = False
+            job.approval_deadline = None
+            job.approval_decision = "timed_out"
+            job.condition.notify_all()
+            raise ValueError("chat approval has expired.")
+        job.approval_pending = False
+        job.approval_deadline = None
         job.approval_decision = approve
         job.condition.notify_all()
     return {"status": "ok", "job_id": job.job_id, "approved": approve}
@@ -1074,9 +1087,13 @@ def _get_chat_job(job_id: str) -> _ChatJob:
 
 def _append_chat_event(job: _ChatJob, event: dict[str, Any]) -> None:
     with job.condition:
+        now = time.monotonic()
+        if event.get("event") == "approval_required":
+            job.approval_pending = True
+            job.approval_deadline = now + APPROVAL_WAIT_TIMEOUT_SECONDS
         record = dict(event)
         record["sequence"] = len(job.events)
-        record["elapsed_ms"] = int((time.monotonic() - job.started_at) * 1000)
+        record["elapsed_ms"] = int((now - job.started_at) * 1000)
         job.events.append(record)
         job.condition.notify_all()
 
@@ -1118,13 +1135,21 @@ def _run_chat_job(
         flush_stream_event()
         _append_chat_event(job, event)
 
-    def handle_approval(_action: Any) -> bool:
+    def handle_approval(_action: Any) -> bool | Literal["timed_out"]:
         with job.condition:
-            while job.approval_decision is None and not job.done:
-                job.condition.wait()
-            approved = bool(job.approval_decision)
+            while job.approval_decision is None and job.approval_pending and not job.done:
+                deadline = job.approval_deadline
+                remaining = (deadline - time.monotonic()) if deadline is not None else 0.0
+                if remaining <= 0:
+                    job.approval_pending = False
+                    job.approval_deadline = None
+                    return "timed_out"
+                job.condition.wait(remaining)
+            decision = job.approval_decision
             job.approval_decision = None
-            return approved
+            job.approval_pending = False
+            job.approval_deadline = None
+            return "timed_out" if decision in {None, "timed_out"} else decision
 
     try:
         session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
@@ -1142,6 +1167,8 @@ def _run_chat_job(
         handle_event({"event": "error", "error": str(exc)})
     finally:
         with job.condition:
+            job.approval_pending = False
+            job.approval_deadline = None
             job.done = True
             job.completed_at = time.monotonic()
             job.condition.notify_all()
