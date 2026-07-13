@@ -1,9 +1,9 @@
 # 设计：代码审查第二刀——运行命令能力透明化
 
 日期：2026-07-13
-状态：已确认，待写计划
+状态：已确认，计划已审查
 依据：`docs/code-review-2026-07-12.md` 2.5
-计划：待本 spec 落定后另写
+计划：`docs/superpowers/plans/2026-07-13-code-review-second-fix.md`
 
 ## 背景
 
@@ -18,7 +18,7 @@
 1. 所有需要审批的 `run_command` 使用一条明确、稳定的能力警告。
 2. 英文原文进入 approval event、observation 与 trace，便于审计和测试。
 3. CLI 在询问批准前显示该原因。
-4. Workbench 在实时事件、历史事件及兼容摘要中显示固定中文映射。
+4. Workbench 在实时审批事件及兼容/历史摘要中显示固定中文映射。
 5. README 明确说明：工作区路径检查和命令白名单都不构成完整进程隔离。
 
 ## 固定文案
@@ -58,11 +58,11 @@ Workbench 中文映射：
 | 位置 | 改动 | 覆盖路径 |
 | --- | --- | --- |
 | `web/static/assets/render/chat.js::friendlyChatText` | 增加英文到中文的固定映射 | 浏览器展示 |
-| `web/static/assets/render/chat.js::processDetail` | 对 `event.reason` 调用 `friendlyChatText` | 实时及重载后的审批事件卡片 |
+| `web/static/assets/render/chat.js::processDetail` | 对 `event.reason` 调用 `friendlyChatText` | 实时审批事件卡片 |
 | `web/server.py::_friendly_observation_summary` | 增加相同映射 | 历史摘要与旧同步接口 |
 | `cli.py::_chat_event_handler` | 原样打印 `event.reason` | CLI 审批前提示 |
 
-Workbench 存在浏览器直接渲染事件和服务端返回摘要两条路径，因此 Python 与 JavaScript 各保留一条相同映射。这个最小重复是有意的：只改一处会让另一条路径泄漏英文；为一条文案新增跨语言 i18n 或生成模块则没有收益。映射规模明显增长时再单独设计集中管理。
+Workbench 存在浏览器直接渲染实时事件和服务端返回兼容/历史摘要两条路径，因此 Python 与 JavaScript 各保留一条相同映射。这个最小重复是有意的：只改一处会让另一条路径泄漏英文；为一条文案新增跨语言 i18n 或生成模块则没有收益。聊天历史目前不持久化 SSE 事件列表，本轮不新增事件重放。映射规模明显增长时再单独设计集中管理。
 
 CLI 保留英文原文，与 trace 的审计语义一致，不增加第二套终端本地化。
 
@@ -74,6 +74,8 @@ README 在 `run_command` / allowlist 说明附近补充：
 - 路径检查不能完整限制进程后续的文件、网络或子进程访问；
 - `allowed_commands` 是能力授权，approval 是执行确认，两者都不是 OS/容器沙箱；
 - `pytest`、`python -m pytest` 和其他获准命令仍可能执行项目代码。
+
+同时修正 Safety Model 中笼统的“文件访问受工作区限制”：该约束只适用于内置文件/文档工具及命令 argv 路径检查，不代表获准进程被限制在工作区内。
 
 ## 非目标
 
@@ -112,4 +114,4 @@ python -m agent.cli doctor
 git diff --check
 ```
 
-真实浏览器验收一次 `run_command`：审批卡片同时显示中文能力警告与命令参数，批准后命令仍按原流程执行；刷新页面后历史事件不回退为英文。
+真实浏览器验收一次 `run_command`：实时审批卡片同时显示中文能力警告与命令参数，批准后命令仍按原流程执行。兼容/历史摘要的中文映射由自动化测试覆盖，不虚构不存在的历史事件重放路径。
