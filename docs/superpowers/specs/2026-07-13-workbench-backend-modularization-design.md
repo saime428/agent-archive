@@ -1,7 +1,7 @@
 # 设计：Workbench 后端解体——以 ChatRuntime seam 拆分 `server.py`
 
 日期：2026-07-13
-状态：设计已通过对抗审查，实施计划待审查
+状态：设计与实施计划已通过对抗审查，待实现
 依据：`docs/code-review-2026-07-12.md` 3.1、5.4
 实现基线：`679e2ff`
 实现分支：`codex/v3.1-workbench-backend`
@@ -26,7 +26,7 @@
 1. `server.py` 只负责 HTTP/static/SSE 传输、显式路由和错误到状态码的映射。
 2. 建立深 `ChatRuntime` 模块，集中拥有 chat job 的全部可变状态和并发规则。
 3. 设置、文件、聊天投影和运行审查按领域落到独立模块，且不反向依赖 `server.py`。
-4. 保持现有 URL、请求字段、JSON payload、SSE 事件和 Workbench 行为兼容。
+4. 除本文明确列出的五项运行期收口外，保持现有 URL、请求字段、JSON payload、SSE 事件和 Workbench 行为兼容。
 5. 测试穿过新 interface，不再读取或修改 chat job 私有状态。
 6. 不引入依赖、Web 框架、asyncio 迁移或通用路由抽象。
 
@@ -75,7 +75,15 @@ web domain modules ─> agent.core / agent.policy / agent.tools / agent.llm
 | `web/files.py` | 文件列表/读取/保存、diff、snapshot restore、Workbench save trace、路径与 snapshot 私有 helper | 对应 file/diff/snapshot payload builders |
 | `web/runs.py` | run 列表/详情、task review、workflow hints、failure、patch review、recovery、replay | `build_runs_payload`、`build_run_detail_payload`、`build_failure_summary`、`build_run_replay` |
 
-聊天会话的持久化路径、session id 校验与目录删除统一由 `ConversationState` 拥有。`chats.py` 的删除 payload builder 只做请求字段校验、调用 `ConversationState.delete(cwd, session_id)` 并投影响应；它不复制 session id 正则或自行删除目录。`ConversationState.delete` 先复用既有 `_session_path` 校验 id，再对 chats root 与 session directory 执行当前的 `resolve()` + normalized `commonpath` containment，不能假设合法 id 足以阻止预先存在的 symlink/junction 越界。通过检查后只删除目录而不读取 `session.json`，因此仍可删除内容损坏的会话，并保持现有非法路径与不存在会话错误文案。snapshot containment 与聊天存储不是同一领域，现有同类检查随 snapshot helper 迁入 `files.py`；两处各自保留安全边界，不为数行安全逻辑新增共享 `web/utils.py`。
+聊天会话的持久化路径、session id 校验、枚举与目录删除统一由 `ConversationState` 拥有。现有 `_session_path` 只校验 id 字符，而 Web 的 list/load-or-create/delete 还会自行拼 `.agent/chats`；`.agent/chats`、合法名称的 session directory 或 `session.json` 任一层若是 symlink/junction/reparse redirection，list 可能先枚举目标，`load`/`save` 可能读写错误位置，delete-only containment 也可能删除另一个工作区目录。本轮增加 core-private `_SessionPathError(ValueError)` 与 `_chats_root`：路径解析失败或 resolved root 与 lexical root 的 normalized 形式不同，都作为存储边界错误 fail closed；`_session_path` 复用它并对完整 lexical `session.json` 做同样的 no-redirection 检查。`ConversationState.list` 拥有安全枚举，忽略不符合 session id 规则的普通目录；它必须重新抛出 `_SessionPathError`，只跳过 JSON/字段/读取损坏等数据错误，不能把路径重定向伪装成“坏会话”静默吞掉。`create`、`load`、`save` 与新增的 `delete` 全部复用该边界，不为 Web caller 复制检查。
+
+Web 的 load-or-create helper 改为先调用 `ConversationState.load`，只在 `FileNotFoundError` 时调用 `create`；不再在边界检查前对 lexical `session.json` 执行 `is_file()`。`build_chats_payload` 只投影 `ConversationState.list` 的结果，不再直接 `iterdir()` 会话存储。
+
+`ConversationState.load(cwd, requested_session_id)` 还必须校验 JSON 内的 `session_id` 与请求目录 id 完全相同。当前实现信任 JSON 值，`chat_a/session.json` 若声明 `chat_b`，恢复 `chat_a` 后的 `save` 会覆盖 `chat_b`；本轮改为加载时立即抛出 `ValueError`，不执行 turn、不跨会话写回。
+
+该边界保证操作开始时已经存在的 symlink/junction/reparse redirection 被拒绝，不声称抵御拥有同一文件系统写权限的并发攻击者在校验与 I/O 之间换路径，也不处理 hard link alias。后者需要 handle-relative/no-follow I/O 或原子替换等单独设计；本轮不以不完整的 `resolve()` 检查冒充该保证。
+
+`chats.py` 的删除 payload builder 只做请求字段校验、调用 `ConversationState.delete(cwd, session_id)` 并投影响应。`delete` 把 `_session_path` 的 id/redirection `ValueError` 翻译为当前删除接口的 `session_id resolves outside chats.`；通过检查后只按 canonical parent 检查 `is_dir()` 并删除目录，不读取 `session.json`，因此仍可删除内容损坏的合法会话并保持不存在会话文案。snapshot containment 与聊天存储不是同一领域，现有同类检查随 snapshot helper 迁入 `files.py`；两处各自保留安全边界，不新增共享 `web/utils.py`。
 
 不以各文件行数作为验收条件。允许某个领域模块仍然较长，只要 interface、状态所有权和依赖方向清楚；不为了“平均”继续拆出浅模块。
 
@@ -95,8 +103,9 @@ runtime = ChatRuntime(
 
 - `workspace` 在构造时 resolve，并固定该 runtime 的数据根目录。
 - 每个 `create_workbench_handler(workspace)` 创建一个 runtime；不同 Workbench 实例不共享 job registry。job id 只在签发它的 runtime 内有效，另一实例查询时按现有 unknown-job 错误处理。
-- `llm_factory`、`clock`、`approval_timeout` 和 `job_ttl` 是真实的内部测试 seam：生产使用现有实现，测试传入 fake factory、可控时钟和短时限；它们不是新的用户配置。
+- `llm_factory`、`clock`、`approval_timeout` 和 `job_ttl` 是真实的内部测试 seam：生产使用现有实现；测试传入 fake factory，并用可控时钟验证非阻塞的时间戳、deadline 与 TTL 状态转换，用极短真实时限验证会进入阻塞等待的 poll/approval 路径。它们不是新的用户配置。
 - 不为 `threading.Thread`、`Condition` 或 registry 定义 Protocol/adapter；它们不需要替换，留在 implementation 内。
+- 不新增 `wait`/`sleep` seam。显式的时间戳、deadline、elapsed 与 TTL 读取统一走 injected `clock`，但 `Condition.wait(remaining)` 仍使用标准库的真实阻塞时钟；冻结的 fake clock 不得进入 `remaining > 0` 的等待循环，否则 deadline 不会前进。
 - runtime 不启动后台 reaper，也不新增 `close()`：`start`、`poll`、`decide` 在处理请求前各执行一次轻量 prune。完全空闲时，过期 job 可保留到下一次 runtime 操作或进程退出；只有需要对空闲期内存作硬上限保证时，才另行设计后台清理生命周期。
 
 ### Interface
@@ -113,9 +122,9 @@ runtime.decide(job_id=job_id, approve=approve)
 - `poll` 返回 `job_id`、`events`、`done`、`next`；
 - `decide` 返回 `status`、`job_id`、`approved`。
 
-HTTP adapter 在信任边界校验 `message`、可选 `session_id`、`job_id` 与 `approve`，保留现有 `ValueError` 文案，再把 typed 参数传入 runtime。`ChatRuntime` 不接收原始 HTTP `dict`，避免其 interface 泄漏传输 payload 形状。校验直接留在对应路由分支，不新增只做转发的 chat payload builder，也不会形成 `chats.py` 与 `chat_runtime.py` 的循环依赖。同步兼容 `/api/chat/turn` 继续由 `chats.py` 直接运行，不伪装成异步 job。
+HTTP adapter 在信任边界校验 `message`、可选 `session_id`、`job_id` 与 `approve`，保留现有 `ValueError` 文案，并在调用 `start` 前执行一次 `message.strip()`；`ChatRuntime` 假定收到的是已规范化的非空 message，不重复 HTTP 校验。空字符串 `session_id` 仍按现有语义等同于未指定并创建新会话。`ChatRuntime` 不接收原始 HTTP `dict`，避免其 interface 泄漏传输 payload 形状。校验直接留在对应路由分支，不新增只做转发的 chat payload builder，也不会形成 `chats.py` 与 `chat_runtime.py` 的循环依赖。同步兼容 `/api/chat/turn` 继续由 `chats.py` 直接运行，不伪装成异步 job。
 
-`start` 在请求线程加载 workspace secrets、config/diagnostics 与已有或新建的 `ConversationState`，这些步骤全部成功后才注册 job、追加 `chat_started` 并启动 worker。当前 `ConversationState.create` 对请求指定的新 session id 延迟到保存时才校验，本轮在 create 内复用 `_session_path` 提前校验：非法 id 改为同步 HTTP `400`，不创建 job、不调用 LLM，错误文案不变。`make_llm`、`ChatSession.run_turn` 和响应投影留在 worker；provider 构造或执行期错误继续通过 SSE `error` 事件报告，并最终以 `done=True` 收口。
+`start` 在请求线程加载 workspace secrets、config/diagnostics 与已有或新建的 `ConversationState`，这些步骤全部成功后才注册 job、追加 `chat_started` 并启动 worker。当前 `ConversationState.create` 对请求指定的新 session id 延迟到保存时才校验，本轮在 create 内复用 `_session_path` 提前校验：非法 id、reparse redirection 或持久化 id mismatch 改为同步 HTTP `400`，不创建 job、不调用 LLM。`thread.start()` 若抛异常，runtime 必须在重新抛出前从 registry 回滚刚注册的 job，不能留下永不完成且调用方拿不到 id 的活跃记录。`make_llm`、`ChatSession.run_turn` 和响应投影留在 worker；provider 构造或执行期错误继续通过 SSE `error` 事件报告，并最终以 `done=True` 收口。
 
 本轮保持现有同 session 并发语义：runtime 不新增 per-session lock，也不阻止两个 job 同时加载并写回同一 `ConversationState`；`ConversationState.delete` 也不查询 runtime 中是否有活跃 job。直接 API 调用因此仍可能出现后写覆盖先写，或运行中的 worker 在删除后重新保存会话。当前前端通过活跃 turn 期间禁用发送按钮降低概率，但这不是服务端一致性保证。若要修复，需单独设计 start/rename/delete 的串行化、冲突响应和锁回收，不夹带在模块搬移 PR 中。
 
@@ -132,21 +141,25 @@ HTTP adapter 在信任边界校验 `message`、可选 `session_id`、`job_id` �
 
 `server.py`、`chats.py` 和测试不能获取 job 对象，也不能取得 condition 或 lock。SSE handler 只通过 `poll` 读取事件。
 
-SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runtime.poll(job_id, after=0, timeout=0)`，并把返回 payload 作为首批结果复用。这样 unknown 或已过期 job 仍能由 handler 映射为现有 JSON `400`，不会在响应头已经发送后再尝试改写错误响应；不为预检额外暴露 `get_job()`、`exists()` 或 job 对象。
+SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runtime.poll(job_id, after=0, timeout=0)`，并把返回 payload 作为首批结果复用。这样 unknown 或已过期 job 仍能由 handler 映射为现有 JSON `400`；不为预检额外暴露 `get_job()`、`exists()` 或 job 对象。发出响应头后，adapter 自己拥有传输失败：header/body 写入的 `OSError` 直接结束连接；后续 poll 若因并发 prune 变成 unknown，也只能结束 SSE，不能让外层 handler 再尝试发送 JSON。某批 payload 的 events 全部写出后，只要该批 `done=True` 就立即结束，不为了取得空批次再 poll 一次。进入 SSE 响应阶段即设置 `self.close_connection = True` 并发送 `Connection: close`，替换当前与 EOF 收口矛盾的 `keep-alive`；因为 SSE 没有 Content-Length，所有终止路径都必须以关闭 socket 表示 EOF，不能只从 handler return 后留下空闲连接。
+
+当前浏览器 `EventSource` 的 error handler 会立即关闭连接，服务端也不读取 `Last-Event-ID` 或接受 `after` query，因此现有 SSE 不提供断线续传；event `id` 只标识本次流中的 sequence。本轮保持这一语义，预检固定从 `after=0` 开始，不新增自动重连、服务端续传游标或前端去重。需要断线恢复时另行设计客户端重连状态与 replay contract。
 
 ### 生命周期不变量
 
 1. job 必须先注册并写入 `chat_started`，再启动 worker。
-2. event `sequence` 是 append 前的零基索引，从 0 开始并严格递增。
-3. `poll(after=n)` 把 `after` 解释为事件列表偏移量，返回 `events[n:]`，即 `sequence >= n`；`next = n + len(returned_events)`。
-4. `start`、`poll`、`decide` 进入时都使用同一个 injected clock prune；只有已完成且超过 TTL 的 job 可删除，活跃或等待审批的 job 不得被 TTL 删除。
-5. 一个 job 同时最多有一个 pending approval。
-6. `decide` 只接受未完成、pending 且未过截止时间的 job。
-7. 过期决定必须把状态归一为 `timed_out`、唤醒 worker，并返回现有错误文案；不能退化成普通拒绝。
-8. worker 无论成功、provider 错误还是意外异常，都必须在 `finally` 清理审批状态、标记完成并通知 waiter。
-9. `final` 或 `error` 事件可能先于 finally 中的 `done=True` 被观察到；只有 `poll(...)["done"] is True` 才是 worker 完成屏障。
-10. SSE 断开只停止该 HTTP 写循环，不取消 worker；本轮不新增取消协议。
-11. `STREAM_EVENT_BATCH_CHARS`、事件名、事件字段、approval reason 和 final/error 顺序保持不变。
+2. `thread.start()` 失败必须原子回滚该 job 并重新抛出；调用方不能获得 id，registry 也不能留下活跃孤儿。
+3. event `sequence` 是 append 前的零基索引，从 0 开始并严格递增。
+4. `poll(after=n)` 把 `after` 解释为事件列表偏移量，返回 `events[n:]`，即 `sequence >= n`；`next = n + len(returned_events)`。负数 `after` 保持现有 `ValueError`，负数 timeout 保持按 0 处理。
+5. `start`、`poll`、`decide` 进入时都使用同一个 injected clock prune；只有已完成且超过 TTL 的 job 可删除，活跃或等待审批的 job 不得被 TTL 删除。
+6. 一个 job 同时最多有一个 pending approval。
+7. `decide` 只接受未完成、pending 且未过截止时间的 job。
+8. 若 `decide` 在持有 condition lock 时先观察到 pending approval 已过 deadline，它必须把状态归一为 `timed_out`、唤醒 worker，并返回现有 `chat approval has expired.`；不能退化成普通拒绝。若 worker 先完成 timeout 清理，迟到的 `decide` 按现有状态可能返回 `chat job has no pending approval.`，若 job 已完成则返回 `chat job is already finished.`。本轮不新增终态字段来统一这三个竞态文案；稳定 contract 是迟到决定必被拒绝且动作不执行。
+9. worker 无论成功、provider 错误还是意外异常，都必须在 `finally` 清理审批状态、标记完成并通知 waiter。
+10. `final` 或 `error` 事件可能先于 finally 中的 `done=True` 被观察到；只有 `poll(...)["done"] is True` 才是 worker 完成屏障。
+11. SSE 断开只停止该 HTTP 写循环，不取消 worker；本轮不新增取消协议。
+12. SSE 写出一批 `done=True` 的全部 events 后立即结束，不再 poll 空批次；响应发送 `Connection: close` 且设置 `close_connection=True`，让客户端收到语义一致的 EOF。
+13. `STREAM_EVENT_BATCH_CHARS`、事件名、事件字段、approval reason 和 final/error 顺序保持不变。
 
 ## HTTP adapter
 
@@ -173,14 +186,17 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 - 只增加测试，不修改生产路由；
 - chat runtime 尚未存在时以当前 chat builders 作为 sentinel，runtime 提取后把同一组断言切换到 fake runtime。
 
-### 2. 收口聊天会话删除
+### 2. 收口聊天会话路径与删除
 
-- 让 `ConversationState.create` 在构造前复用 `_session_path` 校验显式 session id；
+- 增加 core-private `_chats_root`，让 `_session_path` 同时拥有 session id 校验与完整 `session.json` path 的 no-redirection 检查；
+- 增加 `ConversationState.list(cwd)` 安全枚举，让 Web 列表不直接访问 chats root；
+- 让 `ConversationState.create` 在构造前复用该路径边界校验显式 session id；
+- 让 `ConversationState.load` 拒绝 JSON `session_id` 与请求目录 id 不一致；
 - 在 `ConversationState` 增加 `delete(cwd, session_id)`；
-- 复用既有 session id 校验与 `_session_path`，同时保留当前 resolved normalized-commonpath containment，拒绝合法名称的外部 symlink/junction；
+- 使既有 `load`、`save` 与新增 `delete` 一并拒绝 chats root、session directory 或 `session.json` 的 symlink/junction/reparse redirection；
 - 只检查并删除会话目录，不加载或解析 `session.json`；
 - 保持现有成功 payload、非法路径及会话不存在错误文案；
-- 先让仍位于 `server.py` 的删除 builder 调用该方法，保持 commit 可运行。
+- 让仍位于 `server.py` 的 list/delete/load-or-create 调用这些 core 方法，保持 commit 可运行。
 
 ### 3. 提取 run 投影
 
@@ -237,7 +253,7 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 
 字典 key 的序列化顺序和 JSON 缩进不是稳定 interface；语义 payload 与浏览器消费行为才是兼容目标。
 
-有意的运行期行为变化限于三项：registry 从进程全局改为 runtime-local，过期 job 从“仅在 poll 时清理”改为“任一 runtime 操作进入时清理”，以及非法的新 session id 从 worker 保存阶段的 SSE `error` 改为创建 job 前的 HTTP `400`。前两项不是已支持的跨实例/过期 job 路径，分别避免跨工作区串 job 与测试污染、以三个入口的一次 prune 代替额外后台线程；第三项复用既有校验和错误文案，只把失败提前到信任边界。另有一项不影响运行期行为的内部 import 路径变更：builder 不再从 `agent.web.server` re-export。
+有意的运行期行为变化限于五项：registry 从进程全局改为 runtime-local；过期 job 从“仅在 poll 时清理”改为“任一 runtime 操作进入时清理”；非法的新 session id 从 worker 保存阶段的 SSE `error` 改为创建 job 前的 HTTP `400`；任何改变 canonical session storage path 的 symlink/junction/reparse redirection 由可读写改为拒绝；JSON `session_id` 与请求目录 id 不一致时由继续运行并可能串写改为加载失败。前三项分别解决跨实例串 job/测试污染、以入口 prune 代替后台线程、把既有 id 失败提前到信任边界；后两项把所有 session 状态操作收口到同一个存储与身份不变量，避免通过已存在的 reparse path 或伪造持久化 id 跨会话读写/删除。thread 启动失败回滚与 SSE 发头后的错误收口只修复资源/传输失败路径，不改变成功 contract。另有一项不影响运行期行为的内部 import 路径变更：builder 不再从 `agent.web.server` re-export。
 
 ## 测试策略
 
@@ -251,7 +267,8 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 - pending approval 的批准、拒绝、超时和 late decision；
 - final/error 可先出现，但继续轮询后必须得到 `done=True` 且 waiter 已被唤醒；
 - 两个 runtime 的 registry 互不相见；
-- start 的 config/session 准备失败（含非法的新 session id）同步抛出且不调用 `llm_factory`，provider/turn 失败则产生 `error` 事件并最终完成。
+- start 的 config/session 准备失败（含非法 id、reparse redirection、持久化 id mismatch）同步抛出且不调用 `llm_factory`，provider/turn 失败则产生 `error` 事件并最终完成；
+- `thread.start()` 失败后通过 public `poll` 观察到对应 job 不存在，不检查 registry 私有状态。
 
 旧测试与新 interface 测试重复时，删除旧测试，不叠加两套实现细节断言。
 
@@ -259,17 +276,20 @@ SSE adapter 在发送 `200 text/event-stream` 响应头前先调用一次 `runti
 
 `tests/test_ui.py` 继续覆盖 health/config/files/chats/runs payload 和静态前端 contract，只更新 import 来源。同步 `/api/chat/turn`、历史摘要中文映射、快照恢复、run review/replay 等既有断言不得因搬文件而弱化。
 
-`tests/test_chat.py` 用聚焦测试锁定 `ConversationState.delete`：拒绝越界 session id、拒绝合法 session 名指向工作区外的 symlink/junction，同时无需解析 `session.json` 即可删除内容损坏的会话目录。`tests/test_ui.py` 保留现有删除 payload 成功断言，并覆盖原有非法路径与不存在会话文案。
+`tests/test_chat.py` 用聚焦测试锁定统一路径与身份边界：`list`、`create`、`load`、`save`、`delete` 都拒绝适用层级的 reparse redirection，并保留目标 marker；JSON `session_id` 与目录 id 不一致时直接 `load` 拒绝且不写入另一会话，`list` 则把它作为损坏数据只跳过该项；同时列表忽略非法名称目录并保留其他合法会话，`delete` 无需解析 `session.json` 即可删除内容损坏的正常会话目录。测试必须证明 `_SessionPathError` 不会被列表的坏数据容错吞掉。`tests/test_ui.py` 保留现有列表/删除 payload 断言，并覆盖原有非法路径与不存在会话文案。
 
-`tests/test_web.py` 增加一个紧凑的 HTTP route-dispatch matrix：使用临时 `ThreadingHTTPServer`、随机端口、sentinel builders 和 fake runtime，覆盖 handler 中每个显式 GET/POST 分支，断言 method/path/query/body 被派发给正确目标；另以不存在的 job 请求 `/api/chat/events`，断言在 SSE 响应头发送前得到现有 JSON `400`。矩阵只验证 adapter wiring，不复制领域 payload 断言，也不为测试修改 `create_workbench_handler` 的生产 signature、引入 router 或依赖注入框架。
+`tests/test_web.py` 增加一个紧凑的 HTTP route-dispatch matrix：使用临时 `ThreadingHTTPServer`、随机端口、sentinel builders 和 fake runtime，覆盖 handler 中每个显式 GET/POST 分支，断言 method/path/query/body 被派发给正确目标；异常 sentinel 按现有 method-specific catch 分支锁定映射：GET 的 Config/Value/Sandbox `400`、RunStore `404`、OSError `500`，POST 的 Config/Value `400`、provider `502`、OSError `500`，不虚构当前不存在的跨 method 映射；另覆盖不存在 job 的 preflight JSON `400`、done-with-events 只 poll 一次、`Connection: close` 与 EOF，以及发头后 poll/prune 失败只结束 SSE。矩阵只验证 adapter wiring 与 transport ownership，不复制领域 payload 断言，也不为测试修改 `create_workbench_handler` 的生产 signature、引入 router 或依赖注入框架。
 
 不为本轮新建完整 `tests/web/` 目录或按模块机械拆测试文件；现有 `tests/test_web.py`、`tests/test_ui.py`、`tests/test_chat.py` 足以承载行为与 contract。
 
 ### 验收命令
 
 ```powershell
-python -m pytest tests/test_web.py tests/test_ui.py tests/test_cli.py -q
-python -m pytest -q
+$scratch = 'D:\CodexScratch\agent-workbench-backend'
+New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+if ((Resolve-Path -LiteralPath $scratch).Path -ne $scratch) { throw "Unexpected scratch path: $scratch" }
+python -m pytest --basetemp D:\CodexScratch\agent-workbench-backend\pytest tests/test_web.py tests/test_ui.py tests/test_cli.py -q
+python -m pytest --basetemp D:\CodexScratch\agent-workbench-backend\pytest -q
 python -m agent.cli doctor
 git diff --check
 ```
@@ -278,20 +298,21 @@ git diff --check
 
 1. 页面加载 health/config/files/chats/runs；
 2. 发起一个 streaming chat，事件持续更新；
-3. 发起一个需要审批的无害 `run_command`，审批卡出现、批准后同一 turn 完成；
+3. 确认 `sandbox=workspace-write`、`approval=risky-confirm`、`dry_run=false` 后，明确要求执行无写入的 `python -c "print('workbench-approval-ok')"`；审批卡出现、批准后同一 turn 完成，验收后恢复原本地配置；
 4. trace 中保留 approval reason 与命令结果；
 5. SSE 客户端断开后服务仍能响应新请求。
 
 ## 非目标
 
-- 不新增或修改产品功能。
+- 除“运行期行为变化”一节列出的五项边界收口外，不新增或修改产品功能。
 - 不实现并行 `tool_calls`、标准 `role=tool` 历史或 provider 能力探测。
-- 除给 `ConversationState` 增加会话删除操作外，不改 `core/loop.py`、其他 core 行为、LLM provider、审批策略或 shell 策略。
+- 除收口 `ConversationState` 会话路径/身份边界并增加删除操作外，不改 `core/loop.py`、其他 core 行为、LLM provider、审批策略或 shell 策略。
 - 不改静态前端模块、CSS、端点名称或 payload 设计。
 - 不引入 Flask/FastAPI/aiohttp、asyncio、任务队列或数据库。
 - 不新增通用 repository、controller、service、router、facade 或依赖注入框架。
 - 不处理 Workbench 鉴权、`0.0.0.0` 暴露或 worker 取消协议。
 - 不新增 per-session lock，不修复同一会话的并发 turn 覆盖或活跃 job 与 rename/delete 的竞态。
+- 不把 session path 检查扩展成对抗同机并发文件系统篡改或 hard link alias 的安全沙箱。
 - 不以 `server.py` 降到某个任意行数作为完成标准。
 
 ## 预计实现文件
@@ -326,13 +347,15 @@ git diff --check
 
 ## PR 策略
 
-当前本地实现分支从 PR #7 head `679e2ff` 创建，但不继续向 PR #7 追加大规模重构，也不以 `codex/v3.0-frontend-modules` 为 base 创建 stacked PR。PR #7 未合并期间只完成本地 spec、plan、实现与验证；待 PR #7 合并后，先 fetch 合并后的实际目标分支，把本轮 commits rebase 到该基线，再重新运行验收并确认 PR diff 只包含本轮后端模块化改动，之后才 push/open 一个独立 PR。若 PR #7 无法合并，发布保持阻塞并重新决策，不静默降级为 stacked PR。
+当前本地实现分支从 PR #7 head `679e2ff` 创建，但不继续向 PR #7 追加大规模重构，也不以 `codex/v3.0-frontend-modules` 为 base 创建 stacked PR。PR #7 未合并期间只完成本地 spec、plan、实现与验证；待 PR #7 合并后，先 fetch 合并后的实际目标分支，以 `679e2ff` 为 old base 执行 `git rebase --onto <merged-target> 679e2ff codex/v3.1-workbench-backend`，只重放本分支新增 commits，避免 squash/rebase merge 后把 PR #7 的前端 commits 再放一遍。rebase 后重新运行验收，并以 merged target 为 PR diff base 确认只包含本轮 spec、plan、后端模块与测试，之后才 push/open 一个独立 PR。若 PR #7 无法合并，发布保持阻塞并重新决策，不静默降级为 stacked PR。
+
+真实 provider 验收是默认发布门禁：缺 key 时可以完成实现与自动测试并记录阻塞，但不 push/open PR；只有补齐验收或用户明确豁免后才发布。
 
 本轮保持一个独立 PR，不再拆成 stacked PR。为保持可审查性，提交按以下层次组织：
 
 1. spec 与 plan；
 2. HTTP route-dispatch characterization matrix；
-3. `ConversationState` 显式 id 校验与 delete ownership 修正、现有调用方切换及聚焦测试；
+3. `ConversationState` storage path/identity 校验与 delete ownership 修正、现有调用方切换及聚焦测试；
 4. `runs.py` 移动、可复用 failure/replay 投影、server 接线与测试 import 更新；
 5. `chats.py` 无状态逻辑/投影移动、server 接线与测试 import 更新；
 6. `ChatRuntime` 提取、对应 server 接线及 interface 测试；
