@@ -483,16 +483,7 @@ def build_save_config_payload(workspace: Path, request: dict[str, Any]) -> dict[
 
 def build_chats_payload(workspace: Path, *, limit: int = 30) -> dict[str, Any]:
     root = workspace.resolve()
-    chats_root = root / ".agent" / "chats"
-    states: list[ConversationState] = []
-    if chats_root.is_dir():
-        for session_dir in chats_root.iterdir():
-            if not session_dir.is_dir():
-                continue
-            try:
-                states.append(ConversationState.load(root, session_dir.name))
-            except (OSError, ValueError, KeyError, json.JSONDecodeError, TypeError):
-                continue
+    states = ConversationState.list(root)
     states.sort(key=lambda item: item.updated_at, reverse=True)
     return {
         "workspace": str(root),
@@ -1016,13 +1007,7 @@ def build_chat_delete_payload(workspace: Path, request: dict[str, Any]) -> dict[
     if not isinstance(session_id, str) or not session_id:
         raise ValueError("session_id is required.")
     root = workspace.resolve()
-    chats_root = (root / ".agent" / "chats").resolve()
-    session_dir = (chats_root / session_id).resolve()
-    if not _is_within(session_dir, chats_root):
-        raise ValueError("session_id resolves outside chats.")
-    if not session_dir.is_dir():
-        raise ValueError(f"Chat session not found: {session_id}")
-    shutil.rmtree(session_dir)
+    ConversationState.delete(root, session_id)
     return {"status": "ok", "session_id": session_id, "deleted": True}
 
 
@@ -1058,10 +1043,10 @@ def _chat_turn_response(root: Path, session: ChatSession, result: Any, diagnosti
 
 def _load_or_create_chat_state(root: Path, session_id: str | None) -> ConversationState:
     if session_id:
-        session_path = root / ".agent" / "chats" / session_id / "session.json"
-        if session_path.is_file():
+        try:
             return ConversationState.load(root, session_id)
-        return ConversationState.create(root, session_id=session_id)
+        except FileNotFoundError:
+            return ConversationState.create(root, session_id=session_id)
     return ConversationState.create(root)
 
 

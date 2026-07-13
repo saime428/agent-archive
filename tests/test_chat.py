@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
 
 from agent.config import AgentConfig
 from agent.core.actions import ErrorCode
@@ -198,12 +204,129 @@ def test_conversation_state_save_redacts_secrets_and_resume_loads_turns(tmp_path
 
 
 def test_conversation_state_rejects_unsafe_session_ids(tmp_path) -> None:
-    try:
+    with pytest.raises(ValueError, match="chat session id"):
         ConversationState.load(tmp_path, "../runs")
-    except ValueError as exc:
-        assert "chat session id" in str(exc)
+    with pytest.raises(ValueError, match="chat session id"):
+        ConversationState.create(tmp_path, session_id="../runs")
+
+
+def _replace_chat_storage_with_symlink(workspace: Path, level: str) -> tuple[Path, str]:
+    chats_root = workspace / ".agent" / "chats"
+    session_dir = chats_root / "chat_guard"
+    session_file = session_dir / "session.json"
+    if level == "root":
+        target = workspace / ".agent" / "redirected_chats"
+        target.mkdir()
+        marker = target / "marker.txt"
+        marker.write_text("root marker", encoding="utf-8")
+        shutil.rmtree(chats_root)
+        link, is_directory = chats_root, True
+    elif level == "session":
+        target = chats_root / "chat_target"
+        target.mkdir()
+        marker = target / "marker.txt"
+        marker.write_text("session marker", encoding="utf-8")
+        shutil.rmtree(session_dir)
+        link, is_directory = session_dir, True
     else:
-        raise AssertionError("unsafe session id should fail")
+        target = session_dir / "target.json"
+        marker = target
+        marker.write_text("file marker", encoding="utf-8")
+        session_file.unlink()
+        link, is_directory = session_file, False
+    try:
+        link.symlink_to(target, target_is_directory=is_directory)
+    except (NotImplementedError, OSError) as exc:
+        if os.name == "nt" and is_directory:
+            junction = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                capture_output=True,
+                check=False,
+            )
+            if junction.returncode == 0:
+                return marker, marker.read_text(encoding="utf-8")
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+    return marker, marker.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("level", ["root", "session", "file"])
+def test_conversation_state_rejects_chat_storage_redirection(tmp_path, level: str) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = AgentConfig()
+    state = ConversationState.create(workspace, session_id="chat_guard")
+    state.save(config)
+    marker, marker_text = _replace_chat_storage_with_symlink(workspace, level)
+
+    operations = [
+        lambda: ConversationState.list(workspace),
+        lambda: ConversationState.create(workspace, session_id="chat_guard"),
+        lambda: ConversationState.load(workspace, "chat_guard"),
+        lambda: state.save(config),
+    ]
+    for operation in operations:
+        with pytest.raises(ValueError):
+            operation()
+    with pytest.raises(ValueError, match=r"session_id resolves outside chats\."):
+        ConversationState.delete(workspace, "chat_guard")
+    assert marker.read_text(encoding="utf-8") == marker_text
+
+
+@pytest.mark.parametrize("stored_session_id", ["chat_b", 7])
+def test_conversation_state_rejects_stored_session_id_mismatch(tmp_path, stored_session_id: object) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = AgentConfig()
+    valid = ConversationState.create(workspace, session_id="chat_ok")
+    valid.save(config)
+    mismatched = ConversationState.create(workspace, session_id="chat_a")
+    session_path = mismatched.save(config)
+    raw = json.loads(session_path.read_text(encoding="utf-8"))
+    raw["session_id"] = stored_session_id
+    session_path.write_text(json.dumps(raw), encoding="utf-8")
+    marker = workspace / ".agent" / "chats" / "chat_b" / "marker.txt"
+    marker.parent.mkdir()
+    marker.write_text("unchanged", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="chat session id does not match"):
+        ConversationState.load(workspace, "chat_a")
+
+    assert [state.session_id for state in ConversationState.list(workspace)] == ["chat_ok"]
+    assert marker.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_conversation_state_list_skips_corrupt_and_invalid_directories(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = AgentConfig()
+    ConversationState.create(workspace, session_id="chat_ok").save(config)
+    corrupt = workspace / ".agent" / "chats" / "chat_corrupt"
+    corrupt.mkdir()
+    (corrupt / "session.json").write_text("{", encoding="utf-8")
+    (workspace / ".agent" / "chats" / "not a session").mkdir()
+
+    states = ConversationState.list(workspace)
+
+    assert [state.session_id for state in states] == ["chat_ok"]
+
+
+def test_conversation_state_delete_does_not_parse_session_json(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = ConversationState.create(workspace, session_id="chat_corrupt")
+    session_path = state.save(AgentConfig())
+    session_path.write_text("{", encoding="utf-8")
+
+    ConversationState.delete(workspace, "chat_corrupt")
+
+    assert not session_path.parent.exists()
+
+
+def test_conversation_state_delete_preserves_existing_errors(tmp_path) -> None:
+    with pytest.raises(ValueError, match="Chat session not found: chat_missing"):
+        ConversationState.delete(tmp_path, "chat_missing")
+    with pytest.raises(ValueError, match=r"session_id resolves outside chats\."):
+        ConversationState.delete(tmp_path, "../runs")
 
 
 def test_chat_session_passes_history_to_second_turn(tmp_path) -> None:

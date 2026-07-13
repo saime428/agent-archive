@@ -288,6 +288,39 @@ def test_chat_start_normalizes_message_and_empty_session_id(monkeypatch, tmp_pat
             server._CHAT_JOBS.clear()
 
 
+def test_chat_start_rejects_unsafe_session_id_before_llm(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm_called = threading.Event()
+
+    def fail_llm(_config):
+        llm_called.set()
+        raise AssertionError("LLM must not be created for an unsafe session id")
+
+    monkeypatch.setattr(server, "make_llm", fail_llm)
+    with server._CHAT_JOBS_LOCK:
+        server._CHAT_JOBS.clear()
+
+    try:
+        status, _headers, response = _http_request(
+            workspace,
+            "POST",
+            "/api/chat/start",
+            {"message": "x", "session_id": "../runs"},
+        )
+        if status != 400:
+            llm_called.wait(1.0)
+
+        assert status == 400
+        assert "chat session id" in json.loads(response)["error"]
+        assert not llm_called.is_set()
+        with server._CHAT_JOBS_LOCK:
+            assert not server._CHAT_JOBS
+    finally:
+        with server._CHAT_JOBS_LOCK:
+            server._CHAT_JOBS.clear()
+
+
 def test_build_chat_events_payload_prunes_finished_jobs_after_ttl(monkeypatch, tmp_path) -> None:
     old = server._ChatJob(
         job_id="job_old",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web import server
@@ -975,6 +976,24 @@ def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
     assert "thinking_text" in detail["turns"][0]
 
 
+def test_build_chats_payload_projects_conversation_state_list(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state = ConversationState.create(workspace, session_id="chat_listed")
+    calls: list[Path] = []
+
+    def list_states(cls, cwd: Path) -> list[ConversationState]:
+        calls.append(cwd)
+        return [state]
+
+    monkeypatch.setattr(ConversationState, "list", classmethod(list_states))
+
+    payload = build_chats_payload(workspace)
+
+    assert calls == [workspace.resolve()]
+    assert [item["session_id"] for item in payload["chats"]] == ["chat_listed"]
+
+
 def test_build_chat_rename_payload_updates_session_title(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1003,6 +1022,23 @@ def test_build_chat_delete_payload_removes_session(tmp_path: Path) -> None:
     assert payload == {"status": "ok", "session_id": first["session_id"], "deleted": True}
     assert build_chats_payload(workspace)["chats"] == []
     assert not (workspace / ".agent" / "chats" / first["session_id"]).exists()
+
+
+def test_build_chat_delete_payload_preserves_error_messages(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    cases = [
+        ({"session_id": "chat_missing"}, "Chat session not found: chat_missing"),
+        ({"session_id": "../runs"}, "session_id resolves outside chats."),
+    ]
+
+    for request, expected in cases:
+        try:
+            build_chat_delete_payload(workspace, request)
+        except ValueError as exc:
+            assert str(exc) == expected
+        else:
+            raise AssertionError(f"expected deletion failure: {request}")
 
 
 def test_build_chat_turn_payload_includes_public_action_message_in_process(monkeypatch, tmp_path: Path) -> None:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +18,11 @@ from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
 
 RunEventHandler = Callable[[dict], None]
+_SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+
+
+class _SessionPathError(ValueError):
+    pass
 
 
 @dataclass
@@ -42,26 +49,62 @@ class ConversationState:
     @classmethod
     def create(cls, cwd: Path, *, session_id: str | None = None) -> "ConversationState":
         now = _now_iso()
+        selected_session_id = session_id or _new_session_id()
+        _session_path(cwd, selected_session_id)
+        root = cwd.resolve()
         return cls(
-            session_id=session_id or _new_session_id(),
-            cwd=cwd.resolve(),
+            session_id=selected_session_id,
+            cwd=root,
             created_at=now,
             updated_at=now,
         )
 
     @classmethod
+    def list(cls, cwd: Path) -> list["ConversationState"]:
+        chats_root = _chats_root(cwd)
+        root = cwd.resolve()
+        if not chats_root.is_dir():
+            return []
+        states: list[ConversationState] = []
+        for session_dir in chats_root.iterdir():
+            if not session_dir.is_dir() or _SESSION_ID_PATTERN.fullmatch(session_dir.name) is None:
+                continue
+            try:
+                states.append(cls.load(root, session_dir.name))
+            except _SessionPathError:
+                raise
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return states
+
+    @classmethod
     def load(cls, cwd: Path, session_id: str) -> "ConversationState":
-        session_path = _session_path(cwd.resolve(), session_id)
+        session_path = _session_path(cwd, session_id)
+        root = cwd.resolve()
         raw = json.loads(session_path.read_text(encoding="utf-8"))
+        stored_session_id = raw["session_id"]
+        if not isinstance(stored_session_id, str) or stored_session_id != session_id:
+            raise ValueError("chat session id does not match its storage directory.")
         turns = [ChatTurn(**item) for item in raw.get("turns", [])]
         return cls(
-            session_id=str(raw["session_id"]),
-            cwd=cwd.resolve(),
+            session_id=stored_session_id,
+            cwd=root,
             created_at=str(raw["created_at"]),
             updated_at=str(raw["updated_at"]),
             title=str(raw["title"]) if raw.get("title") else None,
             turns=turns,
         )
+
+    @classmethod
+    def delete(cls, cwd: Path, session_id: str) -> None:
+        try:
+            session_path = _session_path(cwd, session_id)
+        except _SessionPathError as exc:
+            raise ValueError("session_id resolves outside chats.") from exc
+        session_dir = session_path.parent
+        if not session_dir.is_dir():
+            raise ValueError(f"Chat session not found: {session_id}")
+        shutil.rmtree(session_dir)
 
     def add_result(self, user: str, result: RunResult) -> None:
         self.add_turn(
@@ -267,10 +310,28 @@ def _display_path(path: Path, cwd: Path) -> str:
         return str(path)
 
 
+def _chats_root(cwd: Path) -> Path:
+    try:
+        root = cwd.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise _SessionPathError("chat session storage path could not be resolved.") from exc
+    return _resolve_chat_storage_path(root / ".agent" / "chats")
+
+
 def _session_path(cwd: Path, session_id: str) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
-        raise ValueError("chat session id may only contain letters, numbers, underscores, and hyphens.")
-    return cwd / ".agent" / "chats" / session_id / "session.json"
+    if not isinstance(session_id, str) or _SESSION_ID_PATTERN.fullmatch(session_id) is None:
+        raise _SessionPathError("chat session id may only contain letters, numbers, underscores, and hyphens.")
+    return _resolve_chat_storage_path(_chats_root(cwd) / session_id / "session.json")
+
+
+def _resolve_chat_storage_path(path: Path) -> Path:
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise _SessionPathError("chat session storage path could not be resolved.") from exc
+    if os.path.normcase(str(resolved)) != os.path.normcase(str(path)):
+        raise _SessionPathError("chat session storage path contains a redirect.")
+    return resolved
 
 
 def _new_session_id() -> str:
