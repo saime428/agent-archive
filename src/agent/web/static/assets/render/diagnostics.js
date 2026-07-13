@@ -59,7 +59,8 @@ export function renderToolCalls(toolCalls) {
     toolCalls.map((call) => {
       const action = call.data?.action?.action?.name || "invalid";
       const summary = call.data?.observation?.summary || call.error || "暂无摘要。";
-      return [`${call.line_number}. ${action}`, summary];
+      const warning = call.data?.trace?.warning;
+      return [`${call.line_number}. ${action}`, warning ? `${warning}\n${summary}` : summary];
     }),
   );
 }

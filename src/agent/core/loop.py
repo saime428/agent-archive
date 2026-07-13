@@ -66,6 +66,7 @@ class TraceRecord:
     policy_decision: str | None
     policy_reason: str | None
     config: dict[str, object]
+    warning: str | None = None
 
 
 ApprovalHandler = Callable[[InternalAction], bool | Literal["timed_out"]]
@@ -176,6 +177,12 @@ def run_once(
             stream_handler=stream_handler,
             native_tools_payload=native_tools_payload,
         )
+        trace_warning = None
+        if use_native and isinstance(raw_response, dict):
+            raw_response = dict(raw_response)
+            raw_warning = raw_response.pop("_agent_warning", None)
+            if isinstance(raw_warning, str):
+                trace_warning = raw_warning
         try:
             action = parse_model_action(
                 raw_response,
@@ -244,6 +251,7 @@ def run_once(
                     observation_index=model_call_index,
                     repair_attempt=None,
                     terminal=True,
+                    warning=trace_warning,
                     **_trace_policy(action, effective_config),
                 )
             )
@@ -343,6 +351,7 @@ def run_once(
                 observation_index=model_call_index,
                 repair_attempt=None,
                 terminal=terminal,
+                warning=trace_warning,
                 **_trace_policy(action, effective_config),
             )
         )
@@ -1030,6 +1039,7 @@ def _write_run_logs(
                 "policy_decision": traces[index].policy_decision,
                 "policy_reason": traces[index].policy_reason,
                 "config": traces[index].config,
+                "warning": traces[index].warning,
             }
         redacted_record = redact_record(record)
         redaction_replacements += redacted_record.replacements

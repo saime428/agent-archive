@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from agent.config import AgentConfig
 from agent.core.loop import run_once
 from agent.llm.fake import FakeLLMClient
@@ -131,6 +133,30 @@ def test_native_streaming_emits_tagged_chunk_events(tmp_path) -> None:
         ("args", '{"final"'),
     ]
     assert streamed == ["considering", '{"final"']
+
+
+def test_native_warning_is_removed_from_action_and_persisted_in_trace(tmp_path) -> None:
+    warning = (
+        "[agent warning] Provider returned multiple tool calls; "
+        "calls outside the current single-call path were ignored."
+    )
+    response = _done_envelope("first call only")
+    response["_agent_warning"] = warning
+    llm = ScriptedNativeLLM([response])
+
+    result = run_once(
+        "say done",
+        llm,
+        cwd=tmp_path,
+        run_id="run_native_warning",
+        config=AgentConfig(native_tools=True),
+    )
+
+    record = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert result.action.message == "Finishing."
+    assert record["action"]["message"] == "Finishing."
+    assert "_agent_warning" not in record["action"]
+    assert record["trace"]["warning"] == warning
 
 
 def test_native_flag_falls_back_to_json_protocol_without_chat_tools(tmp_path) -> None:

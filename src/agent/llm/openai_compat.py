@@ -17,6 +17,11 @@ Transport = Callable[[str, dict[str, str], bytes, float], bytes]
 StreamTransport = Callable[[str, dict[str, str], bytes, float], Iterable[bytes]]
 RetrySleep = Callable[[float], None]
 
+IGNORED_TOOL_CALLS_WARNING = (
+    "[agent warning] Provider returned multiple tool calls; "
+    "calls outside the current single-call path were ignored."
+)
+
 
 class ProviderError(RuntimeError):
     pass
@@ -508,12 +513,17 @@ def _parse_tools_chat_response(response_body: bytes, provider_label: str) -> dic
     return _envelope_from_tool_message(message_obj)
 
 
-def _envelope_from_tool_message(message_obj: dict) -> dict | str:
+def _envelope_from_tool_message(
+    message_obj: dict,
+    *,
+    ignored_extra_tool_calls: bool = False,
+) -> dict | str:
     content = message_obj.get("content")
     message_text = content if isinstance(content, str) else ""
     tool_calls = message_obj.get("tool_calls")
     if not isinstance(tool_calls, list) or not tool_calls:
         return {"message": message_text}
+    ignored_extra_tool_calls = ignored_extra_tool_calls or len(tool_calls) > 1
     first = tool_calls[0]
     function = first.get("function") if isinstance(first, dict) else None
     if not isinstance(function, dict):
@@ -528,7 +538,10 @@ def _envelope_from_tool_message(message_obj: dict) -> dict | str:
         return arguments
     if not isinstance(args, dict):
         return arguments
-    return {"message": message_text, "action": {"name": name, "args": args}}
+    envelope = {"message": message_text, "action": {"name": name, "args": args}}
+    if ignored_extra_tool_calls:
+        envelope["_agent_warning"] = IGNORED_TOOL_CALLS_WARNING
+    return envelope
 
 
 class _ToolCallAssembler:
@@ -536,6 +549,7 @@ class _ToolCallAssembler:
         self.content_parts: list[str] = []
         self.tool_name: str | None = None
         self.argument_parts: list[str] = []
+        self.ignored_extra_tool_calls = False
 
     def feed(self, delta: dict) -> list[tuple[str, str]]:
         pieces: list[tuple[str, str]] = []
@@ -549,7 +563,10 @@ class _ToolCallAssembler:
         tool_calls = delta.get("tool_calls")
         if isinstance(tool_calls, list):
             for fragment in tool_calls:
-                if not isinstance(fragment, dict) or fragment.get("index", 0) != 0:
+                if not isinstance(fragment, dict):
+                    continue
+                if fragment.get("index", 0) != 0:
+                    self.ignored_extra_tool_calls = True
                     continue
                 function = fragment.get("function")
                 if not isinstance(function, dict):
@@ -569,7 +586,10 @@ class _ToolCallAssembler:
             message_obj["tool_calls"] = [
                 {"function": {"name": self.tool_name, "arguments": "".join(self.argument_parts)}}
             ]
-        return _envelope_from_tool_message(message_obj)
+        return _envelope_from_tool_message(
+            message_obj,
+            ignored_extra_tool_calls=self.ignored_extra_tool_calls,
+        )
 
 
 def _parse_streaming_chat_response(chunks: Iterable[bytes], provider_label: str) -> Iterator[str]:

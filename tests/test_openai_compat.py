@@ -5,6 +5,7 @@ import json
 import pytest
 
 from agent.llm.openai_compat import (
+    IGNORED_TOOL_CALLS_WARNING,
     OpenAICompatClient,
     ProviderError,
     _ReusableHTTPTransport,
@@ -135,6 +136,7 @@ def test_chat_tools_sends_tools_and_auto_choice() -> None:
         "message": "Finishing.",
         "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
     }
+    assert "_agent_warning" not in envelope
 
 
 def test_chat_tools_takes_first_of_multiple_tool_calls() -> None:
@@ -150,7 +152,14 @@ def test_chat_tools_takes_first_of_multiple_tool_calls() -> None:
 
     envelope = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
 
-    assert envelope["action"]["name"] == "done"
+    assert envelope == {
+        "message": "",
+        "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
+        "_agent_warning": IGNORED_TOOL_CALLS_WARNING,
+    }
+    assert list(envelope).count("_agent_warning") == 1
+    assert "read_file" not in repr(envelope)
+    assert "path" not in envelope["action"]["args"]
 
 
 def test_chat_tools_returns_raw_string_for_invalid_arguments_json() -> None:
@@ -160,6 +169,23 @@ def test_chat_tools_returns_raw_string_for_invalid_arguments_json() -> None:
     result = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
 
     assert result == '{"final": broken'
+
+
+def test_chat_tools_invalid_first_call_with_extra_call_keeps_raw_repair_input() -> None:
+    invalid_arguments = '{"final": broken'
+    message_obj = {
+        "content": "Finishing.",
+        "tool_calls": [
+            {"function": {"name": "done", "arguments": invalid_arguments}},
+            {"function": {"name": "read_file", "arguments": '{"path": "secret.txt"}'}},
+        ],
+    }
+    transport = RecordingTransport(_tools_response(message_obj))
+    client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
+
+    result = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
+
+    assert result == invalid_arguments
 
 
 def test_chat_tools_returns_actionless_envelope_when_no_tool_call() -> None:
@@ -209,6 +235,7 @@ def test_stream_chat_tools_assembles_fragmented_tool_call() -> None:
         "message": "Think",
         "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
     }
+    assert "_agent_warning" not in envelope
 
 
 def test_stream_chat_tools_requests_streaming_with_auto_choice() -> None:
@@ -245,9 +272,28 @@ def test_stream_chat_tools_without_tool_call_returns_actionless_envelope() -> No
 
 def test_stream_chat_tools_ignores_non_zero_indexes() -> None:
     events = [
-        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "done", "arguments": ""}}]}}]}',
-        '{"choices": [{"delta": {"tool_calls": [{"index": 1, "function": {"name": "read_file", "arguments": "{}"}}]}}]}',
-        '{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "' + DONE_ARGS.replace('"', '\\"') + '"}}]}}]}',
+        json.dumps(
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "done", "arguments": ""}}]}}]}
+        ),
+        json.dumps(
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 1, "function": {"name": "read_file", "arguments": '{"path": "'}}
+                            ]
+                        }
+                    }
+                ]
+            }
+        ),
+        json.dumps(
+            {"choices": [{"delta": {"tool_calls": [{"index": 1, "function": {"arguments": 'secret.txt"}'}}]}}]}
+        ),
+        json.dumps(
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": DONE_ARGS}}]}}]}
+        ),
     ]
     client = OpenAICompatClient(
         api_key="",
@@ -256,9 +302,17 @@ def test_stream_chat_tools_ignores_non_zero_indexes() -> None:
         stream_transport=lambda url, headers, body, timeout: iter(_sse(events)),
     )
 
-    _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+    chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
 
-    assert envelope["action"]["name"] == "done"
+    assert envelope == {
+        "message": "",
+        "action": {"name": "done", "args": {"final": "ok", "changed_files": [], "next_steps": []}},
+        "_agent_warning": IGNORED_TOOL_CALLS_WARNING,
+    }
+    assert list(envelope).count("_agent_warning") == 1
+    assert "secret.txt" not in repr(envelope)
+    assert "read_file" not in repr(envelope)
+    assert "secret.txt" not in repr(chunks)
 
 
 def test_stream_chat_tools_yields_reasoning_as_thinking() -> None:

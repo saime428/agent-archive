@@ -403,7 +403,8 @@ def test_build_run_detail_payload_includes_summary_and_tool_calls(tmp_path: Path
     run_dir.mkdir(parents=True)
     (run_dir / "summary.md").write_text("# Run run_test\n\n- final: ok\n", encoding="utf-8")
     (run_dir / "tool_calls.jsonl").write_text(
-        '{"action":{"action":{"name":"done"}},"observation":{"status":"ok","summary":"Done."}}\n',
+        '{"action":{"action":{"name":"done"}},"observation":{"status":"ok","summary":"Done."},'
+        '"trace":{"warning":"[agent warning] Provider returned multiple tool calls; calls outside the current single-call path were ignored."}}\n',
         encoding="utf-8",
     )
 
@@ -413,6 +414,7 @@ def test_build_run_detail_payload_includes_summary_and_tool_calls(tmp_path: Path
     assert "final: ok" in payload["summary"]
     assert payload["tool_calls"][0]["valid"] is True
     assert payload["tool_calls"][0]["data"]["action"]["action"]["name"] == "done"
+    assert payload["tool_calls"][0]["data"]["trace"]["warning"].startswith("[agent warning]")
 
 
 def test_build_run_detail_payload_includes_read_only_replay(tmp_path: Path) -> None:
@@ -1293,6 +1295,7 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     entry_script = static_file_path("assets/app.js").read_text(encoding="utf-8")
     sse_script = static_file_path("assets/sse.js").read_text(encoding="utf-8")
     chat_script = static_file_path("assets/render/chat.js").read_text(encoding="utf-8")
+    diagnostics_script = static_file_path("assets/render/diagnostics.js").read_text(encoding="utf-8")
     styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
 
     assert "Agent Workbench" in index
@@ -1428,6 +1431,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "恢复" in script
     assert "refreshWorkbench" in script
     assert "renderDiagnostics" in script
+    assert "const warning = call.data?.trace?.warning;" in diagnostics_script
+    assert "warning ? `${warning}\\n${summary}` : summary" in diagnostics_script
     assert "DeepSeek key" in script
     assert "web_search_enabled" in script
     assert "display_status" in script
