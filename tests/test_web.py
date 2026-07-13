@@ -17,6 +17,7 @@ import pytest
 from agent.llm.fake import FakeLLMClient
 from agent.web import server
 from agent.web import chat_runtime
+from agent.web import settings
 from agent.web.chat_runtime import ChatRuntime
 
 
@@ -456,7 +457,7 @@ def test_config_update_accepts_openai_compat_provider(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    payload = server.build_save_config_payload(
+    payload = settings.build_save_config_payload(
         workspace,
         {
             "provider": "openai-compat",
@@ -478,7 +479,7 @@ def test_build_health_payload_reports_native_tools_disabled_by_default(tmp_path)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    payload = server.build_health_payload(workspace)
+    payload = settings.build_health_payload(workspace)
 
     assert payload["native_tools"] is False
 
@@ -487,7 +488,7 @@ def test_config_update_accepts_native_tools_boolean(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    payload = server.build_save_config_payload(workspace, {"native_tools": True})
+    payload = settings.build_save_config_payload(workspace, {"native_tools": True})
 
     assert payload["status"] == "ok"
     config_text = (workspace / ".agent" / "config.toml").read_text(encoding="utf-8")
@@ -499,7 +500,7 @@ def test_config_update_rejects_non_boolean_native_tools(tmp_path) -> None:
     workspace.mkdir()
 
     with pytest.raises(ValueError):
-        server.build_save_config_payload(workspace, {"native_tools": "yes"})
+        settings.build_save_config_payload(workspace, {"native_tools": "yes"})
 
 
 def test_chat_runtime_streams_tagged_model_chunks(tmp_path) -> None:

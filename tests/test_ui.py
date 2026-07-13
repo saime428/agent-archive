@@ -21,12 +21,12 @@ from agent.web.files import (
     build_save_file_payload,
 )
 from agent.web.runs import build_run_detail_payload, build_runs_payload
-from agent.web.server import (
+from agent.web.server import static_file_path
+from agent.web.settings import (
     build_health_payload,
     build_config_payload,
     build_save_config_payload,
     build_tools_payload,
-    static_file_path,
 )
 
 
