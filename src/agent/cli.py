@@ -607,6 +607,8 @@ def _chat_event_handler(event: dict) -> None:
         console.print(f"activity: tool {event.get('action')}")
     elif name == "approval_required":
         console.print(f"activity: waiting for approval {event.get('action')}")
+        if event.get("reason"):
+            console.print(str(event["reason"]))
 
 
 def _make_chat_stream_handler(enabled: bool):

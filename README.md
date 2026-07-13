@@ -70,7 +70,9 @@ allowed_commands = ["python", "pip show", "npm test"]
 
 Prefixes match complete argv tokens. The executable token is case-insensitive and ignores a trailing `.exe`; later tokens are case-sensitive, so `pip Show` does not match `pip show`. Short prefixes grant more capability, so prefer the narrowest useful entry.
 
-An allowlist cannot override hard-denied shell wrappers, network commands, or dangerous commands. Every allowlisted command still requires approval and passes the existing workspace path sandbox. For example, `allowed_commands = ["git commit"]` intentionally bypasses the default read-only Git restriction, but `git commit` still requires approval before execution.
+An allowlist cannot override hard-denied shell wrappers, network commands, or dangerous commands. Allowlisting only passes command admission: under the default policy, `run_command` still requires approval and its argv still passes the existing workspace path checks. Approved commands run as local processes with the agent's OS permissions. Those path checks do not fully contain file, network, or subprocess access from inside the process; `allowed_commands` is capability authorization and approval is execution confirmation, not an OS or container sandbox. Commands such as `pytest` and `python -m pytest` execute project code.
+
+For example, `allowed_commands = ["git commit"]` intentionally bypasses the default read-only Git restriction, but `git commit` still requires approval before execution.
 
 ### Run mode for coding tasks
 
@@ -388,7 +390,7 @@ live chat success criteria:
 ## Safety Model
 
 - Models emit structured JSON actions; the core validates and executes them.
-- File access is constrained to the workspace.
+- Built-in file and document tools enforce the configured path policy: workspace-only by default, with explicit read-only computer access when enabled. Command argv path checks do not fully contain access performed inside an approved local process.
 - Risky actions such as `write_file`, `apply_patch`, and `run_command` require
   approval and fail fast in the non-interactive v0.1 CLI.
 - `--dry-run` skips write tools and commands without side effects.

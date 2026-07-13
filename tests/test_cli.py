@@ -1,4 +1,5 @@
 import errno
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -412,6 +413,41 @@ def test_chat_confirmed_approval_executes_write_action(monkeypatch, tmp_path) ->
     assert "turn: 1" in result.output
     assert "final: Wrote notes." in result.output
     assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
+
+
+def test_chat_prints_run_command_capability_warning_before_approval(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Run command.",
+                "action": {
+                    "name": "run_command",
+                    "args": {
+                        "argv": [sys.executable, "-c", "print('capability-warning-smoke')"],
+                        "cwd": None,
+                        "timeout_seconds": 5,
+                    },
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Command finished.", "changed_files": [], "next_steps": []},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: llm)
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="run command\ny\n")
+
+    assert result.exit_code == 0
+    assert result.output.index("Run commands execute local processes") < result.output.index("approve? [y/N]")
+    assert "final: Command finished." in result.output
 
 
 def test_chat_deepseek_uses_streaming_preview(monkeypatch, tmp_path) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from agent.core.memory import MemoryStore
@@ -1070,6 +1071,39 @@ def test_build_chat_turn_payload_reports_approval_required(monkeypatch, tmp_path
     assert not (workspace / "notes.txt").exists()
 
 
+def test_build_chat_turn_payload_translates_run_command_capability_warning(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    marker = workspace / "should-not-exist.txt"
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Run command.",
+                "action": {
+                    "name": "run_command",
+                    "args": {
+                        "argv": [
+                            sys.executable,
+                            "-c",
+                            "from pathlib import Path; Path('should-not-exist.txt').write_text('x')",
+                        ],
+                        "cwd": None,
+                        "timeout_seconds": 5,
+                    },
+                },
+            }
+        ]
+    )
+    monkeypatch.setattr("agent.web.server.make_llm", lambda config: llm)
+
+    payload = build_chat_turn_payload(workspace, {"message": "run command"})
+
+    expected = "运行命令会以 Agent 当前的操作系统权限启动本地进程；工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。"
+    assert payload["last_observation_summary"] == expected
+    assert build_chat_payload(workspace, payload["session_id"])["turns"][-1]["last_observation_summary"] == expected
+    assert not marker.exists()
+
+
 def test_build_chat_turn_payload_approve_once_executes_one_required_action(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1188,6 +1222,7 @@ def test_chat_job_approval_resumes_same_turn(monkeypatch, tmp_path: Path) -> Non
 
     assert approval["event"] == "approval_required"
     assert approval["action"] == "write_file"
+    assert approval["reason"] == "Action requires approval before execution."
     assert build_chat_approval_payload({"job_id": started["job_id"], "approve": True})["status"] == "ok"
     try:
         build_chat_approval_payload({"job_id": started["job_id"], "approve": True})
@@ -1309,6 +1344,12 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "void " not in entry_script
     assert "EventSource" in sse_script
     assert '"approval_timed_out",' in sse_script
+    assert (
+        "Run commands execute local processes with the agent's OS permissions; workspace path checks do not fully "
+        "contain file, network, or subprocess access. Approval is required."
+    ) in chat_script
+    assert "运行命令会以 Agent 当前的操作系统权限启动本地进程；工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。" in chat_script
+    assert "const reason = friendlyChatText(event.reason);" in chat_script
     assert "return null" not in sse_script
     assert "function openChatEventSource" not in chat_script
     assert "export const " not in "\n".join(

@@ -74,6 +74,8 @@ git commit -m "fix: disclose run command capabilities"
 - Modify: `src/agent/web/server.py`
 - Modify: `src/agent/web/static/assets/render/chat.js`
 - Modify: `README.md`
+- Amend: `docs/superpowers/specs/2026-07-13-code-review-second-fix-design.md`
+- Amend: `docs/superpowers/plans/2026-07-13-code-review-second-fix.md`
 - Test: `tests/test_cli.py`
 - Test: `tests/test_ui.py`
 - Test: `tests/test_docs.py`
@@ -99,7 +101,7 @@ Expected：CLI 尚不打印 reason，两个映射与 README 契约不存在。
 1. `cli.py::_chat_event_handler` 在 `approval_required` 活动行之后，仅当 `event.reason` 非空时原样打印它；审批 handler 的 action、args 与 prompt 不变。
 2. `web/server.py::_friendly_observation_summary` 在现有字典增加一条固定映射。
 3. `chat.js::friendlyChatText` 增加同一映射；`processDetail` 的 reason 分支先得到映射后的局部文本，再沿用现有 elapsed 拼接。
-4. README 修改命令 allowlist 段，并把 Safety Model 的笼统工作区约束收窄到内置文件/文档工具和 argv 路径检查。
+4. README 修改命令 allowlist 段，并把 Safety Model 收窄为内置工具的配置化路径策略（默认仅工作区，显式开启后允许外部只读）和命令 argv 路径检查。
 
 不得把中文写入 policy、event 或 trace；不得增加历史事件重放、共享翻译模块、CSS 或 doctor 输出。
 
@@ -109,7 +111,7 @@ Expected：CLI 尚不打印 reason，两个映射与 README 契约不存在。
 python -m pytest tests/test_cli.py tests/test_ui.py tests/test_docs.py -q
 node --check src/agent/web/static/assets/render/chat.js
 git diff --check
-git add -- src/agent/cli.py src/agent/web/server.py src/agent/web/static/assets/render/chat.js README.md tests/test_cli.py tests/test_ui.py tests/test_docs.py
+git add -- src/agent/cli.py src/agent/web/server.py src/agent/web/static/assets/render/chat.js README.md tests/test_cli.py tests/test_ui.py tests/test_docs.py docs/superpowers/specs/2026-07-13-code-review-second-fix-design.md docs/superpowers/plans/2026-07-13-code-review-second-fix.md
 git diff --cached --check
 git commit -m "fix: surface run command capability warning"
 ```
@@ -158,5 +160,6 @@ Expected：行为与命令能力不变，只新增批准前可见警告；自动
 - CLI 只用首句判断输出顺序，完整安全文案仍由 policy 精确测试，避免终端宽度导致假失败。
 - 最终审查以执行前记录的 implementation base 检查两个已提交差异，避免提交后空 diff 造成假审查。
 - spec 状态与计划链接同步更新，不留下“待写计划”的过期元数据。
+- 实现审查补上 `computer_read_enabled` 的外部只读例外，避免把配置化路径策略写成无条件工作区限制。
 
 最终结论：无阻塞项。计划保持两个小型实现提交；没有新抽象、依赖、持久化或安全能力变更。

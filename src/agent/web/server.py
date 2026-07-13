@@ -1198,6 +1198,13 @@ def _display_status(completed: bool, error_code: str | None, status: str, termin
 
 def _friendly_observation_summary(summary: str) -> str:
     messages = {
+        (
+            "Run commands execute local processes with the agent's OS permissions; "
+            "workspace path checks do not fully contain file, network, or subprocess access. Approval is required."
+        ): (
+            "运行命令会以 Agent 当前的操作系统权限启动本地进程；"
+            "工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。"
+        ),
         "Action requires approval before execution.": "这个操作需要你先在右侧审查里批准。",
         "Action requires approval.": "这个操作需要你先批准。",
         "Approval required.": "需要审批。",

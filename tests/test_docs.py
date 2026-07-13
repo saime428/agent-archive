@@ -66,6 +66,13 @@ def test_readme_documents_command_allowlist_security_boundaries() -> None:
     assert "later tokens are case-sensitive" in readme
     assert "hard-denied shell wrappers, network commands, or dangerous commands" in readme
     assert "still requires approval" in readme
+    assert "Approved commands run as local processes with the agent's OS permissions." in readme
+    assert "do not fully contain file, network, or subprocess access" in readme
+    assert "`allowed_commands` is capability authorization" in readme
+    assert "not an OS or container sandbox" in readme
+    assert "`pytest` and `python -m pytest` execute project code" in readme
+    assert "Built-in file and document tools enforce the configured path policy" in readme
+    assert "workspace-only by default, with explicit read-only computer access when enabled" in readme
 
 
 def test_readme_documents_auto_mode_for_coding_tasks() -> None:
