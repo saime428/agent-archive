@@ -1391,49 +1391,45 @@ def test_run_once_dry_run_still_executes_read_file(tmp_path) -> None:
     assert result.observation.data == {"final": "Read in dry-run."}
 
 
-def test_run_once_approval_never_blocks_write_without_side_effect(tmp_path) -> None:
+def test_run_once_approval_never_denies_command_without_side_effect(tmp_path) -> None:
+    def unexpected_approval(_action) -> bool:
+        raise AssertionError("approval=never must not call the approval handler")
+
     result = run_once(
-        "write notes",
+        "run command",
         FakeLLMClient(
             actions=[
                 {
-                    "message": "Write.",
+                    "message": "Run.",
                     "action": {
-                        "name": "write_file",
+                        "name": "run_command",
                         "args": {
-                            "path": "notes.txt",
-                            "content": "hello\n",
-                            "create_parents": False,
-                        },
-                    },
-                },
-                {
-                    "message": "Done.",
-                    "action": {
-                        "name": "done",
-                        "args": {
-                            "final": "Should not happen.",
-                            "changed_files": [],
-                            "next_steps": [],
+                            "argv": [
+                                sys.executable,
+                                "-c",
+                                "from pathlib import Path; Path('escaped.txt').write_text('x')",
+                            ],
+                            "cwd": None,
+                            "timeout_seconds": 5,
                         },
                     },
                 },
             ]
         ),
         cwd=tmp_path,
-        run_id="run_write_never",
-        config=AgentConfig(approval="never"),
+        run_id="run_command_never",
+        config=AgentConfig(approval="never", max_consecutive_errors=1),
+        approval_handler=unexpected_approval,
     )
 
-    assert not (tmp_path / "notes.txt").exists()
+    assert not (tmp_path / "escaped.txt").exists()
     assert result.observation.status == "error"
     assert result.observation.error is not None
-    assert result.observation.error.code == ErrorCode.APPROVAL_REQUIRED
-    assert result.observation.error.details == {
-        "requested_action": "write_file",
-        "approval": "never",
-        "dry_run": False,
-    }
+    assert result.observation.error.code == ErrorCode.POLICY_DENIED
+    assert result.observation.error.message == "Approval is disabled; confirmation-required actions are denied."
+    record = json.loads(result.tool_calls_path.read_text(encoding="utf-8"))
+    assert record["trace"]["policy_decision"] == "deny"
+    assert record["trace"]["policy_reason"] == result.observation.error.message
 
 
 def test_run_once_blocks_write_markdown_report_without_approval(tmp_path) -> None:

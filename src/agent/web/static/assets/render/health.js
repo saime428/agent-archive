@@ -38,6 +38,18 @@ export function renderSettings() {
   els.settingsModel.value = config.model || "deepseek-v4-flash";
   els.settingsMode.value = config.mode || "guided";
   els.settingsSandbox.value = config.sandbox || "workspace-write";
+  const globalNeverOption = els.settingsApproval.querySelector('option[value="never"]');
+  if (config.approval === "never") {
+    if (!globalNeverOption) {
+      const option = document.createElement("option");
+      option.value = "never";
+      option.textContent = "never (global)";
+      option.disabled = true;
+      els.settingsApproval.append(option);
+    }
+  } else {
+    globalNeverOption?.remove();
+  }
   els.settingsApproval.value = config.approval || "risky-confirm";
   els.settingsSkills.value = (config.default_skills || ["code-dev"]).join(", ");
   els.settingsDryRun.checked = Boolean(config.dry_run);
@@ -67,18 +79,21 @@ export async function saveSettings(event, refreshWorkbench) {
 }
 
 function buildSettingsPayload() {
-  return {
+  const payload = {
     provider: els.settingsProvider.value,
     model: els.settingsModel.value.trim(),
     mode: els.settingsMode.value,
     sandbox: els.settingsSandbox.value,
-    approval: els.settingsApproval.value,
     dry_run: els.settingsDryRun.checked,
     web_search_enabled: els.settingsWebSearch.checked,
     computer_read_enabled: els.settingsComputerRead.checked,
     native_tools: els.settingsNativeTools.checked,
     default_skills: els.settingsSkills.value.split(",").map((item) => item.trim()).filter(Boolean),
   };
+  if (els.settingsApproval.value !== "never") {
+    payload.approval = els.settingsApproval.value;
+  }
+  return payload;
 }
 
 export async function saveSettingsValues(successText, refreshWorkbench) {

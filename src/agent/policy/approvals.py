@@ -53,6 +53,11 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
         return PolicyDecision("allow", "Low-risk action is allowed.")
 
     if action_name in CONFIRMATION_REQUIRED_ACTIONS:
+        if config.approval == "never":
+            return PolicyDecision(
+                "deny",
+                "Approval is disabled; confirmation-required actions are denied.",
+            )
         return PolicyDecision("approval_required", "Action requires approval before execution.")
 
     return PolicyDecision("deny", "Action is not supported by policy.")

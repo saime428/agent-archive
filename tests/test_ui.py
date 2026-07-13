@@ -1248,6 +1248,12 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert "settings-key-status" in index
     assert "settings-web-search" in index
     assert "settings-computer-read" in index
+    assert 'if (config.approval === "never")' in script
+    assert 'option.textContent = "never (global)";' in script
+    assert "option.disabled = true;" in script
+    assert "globalNeverOption?.remove();" in script
+    assert 'if (els.settingsApproval.value !== "never")' in script
+    assert "payload.approval = els.settingsApproval.value;" in script
     assert 'data-settings-target="settings-api-section"' in index
     assert 'data-settings-target="settings-runtime-section"' in index
     assert 'data-settings-target="settings-tools-section"' in index

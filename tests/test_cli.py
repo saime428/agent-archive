@@ -552,6 +552,19 @@ def test_run_approval_never_is_recorded_in_summary(tmp_path) -> None:
     assert "config_approval: never" in summary
 
 
+def test_run_and_chat_help_explain_approval_never_is_fail_closed() -> None:
+    runner = CliRunner()
+
+    run_help = runner.invoke(app, ["run", "--help"], terminal_width=200)
+    chat_help = runner.invoke(app, ["chat", "--help"], terminal_width=200)
+
+    assert run_help.exit_code == 0
+    assert chat_help.exit_code == 0
+    for output in (run_help.output, chat_help.output):
+        assert "never denies actions" in output
+        assert "that would require confirmation" in output
+
+
 def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"

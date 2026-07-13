@@ -41,12 +41,25 @@ def test_write_file_requires_approval_by_default() -> None:
     assert decision.reason == "Action requires approval before execution."
 
 
-def test_run_command_requires_approval_when_approval_never() -> None:
+def test_run_command_is_denied_when_approval_never() -> None:
     action = _action("run_command", {"argv": ["python", "-c", "print('hi')"], "cwd": None, "timeout_seconds": 5})
 
     decision = classify_action(action, AgentConfig(approval="never"))
 
-    assert decision.status == "approval_required"
+    assert decision.status == "deny"
+    assert decision.reason == "Approval is disabled; confirmation-required actions are denied."
+
+
+def test_read_only_reason_takes_precedence_over_approval_never() -> None:
+    action = _action(
+        "write_file",
+        {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+    )
+
+    decision = classify_action(action, AgentConfig(approval="never", sandbox="read-only"))
+
+    assert decision.status == "deny"
+    assert decision.reason == "Action is blocked by read-only sandbox."
 
 
 def test_approval_always_requires_approval_for_list_dir() -> None:
