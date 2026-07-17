@@ -141,7 +141,7 @@
 
 ## 下一次正式开工的默认顺序
 
-1. 先写并确认 **stdio MCP + 动态 Tool 注册 + 现有安全链** 的精确 spec。
+1. 先确认 [stdio MCP + 动态 Tool 注册 + 现有安全链设计 spec](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md)，再拆 implementation plan 和实施。
 2. 同期可完成前端阶段 0：视觉方向选稿、HTTP/SSE Interface 清单和功能等价表。
 3. MCP 内核稳定后再做 Skills/MCP 管理生命周期；前端只接入已经真实存在的能力。
 
@@ -189,4 +189,5 @@
 - [LiveAgent Skills 与 MCP](https://github.com/Stack-Cairn/LiveAgent/blob/main/docs/features/skills-and-mcp.md)
 - [LiveAgent Architecture Overview](https://github.com/Stack-Cairn/LiveAgent/blob/main/docs/architecture/overview.md)
 - [Frontend vNext 总方向](frontend-vnext-direction.md)
+- [stdio MCP + 动态 Tool 注册 + 现有安全链设计 spec](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md)
 - [v1.0 Packaging Decision](v1.0-packaging-decision.md)
