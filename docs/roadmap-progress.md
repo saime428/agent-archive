@@ -2,6 +2,10 @@
 
 Last updated: 2026-07-07
 
+Status update (2026-07-17): this file keeps the completed local-baseline
+milestones. Future project-wide direction now lives in
+[Project vNext Direction](project-vnext-direction.md).
+
 ## Product Goal
 
 Build a local, safe coding agent that starts as a reliable CLI engine and grows

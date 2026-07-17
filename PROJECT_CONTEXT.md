@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-07-08
+Last updated: 2026-07-17
 
 ## One-line Summary
 
@@ -9,6 +9,8 @@ This is a minimal Python 3.11+ local coding agent: a CLI engine plus a static lo
 ## Current State
 
 - Roadmap is effectively complete through v1.0 and post-v1.0 polish.
+- The next ecosystem horizon is defined in `docs/project-vnext-direction.md`;
+  frontend work is one child track, not the whole project roadmap.
 - `agent start` is the preferred local startup command; it reuses the existing `agent ui` server path.
 - Browser settings remain read-only for v1.0. Config changes stay in terminal commands or explicit config-file edits.
 - Binary packaging, desktop shell, and browser-side settings writes are optional trigger-based work, not open release blockers.
@@ -38,12 +40,14 @@ python -m agent.cli start --cwd .
 
 - Keep secrets in environment variables or `.agent/secrets.env`; never commit API keys.
 - Keep `docs/main.pdf` untracked unless the user explicitly asks to commit it.
-- Prefer the existing stdlib/static Workbench until it clearly hurts.
+- Keep the existing static Workbench as the fallback until Frontend vNext reaches verified feature parity.
 - Do not weaken sandbox, approval, redaction, snapshot, or durable-log behavior for UI convenience.
 - Follow `AGENTS.md`: Chinese replies, Ponytail/minimal diffs, and commit newly created files.
 
 ## Existing Docs
 
 - `README.md`: user-facing overview and command reference.
+- `docs/project-vnext-direction.md`: project-wide ecosystem direction and dependency order.
+- `docs/frontend-vnext-direction.md`: product experience and frontend migration child direction.
 - `docs/roadmap-progress.md`: current roadmap status and completed slices.
 - `docs/agent-interview-summary.md`: longer interview-style project pitch; useful background, but older than the v1.0 roadmap.
