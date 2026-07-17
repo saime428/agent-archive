@@ -1,9 +1,10 @@
 # 设计：stdio MCP + 动态 Tool 注册 + 现有安全链
 
 - 日期：2026-07-17
-- 状态：草案，待用户确认，未实施
+- 状态：设计已获用户批准，implementation plan 已拆，未实施
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)
-- 性质：开放扩展内核第一切片的实现 spec；确认后再拆 implementation plan
+- 实施计划：[stdio MCP + 动态 Tool 注册实现计划](../plans/2026-07-17-stdio-mcp-dynamic-tools.md)
+- 性质：开放扩展内核第一切片的已确认实现 spec
 
 ## 一句话目标
 
