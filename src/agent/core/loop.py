@@ -27,7 +27,7 @@ from agent.core.project_instructions import (
     build_project_instructions_message,
     load_project_instructions,
 )
-from agent.core.redaction import redact_record, redact_value
+from agent.core.redaction import redact_observation, redact_record, redact_value
 from agent.core.skills import SkillError, SkillMetadata, build_skills_message, load_selected_skills
 from agent.core.summary import final_from_observation, render_summary
 from agent.core.tool_catalog import DRY_RUN_SKIPPED_TOOLS
@@ -156,6 +156,7 @@ def run_once(
     _run_hook_event("before_run", effective_config, hooks_path, {"run_id": context.run_id, "task": task})
     actions: list[InternalAction] = []
     observations: list[Observation] = []
+    observation_redaction_replacements: list[int] = []
     traces: list[TraceRecord] = []
     repair_attempt = 0
     model_call_index = 0
@@ -191,7 +192,7 @@ def run_once(
                 created_at=context.created_at,
             )
         except ActionParseError as exc:
-            action, observation, trace = _parse_error_record(
+            action, observation, trace, excerpt_replacements = _parse_error_record(
                 exc,
                 raw_response,
                 context,
@@ -200,9 +201,11 @@ def run_once(
                 observation_index=model_call_index,
                 repair_attempt=repair_attempt,
             )
-            observation = truncate_observation(observation, context.budget)
+            observation, replacements = _prepare_observation(observation, context.budget)
+            replacements += excerpt_replacements
             actions.append(action)
             observations.append(observation)
+            observation_redaction_replacements.append(replacements)
             traces.append(trace)
             if not trace.terminal:
                 messages.append(
@@ -242,8 +245,9 @@ def run_once(
                 message=before_tool_hooks.blocking_error,
                 details={"hook_event": "before_tool", "requested_action": action.action.name},
             )
-            observation = truncate_observation(observation, context.budget)
+            observation, replacements = _prepare_observation(observation, context.budget)
             observations.append(observation)
+            observation_redaction_replacements.append(replacements)
             traces.append(
                 TraceRecord(
                     phase="action",
@@ -300,7 +304,6 @@ def run_once(
                 message="This action is not supported in the current run loop.",
                 details={"requested_action": action.action.name},
             )
-        observation = truncate_observation(observation, context.budget)
         error_recoverable = (
             observation.status == "error"
             and observation.error is not None
@@ -326,6 +329,7 @@ def run_once(
             observation = observation.model_copy(
                 update={"error": observation.error.model_copy(update={"details": error_details})}
             )
+        observation, replacements = _prepare_observation(observation, context.budget)
         _emit_event(
             event_handler,
             "observation",
@@ -338,6 +342,7 @@ def run_once(
             ),
         )
         observations.append(observation)
+        observation_redaction_replacements.append(replacements)
         _run_hook_event(
             "after_tool",
             effective_config,
@@ -372,13 +377,15 @@ def run_once(
             message="Run stopped after reaching the iteration limit.",
             details={"max_iterations": effective_max_iterations},
         )
-        observation = truncate_observation(observation, context.budget)
+        observation, replacements = _prepare_observation(observation, context.budget)
         observations.append(observation)
+        observation_redaction_replacements.append(replacements)
 
     return _finalize_run(
         context=context,
         actions=actions,
         observations=observations,
+        observation_redaction_replacements=observation_redaction_replacements,
         traces=traces,
         project_instructions=project_instructions,
         skills=skills,
@@ -405,6 +412,7 @@ def _finalize_run(
     context: RunContext,
     actions: list[InternalAction],
     observations: list[Observation],
+    observation_redaction_replacements: list[int],
     traces: list[TraceRecord],
     project_instructions: ProjectInstructions,
     skills: list[SkillMetadata],
@@ -425,6 +433,7 @@ def _finalize_run(
         context=context,
         actions=actions,
         observations=observations,
+        observation_redaction_replacements=observation_redaction_replacements,
         traces=traces,
         project_instructions=project_instructions,
         skills=skills,
@@ -455,14 +464,21 @@ def _emit_event(handler: RunEventHandler | None, event: str, payload: dict[str, 
 
 
 def _event_action_payload(run_id: str, action_index: int, action: InternalAction, **extra: Any) -> dict[str, Any]:
-    return {
-        "run_id": run_id,
-        "action_index": action_index,
-        "action": action.action.name,
-        "message": action.message,
-        "args": redact_value(action.action.args).value,
-        **extra,
-    }
+    return redact_value(
+        {
+            "run_id": run_id,
+            "action_index": action_index,
+            "action": action.action.name,
+            "message": action.message,
+            "args": action.action.args,
+            **extra,
+        }
+    ).value
+
+
+def _prepare_observation(observation: Observation, budget: ContextBudget) -> tuple[Observation, int]:
+    redacted = redact_observation(observation)
+    return truncate_observation(redacted.value, budget), redacted.replacements
 
 
 def _model_response(
@@ -518,8 +534,8 @@ def _parse_error_record(
     action_index: int,
     observation_index: int,
     repair_attempt: int,
-) -> tuple[InternalAction, Observation, TraceRecord]:
-    raw_response_excerpt = _raw_response_excerpt(raw_response, context.budget)
+) -> tuple[InternalAction, Observation, TraceRecord, int]:
+    raw_response_excerpt, excerpt_replacements = _raw_response_excerpt(raw_response, context.budget)
     repairable = repair_attempt < context.budget.repair_attempts
     action = InternalAction(
         run_id=context.run_id,
@@ -554,7 +570,7 @@ def _parse_error_record(
         policy_reason=None,
         config=_trace_config(config),
     )
-    return action, observation, trace
+    return action, observation, trace, excerpt_replacements
 
 
 def _build_repair_message(
@@ -565,7 +581,7 @@ def _build_repair_message(
     repair_attempt: int,
     native: bool = False,
 ) -> dict[str, str]:
-    raw_response_excerpt = _raw_response_excerpt(raw_response, context.budget)
+    raw_response_excerpt, _ = _raw_response_excerpt(raw_response, context.budget)
     details = _repair_details(exc)
     instruction = (
         "Call exactly one tool. Do not reply with plain text.\n"
@@ -575,18 +591,16 @@ def _build_repair_message(
             '"message" and "action". Do not include markdown fences or extra text.\n'
         )
     )
-    return {
-        "role": "user",
-        "content": (
-            "Your previous response could not be parsed as a valid JSON action.\n"
-            f"Error code: {exc.code}\n"
-            f"Error message: {exc.message}\n"
-            f"{details}"
-            f"Repair attempt: {repair_attempt + 1} of {context.budget.repair_attempts}\n"
-            f"{instruction}"
-            f"Previous response excerpt:\n{raw_response_excerpt}"
-        ),
-    }
+    content = (
+        "Your previous response could not be parsed as a valid JSON action.\n"
+        f"Error code: {exc.code}\n"
+        f"Error message: {exc.message}\n"
+        f"{details}"
+        f"Repair attempt: {repair_attempt + 1} of {context.budget.repair_attempts}\n"
+        f"{instruction}"
+        f"Previous response excerpt:\n{raw_response_excerpt}"
+    )
+    return {"role": "user", "content": redact_value(content).value}
 
 
 def _repair_details(exc: ActionParseError) -> str:
@@ -611,9 +625,9 @@ def _repair_details(exc: ActionParseError) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _raw_response_excerpt(raw_response: Any, budget: ContextBudget) -> str:
-    text = _raw_response_text(raw_response)
-    return truncate_text(text, budget.repair_excerpt_chars).value
+def _raw_response_excerpt(raw_response: Any, budget: ContextBudget) -> tuple[str, int]:
+    redacted = redact_value(_raw_response_text(raw_response))
+    return truncate_text(redacted.value, budget.repair_excerpt_chars).value, redacted.replacements
 
 
 def _raw_response_text(raw_response: Any) -> str:
@@ -1013,6 +1027,7 @@ def _write_run_logs(
     context: RunContext,
     actions: list[InternalAction],
     observations: list[Observation],
+    observation_redaction_replacements: list[int],
     traces: list[TraceRecord],
     project_instructions: ProjectInstructions,
     skills: list[SkillMetadata],
@@ -1042,12 +1057,13 @@ def _write_run_logs(
                 "warning": traces[index].warning,
             }
         redacted_record = redact_record(record)
-        redaction_replacements += redacted_record.replacements
+        record_replacements = redacted_record.replacements + observation_redaction_replacements[index]
+        redaction_replacements += record_replacements
         serialized_record = redacted_record.value
-        if redacted_record.applied:
+        if record_replacements:
             serialized_record["redaction"] = {
                 "applied": True,
-                "replacements": redacted_record.replacements,
+                "replacements": record_replacements,
             }
         records.append(
             json.dumps(

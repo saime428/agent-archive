@@ -157,7 +157,7 @@ def test_run_once_redacts_secret_like_values_from_durable_logs(tmp_path) -> None
         run_id="run_redacted_done",
     )
 
-    assert result.observation.data == {"final": f"Token is {secret}."}
+    assert result.observation.data == {"final": "Token is [REDACTED]."}
 
     tool_calls_text = result.tool_calls_path.read_text(encoding="utf-8")
     assert secret not in tool_calls_text
@@ -174,7 +174,7 @@ def test_run_once_redacts_secret_like_values_from_durable_logs(tmp_path) -> None
     assert "- redaction_applied: true" in summary
 
 
-def test_run_once_redacts_action_args_without_mutating_runtime_result(tmp_path) -> None:
+def test_run_once_redacts_action_args_without_mutating_internal_action_args(tmp_path) -> None:
     secret = "Bearer abc.def.ghi"
     (tmp_path / "notes.txt").write_text("plain\n", encoding="utf-8")
 
@@ -413,6 +413,8 @@ def test_run_once_redacts_budget_truncated_log_excerpt(tmp_path) -> None:
 
     assert result.observation.data is not None
     assert result.observation.data["budget_truncated"] is True
+    assert secret not in json.dumps(result.observation.model_dump(mode="json"))
+    assert "[REDACTED]" in result.observation.data["data_excerpt"]
 
     tool_calls_text = result.tool_calls_path.read_text(encoding="utf-8")
     assert secret not in tool_calls_text
@@ -627,11 +629,96 @@ def test_run_once_redacts_secret_from_invalid_response_logs(tmp_path) -> None:
     )
 
     assert result.observation.status == "error"
+    assert secret not in json.dumps(result.observation.model_dump(mode="json"))
+    assert result.observation.error is not None
+    assert result.observation.error.details is not None
+    assert "[REDACTED]" in result.observation.error.details["raw_response_excerpt"]
     tool_calls_text = result.tool_calls_path.read_text(encoding="utf-8")
     summary = result.summary_path.read_text(encoding="utf-8")
     assert secret not in tool_calls_text
     assert secret not in summary
     assert "[REDACTED]" in tool_calls_text
+
+
+def test_run_once_redacts_secret_from_repair_feedback(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    llm = RepairLLM(
+        [
+            f"not json {secret}",
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Repaired.", "changed_files": [], "next_steps": []},
+                },
+            },
+        ]
+    )
+
+    result = run_once("repair secret", llm, cwd=tmp_path, budget=ContextBudget(repair_attempts=1))
+
+    assert result.observation.data == {"final": "Repaired."}
+    assert secret not in json.dumps(llm.messages_by_call[1])
+    assert "[REDACTED]" in json.dumps(llm.messages_by_call[1])
+
+
+def test_run_once_redacts_secret_tool_name_from_repair_feedback(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    llm = RepairLLM(
+        [
+            {"message": "Call it.", "action": {"name": secret, "args": {}}},
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Repaired.", "changed_files": [], "next_steps": []},
+                },
+            },
+        ]
+    )
+
+    result = run_once("repair secret tool", llm, cwd=tmp_path, budget=ContextBudget(repair_attempts=1))
+
+    assert result.observation.data == {"final": "Repaired."}
+    repair_feedback = json.dumps(llm.messages_by_call[1])
+    assert secret not in repair_feedback
+    assert "[REDACTED]" in repair_feedback
+
+
+def test_run_once_redacts_full_private_key_before_repair_excerpt_truncation(tmp_path) -> None:
+    private_material = "private-material-" * 20
+    private_key = (
+        "-----BEGIN PRIVATE KEY-----\n"
+        f"{private_material}\n"
+        "-----END PRIVATE KEY-----"
+    )
+    llm = RepairLLM(
+        [
+            f"not json\n{private_key}",
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Repaired.", "changed_files": [], "next_steps": []},
+                },
+            },
+        ]
+    )
+
+    result = run_once(
+        "repair private key",
+        llm,
+        cwd=tmp_path,
+        budget=ContextBudget(repair_attempts=1, repair_excerpt_chars=80),
+    )
+
+    first_observation = result.observations[0]
+    assert first_observation.error is not None
+    assert first_observation.error.details is not None
+    assert first_observation.error.details["raw_response_excerpt"] == "not json\n[REDACTED]"
+    assert private_material not in json.dumps(llm.messages_by_call[1])
+    first_record = json.loads(result.tool_calls_path.read_text(encoding="utf-8").splitlines()[0])
+    assert first_record["redaction"] == {"applied": True, "replacements": 1}
 
 
 def test_run_once_reports_error_when_iteration_limit_is_reached(tmp_path) -> None:
@@ -1222,6 +1309,7 @@ def test_run_once_blocks_run_command_without_approval(tmp_path) -> None:
 
 
 def test_run_once_emits_run_command_capability_reason_before_denial(tmp_path) -> None:
+    secret = "Bearer abc.def.ghi"
     marker = tmp_path / "should-not-exist.txt"
     events: list[dict] = []
     result = run_once(
@@ -1229,7 +1317,7 @@ def test_run_once_emits_run_command_capability_reason_before_denial(tmp_path) ->
         FakeLLMClient(
             actions=[
                 {
-                    "message": "Run command.",
+                    "message": f"Run command with {secret}.",
                     "action": {
                         "name": "run_command",
                         "args": {
@@ -1237,6 +1325,7 @@ def test_run_once_emits_run_command_capability_reason_before_denial(tmp_path) ->
                                 sys.executable,
                                 "-c",
                                 "from pathlib import Path; Path('should-not-exist.txt').write_text('x')",
+                                secret,
                             ],
                             "cwd": None,
                             "timeout_seconds": 5,
@@ -1253,16 +1342,27 @@ def test_run_once_emits_run_command_capability_reason_before_denial(tmp_path) ->
 
     approval = next(event for event in events if event["event"] == "approval_required")
     assert approval["reason"] == RUN_COMMAND_APPROVAL_REASON
+    assert {"action_parsed", "tool_start", "approval_required", "approval_denied"} <= {
+        event["event"] for event in events
+    }
+    assert secret not in json.dumps(events)
+    assert result.action.message == f"Run command with {secret}."
+    assert result.action.action.args["argv"][-1] == secret
     assert result.observation.error is not None
     assert result.observation.error.code == ErrorCode.APPROVAL_DENIED
     assert not marker.exists()
 
 
 def test_run_once_executes_approved_allowlisted_python_script(tmp_path) -> None:
-    (tmp_path / "script.py").write_text("print('allowed from loop')\n", encoding="utf-8")
+    secret = "sk-test-secret-123456"
+    events: list[dict] = []
+    (tmp_path / "script.py").write_text(
+        f"print('allowed from loop')\nprint('{secret}')\n",
+        encoding="utf-8",
+    )
     llm = ObservationFeedbackLLM(
         {
-            "message": "Run script.",
+            "message": f"Run script with {secret}.",
             "action": {
                 "name": "run_command",
                 "args": {
@@ -1282,18 +1382,23 @@ def test_run_once_executes_approved_allowlisted_python_script(tmp_path) -> None:
         run_id="run_allowed_command",
         config=AgentConfig(allowed_commands=("python",)),
         approval_handler=lambda _action: True,
+        event_handler=events.append,
     )
 
     assert result.action.action.name == "done"
     assert result.observations[0].status == "ok"
     assert result.observations[0].data is not None
-    assert result.observations[0].data["stdout"] == "allowed from loop\n"
+    assert result.observations[0].data["stdout"] == "allowed from loop\n[REDACTED]\n"
     feedback = next(
         message["content"]
         for message in llm.messages_by_call[1]
         if "UNTRUSTED TOOL OBSERVATION" in message["content"]
     )
     assert "Command exited with code 0." in feedback
+    assert secret not in feedback
+    assert "[REDACTED]" in feedback
+    assert "approval_granted" in {event["event"] for event in events}
+    assert secret not in json.dumps(events)
 
 
 def test_run_once_reports_approval_timeout_without_user_denial_event(tmp_path) -> None:

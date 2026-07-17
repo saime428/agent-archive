@@ -158,6 +158,38 @@ def test_chat_session_forwards_stream_handler(tmp_path) -> None:
     assert chunks
 
 
+def test_chat_session_returns_redacted_final(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    state = ConversationState.create(tmp_path, session_id="chat_runtime_secret")
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=FakeLLMClient(
+            actions=[
+                {
+                    "message": "Done.",
+                    "action": {
+                        "name": "done",
+                        "args": {
+                            "final": f"Token is {secret}.",
+                            "changed_files": [],
+                            "next_steps": [],
+                        },
+                    },
+                }
+            ]
+        ),
+        config=AgentConfig(default_skills=()),
+        state=state,
+    )
+
+    result = session.run_turn("finish")
+
+    assert result.observation.data == {"final": "Token is [REDACTED]."}
+    assert state.turns[0].final == "Token is [REDACTED]."
+    session_path = tmp_path / ".agent" / "chats" / "chat_runtime_secret" / "session.json"
+    assert secret not in session_path.read_text(encoding="utf-8")
+
+
 def test_conversation_state_builds_budgeted_untrusted_history(tmp_path) -> None:
     state = ConversationState.create(tmp_path, session_id="chat_test")
     state.add_turn(
