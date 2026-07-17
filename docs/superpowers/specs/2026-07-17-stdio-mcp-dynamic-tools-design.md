@@ -232,11 +232,11 @@ pass_env = ["GITHUB_TOKEN"]
 - `servers` 下每个 table 就是一台已启用 Server；首期不增加 `enabled` 或 profile。
 - Server ID 只允许 ASCII 字母、数字、`_`、`-`，且必须唯一。
 - 只接受 `command`、`args`、`pass_env`、可选 `cwd`；未知字段、错误类型、空 command 立即报 `ConfigError`。
-- `command` 是一个 executable，`args` 是逐项 argv；始终 `shell=False`，禁止 shell 字符串拼接和自行加引号。
+- `command` 是一个 executable，`args` 是逐项 argv；两者都拒绝 OS 进程参数无法表示的 NUL。始终 `shell=False`，禁止 shell 字符串拼接和自行加引号。
 - cwd 默认固定为用户拥有的 `~/.agent` 配置目录，避免 Python/Node 等可信 executable 因当前目录模块搜索而被仓库里的同名文件劫持。`args` 中只有完整 token `{workspace}` 会替换为已解析的 workspace 绝对路径；不做字符串内插值或环境变量展开。
 - 可选 `cwd` 只接受 `"config"`（默认）或 `"workspace"`。后者是用户在全局文件中对该 Server 的额外显式信任，README 必须警告：Server 启动阶段就可能读取/执行仓库内 import、配置或启动脚本，发生在具体 Tool approval 之前。首期不接受任意 cwd 路径。
-- 相对路径型 command 被拒绝；绝对路径必须存在，代表用户对该精确路径的显式信任。
-- 裸命令必须先由本项目解析为绝对路径，再交给 SDK。解析器只枚举进程启动时可信 `PATH` 中的绝对目录，排除空项、`.` 和相对项；每个目录项先 canonicalize，real path 落入当前 workspace/其子目录的 symlink/junction alias 也整体丢弃，快照只保留 canonical absolute directories。再按 Windows `PATHEXT` 处理 `.cmd/.bat/.exe/.ps1`，候选文件 `resolve()` 后再次拒绝落在 workspace 内。禁止直接调用可能把 cwd 放在 PATH 前面的 `shutil.which(command)`。同一份 canonical 目录列表与规范化 `PATHEXT` 还要形成子进程专用快照，不能只用于解析顶层 command。裸命令若只在 workspace 中存在必须失败，用户确实要信任它时只能在全局配置写绝对路径。
+- 相对路径型 command 被拒绝；绝对路径必须存在，代表用户对该精确路径的显式信任。Windows 的裸命令和显式绝对 command 都只接受原生 `.exe/.com`：`.cmd/.bat` 即使 `shell=False` 仍可能被系统命令解释器解析且 Python 不负责参数转义，`.ps1` 也不是可直接交给 `CreateProcess` 的 executable。脚本型 Server 必须显式配置可信解释器 executable，并把脚本路径作为 argv；不得改用 `shell=True` 绕过。
+- 裸命令必须先由本项目解析为绝对路径，再交给 SDK。解析器只枚举进程启动时可信 `PATH` 中的绝对目录，排除空项、`.` 和相对项；每个目录项先 canonicalize，并用文件身份统一普通、`\\?\`、UNC、symlink/junction 等别名，real path 落入当前 workspace/其子目录的 alias 也整体丢弃。快照只保留不含平台 PATH 分隔符的 canonical absolute directories；启用 Server 时若净化结果为空则 fail closed，不能把空 PATH 交给子进程重新解释成 cwd。Windows 只从启动快照的 `PATHEXT` 保留 `.exe/.com`，候选文件 `resolve()` 后再次校验真实目标仍是原生 executable 且不在 workspace 内。禁止直接调用可能把 cwd 放在 PATH 前面的 `shutil.which(command)`。同一份 canonical 目录列表与规范化 `PATHEXT` 还要形成子进程专用快照，不能只用于解析顶层 command。裸命令若只在 workspace 中存在必须失败，用户确实要信任它时只能在全局配置写原生 executable 的绝对路径。
 - 不支持明文 `env`。`pass_env` 只写环境变量名称，名称必须合法；`PATH`/`PATHEXT` 是 Runtime 保留项，不能通过 `pass_env` 覆盖，Windows 上按环境变量的大小写不敏感语义比较；声明但不存在的变量导致该 Server 启动失败并给出变量名，错误中绝不包含值。
 - 子进程环境以 SDK 的安全默认集合为底，加入允许的 `pass_env` 指定值，最后显式覆盖为上一步净化后的 `PATH`/`PATHEXT`；禁止传整个 `os.environ` 或把原始 PATH 合并回来。这不能约束恶意 Server 主动指定绝对路径，也不取消用户显式选择 `cwd="workspace"` 的额外风险，但能在默认 config cwd 下阻止 initialize 阶段因 workspace venv、`node_modules/.bin` 或仓库目录污染 PATH 而误执行 shadow helper。
 - Runtime 在内存中保留非空 `pass_env` 值，对所有 SDK 派生数据做最长值优先的精确替换。description、版本和错误摘要命中时替换为 `[REDACTED]`；Tool name、input/output schema 命中时 discovery 整体 fail closed，不能通过改写路由或 schema 继续运行；Tool 结果命中时替换并累计 `redaction_replacements`。任何 SDK 派生数据离开 Adapter 前都完成该处理，再走现有通用 redaction，原值绝不进入模型、event 或持久化。SDK 自己发出的协议校验日志也属于这个边界，不能绕过 Adapter 直接进入 root logger。
@@ -478,7 +478,7 @@ parse envelope
 - 无文件返回空配置且不启动线程/进程。
 - 合法 table；未知字段、错误类型、空 command、非法 Server ID、非法或缺失 `pass_env`、非法 `cwd`。
 - 项目目录里的 `mcp.toml` 永不加载；用户配置文件或其父目录通过 symlink/junction 落入 workspace 时拒绝。
-- workspace 中投放与裸 command 同名的 `.exe/.cmd/.bat/.ps1` 不会被解析；过滤后的可信 PATH 解析结果必须是绝对路径，只有显式绝对 command 才能选择 workspace 文件。
+- workspace 中投放与裸 command 同名的 `.exe/.com` 不会被解析；过滤后的可信 PATH 解析结果必须是绝对路径，只有显式绝对 command 才能选择 workspace 内的原生 executable。Windows 的 `.cmd/.bat/.ps1` 无论裸命令还是显式绝对路径都拒绝，脚本 fixture 使用显式原生解释器。
 - 默认 config cwd 下，workspace 内 Python/Node 同名模块不能劫持 Server 启动；`{workspace}` 只按完整 argv token 展开；`cwd="workspace"` 必须是全局显式配置且 README 有启动前风险警告。
 - 子进程只收到 SDK 安全环境和显式 `pass_env`；声明但不存在的环境变量在进程启动前失败，错误只含变量名。Server 在 initialize/list 的 name/description/schema/version/error 中回显环境值时按既定 replace/fail-closed 规则处理。
 - 本地 fixture 完成 initialize、capability、分页 list、call、`isError`、list_changed。
@@ -487,8 +487,8 @@ parse envelope
 - 首次 metadata 校验失败关闭 Server；ready 后 refresh 的 Runtime-owned per-Tool metadata 安全检查失败不发布 S2、不关闭健康 session，新 run fail closed，已开始的 S1 run 仍可调用；refresh transport failure 仍关闭。Catalog-owned 总预算/名称冲突另在当前 snapshot 上失败。
 - 初始化 timeout、request timeout、EOF、异常退出不自动重试；barrier 控制的 cancel-vs-start 边界中，queue timeout 只有 cancel 胜出时调用计数才为 0，running 胜出则按 request timeout 关闭；正常与异常 close 均无遗留进程。
 - 同 Server 并发调用串行；不同 Server 可独立推进；close 幂等。
-- Server stderr 进入 `os.devnull`；高流量 stderr、畸形 stdout、合法 JSON-RPC 外壳中的无效 ServerRequest/ServerNotification 均不死锁，`capsys/caplog` 不出现 secret、ValidationError instance 或 SDK 原始 payload。测试同时证明 owner thread 的非 SDK 应用日志及其他线程日志不被吞掉，close 后 filter 已恢复。Windows fixture 至少覆盖一个 SDK 可解析的 wrapper 命令，并验证子进程树清理。
-- 子进程环境最后显式覆盖净化后的 PATH/PATHEXT；默认 config cwd fixture 在 initialize 阶段调用同名 helper 时，workspace venv、`node_modules/.bin`、指向 workspace 的外部 junction/symlink PATH alias 或仓库 shadow 的调用计数必须为 0；`cwd="workspace"` 的已声明风险另做 characterization。
+- Server stderr 进入 `os.devnull`；高流量 stderr、畸形 stdout、合法 JSON-RPC 外壳中的无效 ServerRequest/ServerNotification 均不死锁，`capsys/caplog` 不出现 secret、ValidationError instance 或 SDK 原始 payload。测试同时证明 owner thread 的非 SDK 应用日志及其他线程日志不被吞掉，close 后 filter 已恢复。Windows fixture 至少覆盖“原生解释器 executable + fixture 脚本 argv”，并验证子进程树清理。
+- 子进程环境最后显式覆盖净化后的非空 PATH/PATHEXT；round-trip 后每项仍为 canonical absolute directory，不能由目录名中的 PATH 分隔符拆出相对项。默认 config cwd fixture 在 initialize 阶段调用同名 helper 时，workspace venv、`node_modules/.bin`、`\\?\`/junction/symlink PATH alias 或仓库 shadow 的调用计数必须为 0；`cwd="workspace"` 的已声明风险另做 characterization。
 
 ### 2. Tool Catalog 与 loop 集成
 

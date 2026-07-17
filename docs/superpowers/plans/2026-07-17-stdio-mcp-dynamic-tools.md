@@ -73,7 +73,7 @@
 2. 实现 `McpServerConfig`、`McpToolTarget`、`McpToolDefinition`、`McpCallResult`（含 `redaction_replacements`）与 `McpRuntimeError`；不导入 approval、Run Event 或 run store。
 3. 严格校验 Server ID、`command`、`args`、`pass_env`、`cwd=config|workspace`、8 Server 上限和未知字段；`PATH`/`PATHEXT` 是 Runtime 保留项，禁止出现在 `pass_env`，Windows 比较大小写不敏感；配置文件或其父目录 real path 落入 workspace 时拒绝，覆盖 symlink/junction 重定向。
 4. 默认 cwd 为 `~/.agent`；只把完整 argv token `{workspace}` 替换为 workspace 绝对路径。
-5. 裸 command 使用进程启动时的 PATH/PATHEXT 快照手工解析：忽略空项和相对项；每个 PATH 目录先 canonicalize，real path 落入 workspace 的 symlink/junction alias 整项丢弃，快照只保留 canonical absolute directories；候选 executable `resolve()` 后再次拒绝 workspace 目标。不得调用会搜索 cwd 的 `shutil.which(command)`。同时返回由相同 canonical 目录与规范化扩展组成的子进程 PATH/PATHEXT 快照，后续不得重新混入原始 PATH。
+5. 裸 command 使用进程启动时的 PATH/PATHEXT 快照手工解析：忽略空项和相对项；每个 PATH 目录先 canonicalize，并用文件身份统一普通、`\\?\`、UNC、symlink/junction 等别名，real path 落入 workspace 的 alias 整项丢弃。快照只保留不含平台 PATH 分隔符的 canonical absolute directories；启用 Server 时若结果为空则 fail closed，不能把空 PATH 交给子进程重新解释成 cwd。候选 executable `resolve()` 后再次拒绝 workspace 目标。Windows 只保留原生 `.exe/.com`，拒绝会经命令解释器处理或不能直接 `CreateProcess` 的 `.cmd/.bat/.ps1`；脚本型 Server 必须显式配置可信解释器 executable，并把脚本路径作为 argv。不得调用会搜索 cwd 的 `shutil.which(command)`。同时返回由相同 canonical 目录与规范化扩展组成的子进程 PATH/PATHEXT 快照，后续不得重新混入原始 PATH。
 6. 显式绝对 command 只做存在性/文件校验，表示用户对该精确路径的信任；相对路径拒绝。
 7. 提供稳定公开名 helper：`mcp__<server>__<normalized_tool>`，超长才加 8 位 SHA-256；冲突检查留给 catalog Task。
 
@@ -82,8 +82,9 @@
 - 合法/缺省配置；未知字段、非法类型/ID/cwd/pass_env、含大小写变体的保留 PATH/PATHEXT、Server 超限。
 - 项目目录同名 MCP 文件不读取；用户配置文件或父目录 symlink/junction 指向 workspace 时拒绝。
 - workspace shadow executable、相对 PATH、目录或 executable symlink/junction 逃逸均不被裸命令解析。
-- 净化后的子进程 PATH/PATHEXT 不含 workspace、workspace venv、`node_modules/.bin` 或 real path 指向 workspace 的外部目录 alias，顺序稳定且目录均为 canonical absolute path。
+- 净化后的子进程 PATH/PATHEXT 不含 workspace、workspace venv、`node_modules/.bin` 或 real path 指向 workspace 的外部目录 alias，顺序稳定、非空且每项均为不含 PATH 分隔符的 canonical absolute path。
 - 绝对 workspace command 只有显式配置时接受。
+- Windows 的裸命令与显式绝对 command 都拒绝 `.cmd/.bat/.ps1`；不以 `shell=True` 绕过，脚本需显式解释器。
 - `{workspace}` 仅完整 token 展开，字符串内不插值。
 - 名称规范化、长度和摘要稳定。
 
