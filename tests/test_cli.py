@@ -10,6 +10,30 @@ from agent.config import AgentConfig
 from agent.core.chat import ConversationState
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.fake import FakeLLMClient
+from agent.mcp_runtime import McpRuntimeError
+
+
+def _install_recording_mcp_runtime(monkeypatch, *, discovery_error=None):
+    instances = []
+
+    class RecordingRuntime:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+            self.discover_calls = 0
+            self.close_calls = 0
+            instances.append(self)
+
+        def discover_tools(self) -> tuple:
+            self.discover_calls += 1
+            if discovery_error is not None:
+                raise discovery_error
+            return ()
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    monkeypatch.setattr("agent.cli.McpStdioRuntime", RecordingRuntime)
+    return instances
 
 
 def test_doctor_reports_python_and_cwd() -> None:
@@ -98,6 +122,197 @@ def test_run_reports_fake_llm_result(tmp_path) -> None:
     assert "terminal_reason: done" in result.output
     assert "final:" in result.output
     assert "summary:" in result.output
+
+
+def test_run_owns_and_closes_one_mcp_runtime(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 0
+    assert len(instances) == 1
+    assert instances[0].workspace == workspace.resolve()
+    assert instances[0].discover_calls == 1
+    assert instances[0].close_calls == 1
+
+
+def test_run_can_approve_and_execute_confirmation_required_action(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {
+                        "path": "notes.txt",
+                        "content": "approved\n",
+                        "create_parents": False,
+                    },
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {
+                        "final": "Wrote notes.",
+                        "changed_files": ["notes.txt"],
+                        "next_steps": [],
+                    },
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.cli._make_llm", lambda _config: llm)
+
+    result = runner.invoke(
+        app,
+        ["run", "--cwd", str(workspace), "write notes"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert "activity: waiting for approval write_file" in result.output
+    assert "approval required: write_file" in result.output
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "approved\n"
+
+
+def test_run_closes_mcp_runtime_after_provider_failure(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    def fail_provider(_config):
+        raise DeepSeekError("provider failed safely")
+
+    monkeypatch.setattr("agent.cli._make_llm", fail_provider)
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "provider failed safely" in result.output
+    assert "Traceback" not in result.output
+    assert len(instances) == 1
+    assert instances[0].discover_calls == 0
+    assert instances[0].close_calls == 1
+
+
+def test_run_closes_mcp_runtime_after_keyboard_interrupt(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+    monkeypatch.setattr("agent.cli._make_llm", lambda _config: object())
+
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("agent.cli.run_once", interrupt)
+    result = runner.invoke(
+        app,
+        ["run", "--cwd", str(workspace), "inspect project"],
+    )
+
+    assert result.exit_code != 0
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+
+
+def test_run_maps_mcp_discovery_error_and_closes_without_traceback(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    error = McpRuntimeError(stage="discovery", server_id="local", message="safe discovery failure")
+    instances = _install_recording_mcp_runtime(monkeypatch, discovery_error=error)
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "MCP discovery failed for server 'local': safe discovery failure" in result.output
+    assert "Traceback" not in result.output
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+
+
+def test_chat_reuses_one_mcp_runtime_across_turns_and_closes_on_exit(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    result = runner.invoke(
+        app,
+        ["chat", "--cwd", str(workspace)],
+        input="first\nsecond\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "turn: 2" in result.output
+    assert len(instances) == 1
+    assert instances[0].discover_calls == 2
+    assert instances[0].close_calls == 1
+
+
+def test_chat_closes_mcp_runtime_on_eof_and_ctrl_c(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    eof_instances = _install_recording_mcp_runtime(monkeypatch)
+    eof_result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="")
+    assert eof_result.exit_code == 0
+    assert eof_instances[0].close_calls == 1
+
+    interrupt_instances = _install_recording_mcp_runtime(monkeypatch)
+
+    def interrupt(_prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+    interrupt_result = runner.invoke(app, ["chat", "--cwd", str(workspace)])
+    assert interrupt_result.exit_code == 0
+    assert interrupt_instances[0].close_calls == 1
+
+
+def test_chat_maps_mcp_error_and_closes_without_traceback(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    error = McpRuntimeError(stage="config", server_id=None, message="safe config failure")
+    instances = _install_recording_mcp_runtime(monkeypatch, discovery_error=error)
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="hello\n")
+
+    assert result.exit_code == 1
+    assert "MCP config failed: safe config failure" in result.output
+    assert "Traceback" not in result.output
+    assert instances[0].close_calls == 1
+
+
+def test_chat_closes_mcp_runtime_after_provider_failure(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    def fail_provider(_config):
+        raise DeepSeekError("chat provider failed safely")
+
+    monkeypatch.setattr("agent.cli._make_llm", fail_provider)
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "chat provider failed safely" in result.output
+    assert "Traceback" not in result.output
+    assert len(instances) == 1
+    assert instances[0].discover_calls == 0
+    assert instances[0].close_calls == 1
 
 
 def test_ui_command_invokes_workbench_server(monkeypatch, tmp_path) -> None:

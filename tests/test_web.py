@@ -27,8 +27,13 @@ _BODY = object()
 
 
 @contextmanager
-def _running_workbench(workspace: Path) -> Iterator[tuple[str, int]]:
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.create_workbench_handler(workspace))
+def _running_workbench(workspace: Path, *, mcp_runtime=None) -> Iterator[tuple[str, int]]:
+    handler = (
+        server.create_workbench_handler(workspace)
+        if mcp_runtime is None
+        else server.create_workbench_handler(workspace, mcp_runtime=mcp_runtime)
+    )
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(
         target=httpd.serve_forever,
         kwargs={"poll_interval": 0.01},
@@ -49,10 +54,12 @@ def _http_request(
     method: str,
     path: str,
     body: object = _NO_BODY,
+    *,
+    mcp_runtime=None,
 ) -> tuple[int, dict[str, str], bytes]:
     payload = None if body is _NO_BODY else body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
     headers = {} if body is _NO_BODY else {"Content-Type": "application/json"}
-    with _running_workbench(workspace) as (host, port):
+    with _running_workbench(workspace, mcp_runtime=mcp_runtime) as (host, port):
         connection = HTTPConnection(host, port, timeout=2.0)
         try:
             connection.request(method, path, body=payload, headers=headers)
@@ -202,6 +209,223 @@ def test_workbench_routes_dispatch_to_expected_builder(
     assert status == 200
     assert json.loads(response) == {"target": target}
     assert calls == [(resolved_args, expected_kwargs)]
+
+
+def test_workbench_sync_and_async_chat_paths_borrow_the_injected_mcp_runtime(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    borrowed = object()
+    seen: list[tuple[str, object]] = []
+
+    class FakeChatRuntime:
+        def __init__(self, _workspace: Path, *, mcp_runtime) -> None:
+            seen.append(("async", mcp_runtime))
+
+        def start(self, *, message: str, session_id: str | None) -> dict[str, object]:
+            return {"status": "running", "job_id": "job_1", "session_id": session_id}
+
+    def fake_turn(_root: Path, _request: dict[str, object], *, mcp_runtime) -> dict[str, str]:
+        seen.append(("sync", mcp_runtime))
+        return {"status": "ok"}
+
+    monkeypatch.setattr(server, "ChatRuntime", FakeChatRuntime)
+    monkeypatch.setattr(server, "_build_chat_turn_payload", fake_turn)
+
+    turn_status, _headers, _response = _http_request(
+        workspace,
+        "POST",
+        "/api/chat/turn",
+        {"message": "sync"},
+        mcp_runtime=borrowed,
+    )
+    start_status, _headers, _response = _http_request(
+        workspace,
+        "POST",
+        "/api/chat/start",
+        {"message": "async"},
+        mcp_runtime=borrowed,
+    )
+
+    assert turn_status == 200
+    assert start_status == 200
+    assert seen == [
+        ("async", borrowed),
+        ("sync", borrowed),
+        ("async", borrowed),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected_status"),
+    [("config", 400), ("initialize", 502), ("discovery", 502)],
+)
+def test_sync_chat_turn_maps_mcp_errors_before_model_call(
+    monkeypatch,
+    tmp_path,
+    stage: str,
+    expected_status: int,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    model_calls = 0
+
+    class NoCallLLM:
+        def chat(self, _messages, *, temperature=None):
+            nonlocal model_calls
+            model_calls += 1
+            return _done_response()
+
+    class FailingRuntime:
+        def discover_tools(self):
+            raise server.McpRuntimeError(
+                stage=stage,
+                server_id="local",
+                message=f"safe {stage} failure",
+            )
+
+    monkeypatch.setattr("agent.web.chats.make_llm", lambda _config: NoCallLLM())
+    status, _headers, response = _http_request(
+        workspace,
+        "POST",
+        "/api/chat/turn",
+        {"message": "fail before model"},
+        mcp_runtime=FailingRuntime(),
+    )
+    payload = json.loads(response)
+
+    assert status == expected_status
+    assert payload == {
+        "error": f"MCP {stage} failed for server 'local': safe {stage} failure"
+    }
+    assert model_calls == 0
+    assert "Traceback" not in response.decode("utf-8")
+
+
+@pytest.mark.parametrize("stage", ["config", "initialize", "discovery"])
+def test_async_chat_job_reports_mcp_error_before_model_call(tmp_path, stage: str) -> None:
+    model_calls = 0
+
+    class NoCallLLM:
+        def chat(self, _messages, *, temperature=None):
+            nonlocal model_calls
+            model_calls += 1
+            return _done_response()
+
+    class FailingRuntime:
+        def discover_tools(self):
+            raise server.McpRuntimeError(
+                stage=stage,
+                server_id="local",
+                message=f"safe {stage} failure",
+            )
+
+    runtime = ChatRuntime(
+        tmp_path,
+        llm_factory=lambda _config: NoCallLLM(),
+        mcp_runtime=FailingRuntime(),
+    )
+    started = runtime.start(message="fail before model", session_id=None)
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    errors = [event for event in complete["events"] if event["event"] == "error"]
+
+    assert len(errors) == 1
+    assert errors[0]["error"] == (
+        f"MCP {stage} failed for server 'local': safe {stage} failure"
+    )
+    assert model_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected_error"),
+    [
+        ("normal", None),
+        ("keyboard", None),
+        ("handler", "handler failed"),
+        ("bind", "bind failed"),
+        ("timer", "timer failed"),
+        ("serve", "serve failed"),
+        ("server_close", "server close failed"),
+    ],
+)
+def test_serve_workbench_closes_owned_mcp_runtime_on_every_exit_path(
+    monkeypatch,
+    tmp_path,
+    phase: str,
+    expected_error: str | None,
+) -> None:
+    events: list[str] = []
+
+    class OwnedRuntime:
+        def close(self) -> None:
+            events.append("runtime_close")
+
+    owned = OwnedRuntime()
+
+    def make_runtime(root: Path):
+        assert root == tmp_path.resolve()
+        events.append("runtime_create")
+        return owned
+
+    def make_handler(root: Path, *, mcp_runtime):
+        assert root == tmp_path.resolve()
+        assert mcp_runtime is owned
+        events.append("handler")
+        if phase == "handler":
+            raise RuntimeError("handler failed")
+        return object()
+
+    class FakeServer:
+        def __init__(self, _address, _handler) -> None:
+            events.append("bind")
+            if phase == "bind":
+                raise OSError("bind failed")
+
+        def serve_forever(self) -> None:
+            events.append("serve")
+            if phase == "keyboard":
+                raise KeyboardInterrupt
+            if phase == "serve":
+                raise RuntimeError("serve failed")
+
+        def server_close(self) -> None:
+            events.append("server_close")
+            if phase == "server_close":
+                raise RuntimeError("server close failed")
+
+    def make_timer(*_args, **_kwargs):
+        def start() -> None:
+            events.append("timer")
+            if phase == "timer":
+                raise RuntimeError("timer failed")
+
+        return SimpleNamespace(start=start)
+
+    monkeypatch.setattr(server, "McpStdioRuntime", make_runtime)
+    monkeypatch.setattr(server, "create_workbench_handler", make_handler)
+    monkeypatch.setattr(server, "ThreadingHTTPServer", FakeServer)
+    monkeypatch.setattr(server.threading, "Timer", make_timer)
+
+    if expected_error is None:
+        server.serve_workbench(
+            workspace=tmp_path,
+            port=8765,
+            open_browser=False,
+        )
+    else:
+        with pytest.raises((OSError, RuntimeError), match=expected_error):
+            server.serve_workbench(
+                workspace=tmp_path,
+                port=8765,
+                open_browser=phase == "timer",
+            )
+
+    assert events.count("runtime_close") == 1
+    if "server_close" in events:
+        assert events.index("server_close") < events.index("runtime_close")
+    assert events[-1] == "runtime_close"
 
 
 def test_workbench_sse_route_reuses_preflight_and_closes_after_done_batch(monkeypatch, tmp_path) -> None:

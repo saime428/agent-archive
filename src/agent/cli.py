@@ -11,7 +11,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from agent.config import ConfigError, ConfigOverrides, load_config
+from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, ConfigOverrides, load_config
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
@@ -21,6 +21,7 @@ from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DEFAULT_DEEPSEEK_BASE_URL, DeepSeekError, smoke_deepseek_provider
 from agent.llm.factory import make_llm as make_llm_client
 from agent.llm.openai_compat import ProviderError, smoke_provider, smoke_provider_native
+from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
 from agent.secrets import load_workspace_secrets
 from agent.web.server import serve_workbench
 
@@ -165,18 +166,39 @@ def run(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
+    runtime = McpStdioRuntime(workspace)
+    close_error: McpRuntimeError | None = None
     try:
-        llm = _make_llm(config)
-    except DeepSeekError as exc:
-        console.print(str(exc))
-        raise typer.Exit(code=1) from exc
+        try:
+            llm = _make_llm(config)
+        except DeepSeekError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
 
-    selected_skills = skill if skill else None
-    try:
-        result = run_once(task, llm, cwd=workspace, config=config, selected_skills=selected_skills)
-    except DeepSeekError as exc:
-        console.print(str(exc))
-        raise typer.Exit(code=1) from exc
+        selected_skills = skill if skill else None
+        try:
+            result = run_once(
+                task,
+                llm,
+                cwd=workspace,
+                config=config,
+                selected_skills=selected_skills,
+                mcp_runtime=runtime,
+                approval_handler=_chat_approval_handler,
+                event_handler=_chat_event_handler,
+            )
+        except (DeepSeekError, McpRuntimeError) as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+    finally:
+        try:
+            runtime.close()
+        except McpRuntimeError as exc:
+            close_error = exc
+    if close_error is not None:
+        console.print(str(close_error))
+        raise typer.Exit(code=1) from close_error
+
     final = (result.observation.data or {}).get("final", "")
     terminal_reason = _result_terminal_reason(result)
     console.print(f"run_id: {result.context.run_id}")
@@ -240,6 +262,9 @@ def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: boo
                 console.print(f"Port {candidate - 1} is busy; trying {candidate}.")
             serve_workbench(workspace=workspace, host=host, port=candidate, open_browser=open_browser)
             return
+        except McpRuntimeError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
         except OSError as exc:
             if not _is_address_in_use(exc):
                 console.print(f"Could not start Agent Workbench: {exc}")
@@ -288,6 +313,40 @@ def chat(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
+    runtime = McpStdioRuntime(workspace)
+    close_error: McpRuntimeError | None = None
+    try:
+        try:
+            _run_chat_repl(
+                workspace,
+                config,
+                diagnostics,
+                resume=resume,
+                skill=skill,
+                mcp_runtime=runtime,
+            )
+        except McpRuntimeError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+    finally:
+        try:
+            runtime.close()
+        except McpRuntimeError as exc:
+            close_error = exc
+    if close_error is not None:
+        console.print(str(close_error))
+        raise typer.Exit(code=1) from close_error
+
+
+def _run_chat_repl(
+    workspace: Path,
+    config: AgentConfig,
+    diagnostics: ConfigDiagnostics,
+    *,
+    resume: str | None,
+    skill: list[str] | None,
+    mcp_runtime: McpStdioRuntime,
+) -> None:
     try:
         llm = _make_llm(config)
     except DeepSeekError as exc:
@@ -300,13 +359,13 @@ def chat(
         console.print(f"Could not resume chat session {resume}: {exc}")
         raise typer.Exit(code=1) from exc
 
-    selected_skills = skill if skill else None
     session = ChatSession(
         cwd=workspace,
         llm=llm,
         config=config,
         state=state,
-        selected_skills=selected_skills,
+        selected_skills=skill if skill else None,
+        mcp_runtime=mcp_runtime,
     )
     console.print(f"chat_id: {state.session_id}")
     console.print(f"workspace: {workspace}")

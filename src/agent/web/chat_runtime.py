@@ -38,12 +38,14 @@ class ChatRuntime:
         workspace: Path,
         *,
         llm_factory: Callable[[Any], Any] = make_llm,
+        mcp_runtime: Any | None = None,
         clock: Callable[[], float] = time.monotonic,
         approval_timeout: float = APPROVAL_WAIT_TIMEOUT_SECONDS,
         job_ttl: float = CHAT_JOB_TTL_SECONDS,
     ) -> None:
         self._workspace = workspace.resolve()
         self._llm_factory = llm_factory
+        self._mcp_runtime = mcp_runtime
         self._clock = clock
         self._approval_timeout = approval_timeout
         self._job_ttl = job_ttl
@@ -195,6 +197,7 @@ class ChatRuntime:
                 llm=self._llm_factory(config),
                 config=config,
                 state=state,
+                mcp_runtime=self._mcp_runtime,
             )
             result = session.run_turn(
                 message,

@@ -74,7 +74,12 @@ def _chat_turn_item(workspace: Path, turn: Any) -> dict[str, Any]:
     return item
 
 
-def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
+def build_chat_turn_payload(
+    workspace: Path,
+    request: dict[str, Any],
+    *,
+    mcp_runtime: Any | None = None,
+) -> dict[str, Any]:
     message = request.get("message")
     if not isinstance(message, str) or not message.strip():
         raise ValueError("message is required.")
@@ -89,7 +94,13 @@ def build_chat_turn_payload(workspace: Path, request: dict[str, Any]) -> dict[st
     load_workspace_secrets(root)
     config, diagnostics = load_config(root)
     state = load_or_create_chat_state(root, session_id)
-    session = ChatSession(cwd=root, llm=make_llm(config), config=config, state=state)
+    session = ChatSession(
+        cwd=root,
+        llm=make_llm(config),
+        config=config,
+        state=state,
+        mcp_runtime=mcp_runtime,
+    )
     result = session.run_turn(message.strip(), approval_handler=_approve_once_handler() if approve_once else None)
     return build_chat_turn_response(root, session, result, diagnostics)
 

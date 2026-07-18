@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlparse
 from agent.config import ConfigError
 from agent.core.run_store import RunStoreError
 from agent.llm.deepseek import DeepSeekError
+from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
 from agent.policy.sandbox import SandboxError
 from agent.web.chats import (
     build_chat_delete_payload as _build_chat_delete_payload,
@@ -53,24 +54,40 @@ def static_file_path(relative_path: str) -> Path:
 
 
 def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
-    handler = create_workbench_handler(workspace.resolve())
-    server = ThreadingHTTPServer((host, port), handler)
-    url = f"http://{host}:{port}"
-    print(f"Agent Workbench: {url}", flush=True)
-    print(f"workspace: {workspace.resolve()}", flush=True)
-    if open_browser:
-        threading.Timer(0.2, webbrowser.open, args=(url,)).start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nAgent Workbench stopped.")
-    finally:
-        server.server_close()
-
-
-def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
     root = workspace.resolve()
-    runtime = ChatRuntime(root)
+    mcp_runtime = McpStdioRuntime(root)
+    server: ThreadingHTTPServer | None = None
+    try:
+        handler = create_workbench_handler(root, mcp_runtime=mcp_runtime)
+        server = ThreadingHTTPServer((host, port), handler)
+        url = f"http://{host}:{port}"
+        print(f"Agent Workbench: {url}", flush=True)
+        print(f"workspace: {root}", flush=True)
+        if open_browser:
+            threading.Timer(0.2, webbrowser.open, args=(url,)).start()
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nAgent Workbench stopped.")
+    finally:
+        try:
+            if server is not None:
+                server.server_close()
+        finally:
+            mcp_runtime.close()
+
+
+def create_workbench_handler(
+    workspace: Path,
+    *,
+    mcp_runtime: Any | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    root = workspace.resolve()
+    runtime = (
+        ChatRuntime(root)
+        if mcp_runtime is None
+        else ChatRuntime(root, mcp_runtime=mcp_runtime)
+    )
 
     class WorkbenchHandler(BaseHTTPRequestHandler):
         server_version = "AgentWorkbench/0.1"
@@ -135,7 +152,14 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
             path = unquote(parsed.path)
             try:
                 if path == "/api/chat/turn":
-                    self._send_json(_build_chat_turn_payload(root, self._read_json_body()))
+                    request = self._read_json_body()
+                    self._send_json(
+                        _build_chat_turn_payload(root, request)
+                        if mcp_runtime is None
+                        else _build_chat_turn_payload(
+                            root, request, mcp_runtime=mcp_runtime
+                        )
+                    )
                     return
                 if path == "/api/chat/start":
                     request = self._read_json_body()
@@ -179,6 +203,9 @@ def create_workbench_handler(workspace: Path) -> type[BaseHTTPRequestHandler]:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
             except DeepSeekError as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_GATEWAY)
+            except McpRuntimeError as exc:
+                status = HTTPStatus.BAD_REQUEST if exc.stage == "config" else HTTPStatus.BAD_GATEWAY
+                self._send_json({"error": str(exc)}, status=status)
             except OSError as exc:
                 self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 

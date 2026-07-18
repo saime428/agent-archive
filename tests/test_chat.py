@@ -158,6 +158,41 @@ def test_chat_session_forwards_stream_handler(tmp_path) -> None:
     assert chunks
 
 
+def test_chat_session_borrows_mcp_runtime_without_persisting_it(tmp_path) -> None:
+    class BorrowedRuntime:
+        def __init__(self) -> None:
+            self.discover_calls = 0
+            self.private_marker = "must-not-enter-session-json"
+
+        def discover_tools(self) -> tuple:
+            self.discover_calls += 1
+            return ()
+
+    runtime = BorrowedRuntime()
+    state = ConversationState.create(tmp_path, session_id="chat_mcp_borrowed")
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=FakeLLMClient(),
+        config=AgentConfig(default_skills=()),
+        state=state,
+        mcp_runtime=runtime,
+    )
+
+    result = session.run_turn("finish")
+
+    assert result.observation.status == "ok"
+    assert runtime.discover_calls == 1
+    session_text = (
+        tmp_path
+        / ".agent"
+        / "chats"
+        / "chat_mcp_borrowed"
+        / "session.json"
+    ).read_text(encoding="utf-8")
+    assert "must-not-enter-session-json" not in session_text
+    assert "mcp_runtime" not in session_text
+
+
 def test_chat_session_returns_redacted_final(tmp_path) -> None:
     secret = "sk-test-secret-123456"
     state = ConversationState.create(tmp_path, session_id="chat_runtime_secret")

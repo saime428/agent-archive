@@ -7,7 +7,7 @@ import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from agent.config import AgentConfig
 from agent.core.budget import ContextBudget, truncate_text
@@ -195,6 +195,7 @@ class ChatSession:
     state: ConversationState
     budget: ContextBudget = field(default_factory=ContextBudget)
     selected_skills: list[str] | tuple[str, ...] | None = None
+    mcp_runtime: Any | None = None
 
     def run_turn(
         self,
@@ -217,6 +218,7 @@ class ChatSession:
             budget=self.budget,
             selected_skills=self.selected_skills,
             context_messages=context_messages,
+            mcp_runtime=self.mcp_runtime,
             approval_handler=approval_handler,
             event_handler=event_handler,
             stream_handler=stream_handler,
