@@ -1300,6 +1300,7 @@ class McpStdioRuntime:
                 self._failure = error
             self._refreshing = False
             self._condition.notify_all()
+        self._request_transport_stop()
         try:
             self._close_transport()
         except McpRuntimeError:
@@ -1947,6 +1948,17 @@ class McpStdioRuntime:
         return thread is None or not thread.is_alive()
 
 
+    def _request_transport_stop(self) -> None:
+        loop = self._loop
+        stop_event = self._stop_event
+        if loop is None or stop_event is None:
+            return
+        try:
+            loop.call_soon_threadsafe(stop_event.set)
+        except RuntimeError:
+            pass
+
+
     def _close_transport(self) -> None:
         deadline = time.monotonic() + _CLOSE_TIMEOUT_SECONDS
         with self._transport_lock:
@@ -1979,13 +1991,7 @@ class McpStdioRuntime:
                 except Exception:
                     break
         finally:
-            loop = self._loop
-            stop_event = self._stop_event
-            if loop is not None and stop_event is not None:
-                try:
-                    loop.call_soon_threadsafe(stop_event.set)
-                except RuntimeError:
-                    pass
+            self._request_transport_stop()
             thread.join(max(0.0, deadline - time.monotonic()))
         if thread.is_alive():
             raise _transport_cleanup_error()

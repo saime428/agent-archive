@@ -1423,6 +1423,30 @@ def test_stdio_runtime_preflight_failure_close_never_waits_for_grace(tmp_path) -
     _assert_runtime_stopped(runtime)
 
 
+def test_stdio_runtime_interrupted_discovery_requests_stop_before_close(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runtime = McpStdioRuntime(
+        tmp_path / "workspace",
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    runtime._state = "starting"
+    order: list[str] = []
+    monkeypatch.setattr(
+        runtime,
+        "_request_transport_stop",
+        lambda: order.append("stop"),
+    )
+    monkeypatch.setattr(runtime, "_close_transport", lambda: order.append("close"))
+
+    runtime._abort_discovery()
+
+    assert order == ["stop", "close"]
+    assert runtime._state == "failed"
+
+
 def test_stdio_runtime_keyboard_interrupt_during_initial_wait_fails_closed(
     tmp_path,
     monkeypatch,
