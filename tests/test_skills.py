@@ -9,6 +9,7 @@ def test_discover_skills_lists_builtin_skill_metadata(tmp_path) -> None:
     assert "code-dev" in catalog
     assert catalog["code-dev"].name == "code-dev"
     assert "apply_patch" in catalog["code-dev"].allowed_tools
+    assert "mcp:*" in catalog["code-dev"].allowed_tools
     assert catalog["code-dev"].body is None
 
 

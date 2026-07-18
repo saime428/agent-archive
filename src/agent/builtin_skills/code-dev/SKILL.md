@@ -16,6 +16,7 @@ allowed_tools:
   - read_xlsx
   - read_pptx
   - write_markdown_report
+  - mcp:*
 ---
 Prefer the simplest correct change. Use this order: existing project code,
 built-in language features, an already imported standard library module, then a new
