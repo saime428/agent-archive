@@ -2,22 +2,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, Event
 
 import pytest
 
+import agent.mcp_runtime as mcp_runtime_module
 from agent.mcp_runtime import (
     McpCallResult,
     McpRuntimeError,
     McpServerConfig,
+    McpStdioRuntime,
     McpToolDefinition,
     McpToolTarget,
     build_mcp_tool_name,
     load_mcp_server_configs,
 )
+
+
+_STDIO_FIXTURE = (Path(__file__).parent / "fixtures" / "mcp_stdio_server.py").resolve()
 
 
 def _toml_string(value: str | Path) -> str:
@@ -79,6 +88,123 @@ def _valid_server(command: str | Path | None = None) -> str:
         'args = ["{workspace}", "prefix-{workspace}"]\n'
         'pass_env = ["MCP_TOKEN"]\n'
     )
+
+
+def _write_runtime_config(
+    home: Path,
+    *,
+    mode: str = "default",
+    schema: str = "valid",
+    output_schema: str = "none",
+    pass_env: tuple[str, ...] = (),
+    extra_args: tuple[str, ...] = (),
+) -> None:
+    args = [
+        str(_STDIO_FIXTURE),
+        "--mode",
+        mode,
+        "--schema",
+        schema,
+        "--output-schema",
+        output_schema,
+        *extra_args,
+    ]
+    _write_config(
+        home,
+        "[servers.local]\n"
+        f"command = {_toml_string(Path(sys.executable).resolve())}\n"
+        f"args = {json.dumps(args)}\n"
+        f"pass_env = {json.dumps(pass_env)}\n",
+    )
+
+
+def _runtime(
+    tmp_path: Path,
+    *,
+    mode: str = "default",
+    schema: str = "valid",
+    output_schema: str = "none",
+    pass_env: tuple[str, ...] = (),
+    environ: dict[str, str] | None = None,
+    extra_args: tuple[str, ...] = (),
+) -> McpStdioRuntime:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    _write_runtime_config(
+        home,
+        mode=mode,
+        schema=schema,
+        output_schema=output_schema,
+        pass_env=pass_env,
+        extra_args=extra_args,
+    )
+    return McpStdioRuntime(
+        workspace,
+        home=home,
+        environ={**_safe_environment(), **(environ or {})},
+    )
+
+
+def _wait_for_file(path: Path, *, timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists() and path.stat().st_size:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"timed out waiting for {path}")
+
+
+def _assert_runtime_stopped(runtime: McpStdioRuntime) -> None:
+    assert runtime._thread is None or not runtime._thread.is_alive()
+
+
+def _pid_exists(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _terminate_pid(pid: int) -> None:
+    if os.name == "nt":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, pid)
+        if handle:
+            try:
+                ctypes.windll.kernel32.TerminateProcess(handle, 1)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        return
+
+    import signal
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _wait_for_pid_exit(pid: int, *, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _pid_exists(pid):
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"process {pid} did not exit")
+
 
 
 def test_mcp_value_objects_expose_only_runtime_contract() -> None:
@@ -596,3 +722,1175 @@ def test_build_mcp_tool_name_normalizes_and_hashes_stably() -> None:
 
     assert exposed == expected
     assert len(exposed) == 64
+
+
+def test_stdio_runtime_without_config_stays_lazy_and_close_is_idempotent(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    runtime = McpStdioRuntime(workspace, home=tmp_path / "home", environ=_safe_environment())
+
+    assert runtime._thread is None
+    assert runtime.discover_tools() == ()
+    assert runtime._thread is None
+
+    runtime.close()
+    runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_names"),
+    [
+        ("default", ("mcp__local__echo",)),
+        ("pagination", ("mcp__local__echo", "mcp__local__upper")),
+    ],
+)
+def test_stdio_runtime_discovers_real_fixture_and_precompiles_validator(
+    tmp_path,
+    mode: str,
+    expected_names: tuple[str, ...],
+) -> None:
+    runtime = _runtime(tmp_path, mode=mode)
+    try:
+        definitions = runtime.discover_tools()
+
+        assert tuple(definition.exposed_name for definition in definitions) == expected_names
+        assert all(definition.target.server_id == "local" for definition in definitions)
+        assert all(definition.input_schema["type"] == "object" for definition in definitions)
+        assert all(definition.input_validator.is_valid({"message": "ok"}) for definition in definitions)
+        assert all(not definition.input_validator.is_valid({"message": 1}) for definition in definitions)
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+@pytest.mark.parametrize(
+    ("mode", "schema"),
+    [
+        ("no-tools", "valid"),
+        ("repeat-cursor", "valid"),
+        ("unique-cursor", "valid"),
+        ("large-page", "valid"),
+        ("default", "invalid-root"),
+        ("default", "invalid-dialect"),
+        ("default", "external-ref"),
+        ("default", "external-dynamic-ref"),
+        ("default", "missing-ref"),
+        ("default", "missing-dynamic-ref"),
+        ("default", "regex"),
+        ("default", "oversize"),
+    ],
+)
+def test_stdio_runtime_rejects_unsafe_discovery_atomically(
+    tmp_path,
+    mode: str,
+    schema: str,
+) -> None:
+    runtime = _runtime(tmp_path, mode=mode, schema=schema)
+    try:
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+        assert exc_info.value.server_id == "local"
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_precompiles_local_input_and_output_refs_from_frozen_copies(
+    tmp_path,
+) -> None:
+    runtime = _runtime(
+        tmp_path,
+        schema="valid-local-ref",
+        output_schema="valid-local-ref",
+    )
+    try:
+        definition = runtime.discover_tools()[0]
+        output_validator = definition.target.snapshot_contract.output_validator
+
+        assert definition.input_validator.is_valid({"message": "ok"})
+        assert output_validator.is_valid({"message": "ok"})
+        definition.input_schema["$defs"]["message"]["type"] = "integer"
+        assert definition.input_validator.is_valid({"message": "still-valid"})
+        assert not definition.input_validator.is_valid({"message": 1})
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_treats_schema_keyword_names_as_plain_property_names(tmp_path) -> None:
+    runtime = _runtime(tmp_path, schema="keyword-property-names")
+    try:
+        definition = runtime.discover_tools()[0]
+        assert definition.input_validator.is_valid(
+            {"$ref": "value", "$schema": "value", "pattern": "value"}
+        )
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize(
+    "output_schema",
+    [
+        "invalid-root",
+        "invalid-dialect",
+        "external-ref",
+        "external-dynamic-ref",
+        "missing-ref",
+        "missing-dynamic-ref",
+        "regex",
+        "oversize",
+    ],
+)
+def test_stdio_runtime_rejects_unsafe_output_schema(
+    tmp_path,
+    output_schema: str,
+) -> None:
+    runtime = _runtime(tmp_path, output_schema=output_schema)
+    try:
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+        assert exc_info.value.server_id == "local"
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_enforces_combined_input_output_schema_budget(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        schema="half-large",
+        output_schema="half-large",
+    )
+    try:
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_rejects_secret_schema_without_logging_it(tmp_path, caplog) -> None:
+    secret = "schema-secret-23c9d7"
+    caplog.set_level(logging.DEBUG)
+    runtime = _runtime(
+        tmp_path,
+        schema="env-secret",
+        pass_env=("MCP_FIXTURE_SCHEMA_SECRET",),
+        environ={"MCP_FIXTURE_SCHEMA_SECRET": secret},
+    )
+    try:
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert secret not in str(exc_info.value)
+        assert secret not in caplog.text
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_leaves_duplicate_remote_names_for_catalog_validation(tmp_path) -> None:
+    runtime = _runtime(tmp_path, mode="duplicate-tools")
+    try:
+        definitions = runtime.discover_tools()
+
+        assert len(definitions) == 2
+        assert tuple(definition.target.remote_name for definition in definitions) == ("echo", "echo")
+        assert tuple(definition.exposed_name for definition in definitions) == (
+            "mcp__local__echo",
+            "mcp__local__echo",
+        )
+    finally:
+        runtime.close()
+
+
+
+def test_stdio_runtime_redacts_pass_env_from_description(tmp_path) -> None:
+    secret = "description-secret-23c9d7"
+    runtime = _runtime(
+        tmp_path,
+        pass_env=("MCP_FIXTURE_DESCRIPTION",),
+        environ={"MCP_FIXTURE_DESCRIPTION": secret},
+    )
+    try:
+        definition = runtime.discover_tools()[0]
+
+        assert definition.description == "[REDACTED]"
+        assert secret not in definition.description
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_does_not_inherit_undeclared_environment_values(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    secret = "undeclared-secret-23c9d7"
+    monkeypatch.setenv("MCP_FIXTURE_UNDECLARED", secret)
+    runtime = _runtime(
+        tmp_path,
+        environ={"MCP_FIXTURE_UNDECLARED": secret},
+        extra_args=("--description-env", "MCP_FIXTURE_UNDECLARED"),
+    )
+    try:
+        definition = runtime.discover_tools()[0]
+
+        assert definition.description == "<missing>"
+        assert secret not in definition.description
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_overrides_sdk_path_with_sanitized_value(tmp_path) -> None:
+    expected_path = str(Path(sys.executable).resolve().parent)
+    runtime = _runtime(
+        tmp_path,
+        extra_args=("--description-env", "PATH"),
+    )
+    try:
+        definition = runtime.discover_tools()[0]
+
+        assert definition.description == expected_path
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_preserves_sdk_safe_default_environment(tmp_path) -> None:
+    variable = "SYSTEMROOT" if os.name == "nt" else "HOME"
+    expected = os.environ.get(variable)
+    if expected is None:
+        pytest.skip(f"{variable} is unavailable")
+
+    runtime = _runtime(
+        tmp_path,
+        extra_args=("--description-env", variable),
+    )
+    try:
+        definition = runtime.discover_tools()[0]
+
+        assert definition.description == expected
+    finally:
+        runtime.close()
+
+
+
+def test_stdio_runtime_rejects_secret_tool_name_without_logging_it(tmp_path, caplog) -> None:
+    secret = "secret_tool_name_23c9d7"
+    runtime = _runtime(
+        tmp_path,
+        pass_env=("MCP_FIXTURE_TOOL_NAME",),
+        environ={"MCP_FIXTURE_TOOL_NAME": secret},
+    )
+    try:
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+        assert secret not in str(exc_info.value)
+        assert secret not in caplog.text
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_checks_missing_pass_env_before_starting_process(tmp_path) -> None:
+    start_file = tmp_path / "started.txt"
+    runtime = _runtime(
+        tmp_path,
+        pass_env=("MCP_MISSING_TOKEN",),
+        extra_args=("--start-file", str(start_file)),
+    )
+    try:
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "initialize"
+        assert "MCP_MISSING_TOKEN" in str(exc_info.value)
+        assert not start_file.exists()
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_refreshes_on_next_discovery_after_list_changed(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="list-changed",
+        extra_args=("--notify-delay", "0.03"),
+    )
+    try:
+        first = runtime.discover_tools()
+        assert tuple(definition.target.remote_name for definition in first) == ("echo",)
+
+        deadline = time.monotonic() + 2.0
+        refreshed = first
+        while time.monotonic() < deadline:
+            refreshed = runtime.discover_tools()
+            if any(definition.target.remote_name == "refreshed" for definition in refreshed):
+                break
+            time.sleep(0.01)
+
+        assert tuple(definition.target.remote_name for definition in refreshed) == ("echo", "refreshed")
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_first_discovery_is_single_flight(tmp_path) -> None:
+    start_file = tmp_path / "started.txt"
+    runtime = _runtime(
+        tmp_path,
+        mode="init-delay",
+        extra_args=("--delay", "0.1", "--start-file", str(start_file)),
+    )
+    barrier = Barrier(3)
+
+    def discover() -> tuple[McpToolDefinition, ...]:
+        barrier.wait(timeout=2)
+        return runtime.discover_tools()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(discover) for _ in range(2)]
+            barrier.wait(timeout=2)
+            results = [future.result(timeout=3) for future in futures]
+
+        assert all(tuple(tool.exposed_name for tool in result) == ("mcp__local__echo",) for result in results)
+        assert len(start_file.read_text(encoding="utf-8").splitlines()) == 1
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_close_wins_race_with_initial_discovery(tmp_path) -> None:
+    start_file = tmp_path / "started.txt"
+    runtime = _runtime(
+        tmp_path,
+        mode="init-delay",
+        extra_args=("--delay", "2", "--start-file", str(start_file)),
+    )
+    barrier = Barrier(3)
+
+    def discover() -> Exception | None:
+        barrier.wait(timeout=2)
+        try:
+            runtime.discover_tools()
+        except Exception as exc:
+            return exc
+        return None
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(discover) for _ in range(2)]
+            barrier.wait(timeout=2)
+            _wait_for_file(start_file)
+            runtime.close()
+            results = [future.result(timeout=3) for future in futures]
+
+        assert all(isinstance(result, McpRuntimeError) for result in results)
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_malformed_stdout_is_fail_closed_secret_safe_and_restores_filters(
+    tmp_path,
+    caplog,
+) -> None:
+    secret = "stdout-secret-23c9d7"
+    caplog.set_level(logging.DEBUG)
+    root = logging.getLogger()
+    stdio_logger = logging.getLogger("mcp.client.stdio")
+    original_root_filters = tuple(root.filters)
+    original_stdio_filters = tuple(stdio_logger.filters)
+    runtime = _runtime(
+        tmp_path,
+        mode="malformed-stdout",
+        pass_env=("MCP_FIXTURE_NOISE",),
+        environ={"MCP_FIXTURE_NOISE": secret},
+    )
+
+    try:
+        with pytest.raises(McpRuntimeError):
+            runtime.discover_tools()
+    finally:
+        runtime.close()
+
+    assert secret not in caplog.text
+    assert all(secret not in record.getMessage() for record in caplog.records)
+    assert tuple(root.filters) == original_root_filters
+    assert tuple(stdio_logger.filters) == original_stdio_filters
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_stderr_flood_does_not_block_discovery(tmp_path) -> None:
+    runtime = _runtime(tmp_path, mode="stderr-flood")
+    try:
+        definitions = runtime.discover_tools()
+        assert tuple(definition.target.remote_name for definition in definitions) == ("echo",)
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+@pytest.mark.parametrize("mode", ["init-delay", "crash"])
+def test_stdio_runtime_initialization_failure_is_sticky_and_does_not_retry(
+    tmp_path,
+    monkeypatch,
+    mode: str,
+) -> None:
+    start_file = tmp_path / "started.txt"
+    extra_args = ("--start-file", str(start_file))
+    if mode == "init-delay":
+        extra_args += ("--delay", "5")
+        monkeypatch.setattr(mcp_runtime_module, "_DISCOVERY_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(mcp_runtime_module, "_CLOSE_TIMEOUT_SECONDS", 3.0)
+    runtime = _runtime(tmp_path, mode=mode, extra_args=extra_args)
+    try:
+        with pytest.raises(McpRuntimeError) as first_error:
+            runtime.discover_tools()
+        with pytest.raises(McpRuntimeError) as second_error:
+            runtime.discover_tools()
+
+        assert first_error.value.stage in {"initialize", "discovery"}
+        assert second_error.value.stage == first_error.value.stage
+        assert len(start_file.read_text(encoding="utf-8").splitlines()) == 1
+        _assert_runtime_stopped(runtime)
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_unsafe_refresh_keeps_previous_snapshot_and_session(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="list-changed-unsafe",
+        extra_args=("--notify-delay", "0.03"),
+    )
+    try:
+        first = runtime.discover_tools()
+        deadline = time.monotonic() + 2
+        refresh_error: McpRuntimeError | None = None
+        while time.monotonic() < deadline:
+            try:
+                runtime.discover_tools()
+            except McpRuntimeError as exc:
+                refresh_error = exc
+                break
+            time.sleep(0.01)
+
+        assert refresh_error is not None
+        assert refresh_error.stage == "discovery"
+        assert runtime._snapshot is first
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
+        with pytest.raises(McpRuntimeError):
+            runtime.discover_tools()
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_refresh_transport_failure_closes_runtime(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="list-changed-crash",
+        extra_args=("--notify-delay", "0.03"),
+    )
+    try:
+        runtime.discover_tools()
+        deadline = time.monotonic() + 2
+        refresh_error: McpRuntimeError | None = None
+        while time.monotonic() < deadline:
+            try:
+                runtime.discover_tools()
+            except McpRuntimeError as exc:
+                refresh_error = exc
+                break
+            time.sleep(0.01)
+
+        assert refresh_error is not None
+        assert refresh_error.stage == "discovery"
+        assert runtime._state == "failed"
+        _assert_runtime_stopped(runtime)
+        with pytest.raises(McpRuntimeError):
+            runtime.discover_tools()
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_idle_server_exit_invalidates_ready_snapshot(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="idle-crash",
+        extra_args=("--notify-delay", "0.03"),
+    )
+    try:
+        assert runtime.discover_tools()
+        assert runtime._loop_finished.wait(timeout=2)
+
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_keyboard_interrupt_during_refresh_fails_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="list-changed",
+        extra_args=("--notify-delay", "0.03"),
+    )
+    try:
+        runtime.discover_tools()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if runtime._dirty_generation.get("local", 0):
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("fixture did not mark the tool list dirty")
+
+        def interrupt_refresh(server_ids, *, initial: bool):
+            assert tuple(server_ids) == ("local",)
+            assert not initial
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(runtime, "_dispatch_discovery", interrupt_refresh)
+        with pytest.raises(KeyboardInterrupt):
+            runtime.discover_tools()
+
+        assert runtime._state == "failed"
+        assert not runtime._refreshing
+        _assert_runtime_stopped(runtime)
+        with pytest.raises(McpRuntimeError):
+            runtime.discover_tools()
+    finally:
+        runtime.close()
+
+
+def test_stdio_runtime_invalid_notification_is_secret_safe_without_hiding_app_logs(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    capsys,
+) -> None:
+    secret = "notification-secret-23c9d7"
+    caplog.set_level(logging.DEBUG)
+    loggers = [
+        logging.getLogger(),
+        logging.getLogger("mcp.client.stdio"),
+        logging.getLogger("client.stdio.win32"),
+    ]
+    original_filters = [tuple(logger.filters) for logger in loggers]
+    runtime = _runtime(
+        tmp_path,
+        mode="invalid-notification",
+        pass_env=("MCP_FIXTURE_NOISE",),
+        environ={"MCP_FIXTURE_NOISE": secret},
+        extra_args=("--notify-delay", "0.03"),
+    )
+    original_list_tools = runtime._list_tools
+
+    async def list_tools_with_app_log(session, start):
+        logging.getLogger("agent.mcp-runtime-test").warning("owner-app-log-visible")
+        return await original_list_tools(session, start)
+
+    monkeypatch.setattr(runtime, "_list_tools", list_tools_with_app_log)
+    try:
+        first = runtime.discover_tools()
+        logging.getLogger("agent.mcp-runtime-test").warning("other-thread-log-visible")
+        time.sleep(0.15)
+        assert runtime.discover_tools() is first
+    finally:
+        runtime.close()
+
+    captured = capsys.readouterr()
+    assert secret not in caplog.text
+    assert secret not in captured.out
+    assert secret not in captured.err
+    assert "owner-app-log-visible" in caplog.text
+    assert "other-thread-log-visible" in caplog.text
+    assert [tuple(logger.filters) for logger in loggers] == original_filters
+    _assert_runtime_stopped(runtime)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="SDK process-tree guarantee is Windows-only")
+def test_stdio_runtime_close_removes_fixture_process_tree(tmp_path) -> None:
+    child_file = tmp_path / "child.pid"
+    runtime = _runtime(
+        tmp_path,
+        mode="child-process",
+        extra_args=("--child-file", str(child_file)),
+    )
+    child_pid: int | None = None
+    try:
+        assert runtime.discover_tools()
+        _wait_for_file(child_file)
+        child_pid = int(child_file.read_text(encoding="ascii").strip())
+        assert _pid_exists(child_pid)
+
+        runtime.close()
+        _wait_for_pid_exit(child_pid)
+    finally:
+        runtime.close()
+        if child_pid is not None and _pid_exists(child_pid):
+            _terminate_pid(child_pid)
+    _assert_runtime_stopped(runtime)
+
+
+
+def test_stdio_runtime_close_before_loop_ready_prevents_late_owner_start(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    start_file = tmp_path / "started.txt"
+    runtime = _runtime(
+        tmp_path,
+        extra_args=("--start-file", str(start_file)),
+    )
+    entered = Event()
+    release = Event()
+    original_loop_main = runtime._loop_main
+
+    async def delayed_loop_main(starts) -> None:
+        entered.set()
+        if not release.wait(timeout=1):
+            raise AssertionError("test did not release the MCP loop")
+        await original_loop_main(starts)
+
+    monkeypatch.setattr(mcp_runtime_module, "_CLOSE_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(mcp_runtime_module, "_DISCOVERY_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(runtime, "_loop_main", delayed_loop_main)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(runtime.discover_tools)
+        try:
+            assert entered.wait(timeout=1)
+            with pytest.raises(McpRuntimeError):
+                runtime.close()
+        finally:
+            release.set()
+            assert runtime._loop_finished.wait(timeout=1)
+            runtime.close()
+
+        with pytest.raises(McpRuntimeError):
+            future.result(timeout=1)
+
+    assert runtime._loop_finished.wait(timeout=1)
+    assert runtime._owners == {}
+    assert not start_file.exists()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_preflight_failure_close_never_waits_for_grace(tmp_path) -> None:
+    class NoWaitEvent:
+        def __init__(self) -> None:
+            self.set_calls = 0
+
+        def set(self) -> None:
+            self.set_calls += 1
+
+        def wait(self, timeout: float | None = None) -> bool:
+            raise AssertionError(f"unexpected close wait: {timeout}")
+
+    start_file = tmp_path / "started.txt"
+    runtime = _runtime(
+        tmp_path,
+        pass_env=("MCP_MISSING_TOKEN",),
+        extra_args=("--start-file", str(start_file)),
+    )
+    loop_finished = NoWaitEvent()
+    runtime._loop_finished = loop_finished
+
+    with pytest.raises(McpRuntimeError):
+        runtime.discover_tools()
+    runtime.close()
+
+    assert loop_finished.set_calls >= 1
+    assert not start_file.exists()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_keyboard_interrupt_during_initial_wait_fails_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="init-delay",
+        extra_args=("--delay", "0.1"),
+    )
+    original_enqueue = runtime._enqueue
+    interrupted = False
+
+    def enqueue_with_interrupted_wait(server_id, command) -> None:
+        nonlocal interrupted
+        original_enqueue(server_id, command)
+        if command.kind == "discover" and command.initial and not interrupted:
+            interrupted = True
+
+            def interrupt_result(timeout: float | None = None):
+                raise KeyboardInterrupt
+
+            command.future.result = interrupt_result
+
+    monkeypatch.setattr(mcp_runtime_module, "_CLOSE_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(runtime, "_enqueue", enqueue_with_interrupted_wait)
+
+    with pytest.raises(KeyboardInterrupt):
+        runtime.discover_tools()
+
+    assert interrupted
+    assert runtime._loop_finished.wait(timeout=1)
+    _assert_runtime_stopped(runtime)
+    with pytest.raises(McpRuntimeError) as exc_info:
+        runtime.discover_tools()
+    assert exc_info.value.stage == "discovery"
+    runtime.close()
+
+
+@pytest.mark.parametrize("failure", ["owner", "loop"])
+def test_stdio_runtime_ready_session_failure_is_sticky(
+    tmp_path,
+    monkeypatch,
+    failure: str,
+) -> None:
+    runtime = _runtime(tmp_path)
+    if failure == "loop":
+        original_loop_main = runtime._loop_main
+
+        async def failing_loop_main(starts) -> None:
+            await original_loop_main(starts)
+            raise RuntimeError("simulated loop failure")
+
+        monkeypatch.setattr(runtime, "_loop_main", failing_loop_main)
+        monkeypatch.setattr(runtime, "_owner_finished", lambda _server_id: None)
+
+    try:
+        assert runtime.discover_tools()
+        assert runtime._loop is not None
+        if failure == "owner":
+            runtime._loop.call_soon_threadsafe(runtime._owners["local"].cancel)
+        else:
+            assert runtime._stop_event is not None
+            runtime._loop.call_soon_threadsafe(runtime._stop_event.set)
+
+        assert runtime._loop_finished.wait(timeout=1)
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == ("discovery" if failure == "owner" else "initialize")
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_close_uses_one_shared_deadline(tmp_path, monkeypatch) -> None:
+    class WaitUntilDeadline:
+        def __init__(self, clock: list[float]) -> None:
+            self.clock = clock
+            self.timeouts: list[float | None] = []
+
+        def wait(self, timeout: float | None = None) -> bool:
+            self.timeouts.append(timeout)
+            self.clock[0] += timeout or 0
+            return False
+
+    class RecordingThread:
+        def __init__(self) -> None:
+            self.join_timeouts: list[float | None] = []
+
+        def join(self, timeout: float | None = None) -> None:
+            self.join_timeouts.append(timeout)
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+    runtime = McpStdioRuntime(
+        tmp_path / "workspace",
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    clock = [0.0]
+    loop_ready = WaitUntilDeadline(clock)
+    thread = RecordingThread()
+    runtime._loop_ready = loop_ready
+    runtime._thread = thread
+    monkeypatch.setattr(mcp_runtime_module, "_CLOSE_TIMEOUT_SECONDS", 5.0)
+    monkeypatch.setattr(mcp_runtime_module.time, "monotonic", lambda: clock[0])
+
+    runtime._close_transport()
+
+    assert loop_ready.timeouts == [5.0]
+    assert thread.join_timeouts == [0.0]
+    runtime._thread = None
+    runtime.close()
+
+
+def test_stdio_runtime_processes_graceful_close_before_requesting_loop_stop(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    order: list[str] = []
+
+    class RecordingLoop:
+        @staticmethod
+        def call_soon_threadsafe(callback) -> None:
+            callback()
+
+    class RecordingStopEvent:
+        @staticmethod
+        def set() -> None:
+            order.append("stop")
+
+    class RecordingThread:
+        @staticmethod
+        def join(timeout: float | None = None) -> None:
+            order.append("join")
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+    runtime = McpStdioRuntime(
+        tmp_path / "workspace",
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    runtime._starts = {"local": object()}
+    runtime._loop = RecordingLoop()
+    runtime._stop_event = RecordingStopEvent()
+    runtime._thread = RecordingThread()
+    runtime._loop_ready.set()
+
+    def complete_close(_server_id, command) -> None:
+        assert command.kind == "close"
+        order.append("close")
+        command.future.set_result(None)
+
+    monkeypatch.setattr(runtime, "_enqueue", complete_close)
+
+    runtime._close_transport()
+
+    assert order == ["close", "stop", "join"]
+    runtime._thread = None
+    runtime.close()
+
+
+def test_stdio_runtime_session_receive_failure_invalidates_ready_snapshot(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="malformed-after-list",
+        extra_args=("--notify-delay", "0.03"),
+    )
+    try:
+        assert runtime.discover_tools()
+        assert runtime._loop_finished.wait(timeout=3)
+
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+        assert runtime._state == "failed"
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+@pytest.mark.parametrize("safety_failure", [False, True])
+def test_stdio_runtime_refresh_rejects_result_if_owner_ended(
+    tmp_path,
+    monkeypatch,
+    safety_failure: bool,
+) -> None:
+    runtime = _runtime(tmp_path)
+    try:
+        assert runtime.discover_tools()
+        runtime._mark_dirty("local")
+
+        def finish_after_owner_ended(server_ids, *, initial: bool):
+            assert tuple(server_ids) == ("local",)
+            assert not initial
+            with runtime._condition:
+                runtime._dead_servers.add("local")
+            if safety_failure:
+                raise mcp_runtime_module._SnapshotSafetyError(
+                    server_id="local",
+                    message="Unsafe refreshed metadata.",
+                )
+            return {"local": runtime._server_snapshots["local"]}
+
+        monkeypatch.setattr(runtime, "_dispatch_discovery", finish_after_owner_ended)
+
+        with pytest.raises(McpRuntimeError) as exc_info:
+            runtime.discover_tools()
+
+        assert exc_info.value.stage == "discovery"
+        assert runtime._state == "failed"
+        assert runtime._loop_finished.wait(timeout=2)
+        with pytest.raises(McpRuntimeError):
+            runtime.discover_tools()
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_reloads_entire_failed_refresh_batch_after_new_notification(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class AliveOwner:
+        @staticmethod
+        def done() -> bool:
+            return False
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    executable = Path(sys.executable).resolve()
+    config_kwargs = {
+        "command": executable,
+        "args": (),
+        "pass_env": (),
+        "cwd": tmp_path,
+        "subprocess_path": str(executable.parent),
+        "subprocess_pathext": ".EXE;.COM" if os.name == "nt" else None,
+    }
+    runtime = McpStdioRuntime(
+        workspace,
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    runtime._state = "ready"
+    runtime._configs = (
+        McpServerConfig(server_id="alpha", **config_kwargs),
+        McpServerConfig(server_id="beta", **config_kwargs),
+    )
+    runtime._server_snapshots = {"alpha": (), "beta": ()}
+    runtime._dirty_generation = {"alpha": 1, "beta": 1}
+    runtime._published_generation = {"alpha": 0, "beta": 0}
+    runtime._owners = {"alpha": AliveOwner(), "beta": AliveOwner()}
+    dispatches: list[tuple[str, ...]] = []
+
+    def reject_batch(server_ids, *, initial: bool):
+        dispatches.append(tuple(server_ids))
+        raise mcp_runtime_module._SnapshotSafetyError(
+            server_id="alpha",
+            message="Unsafe refreshed metadata.",
+        )
+
+    monkeypatch.setattr(runtime, "_dispatch_discovery", reject_batch)
+    with pytest.raises(McpRuntimeError):
+        runtime.discover_tools()
+    assert dispatches == [("alpha", "beta")]
+
+    with pytest.raises(McpRuntimeError):
+        runtime.discover_tools()
+    assert dispatches == [("alpha", "beta")]
+
+    runtime._mark_dirty("alpha")
+
+    def accept_batch(server_ids, *, initial: bool):
+        dispatches.append(tuple(server_ids))
+        return {server_id: () for server_id in server_ids}
+
+    monkeypatch.setattr(runtime, "_dispatch_discovery", accept_batch)
+    assert runtime.discover_tools() == ()
+    assert dispatches[-1] == ("alpha", "beta")
+    assert runtime._refresh_error is None
+    runtime.close()
+
+
+def test_prepare_server_starts_redacts_secrets_across_server_boundaries(tmp_path) -> None:
+    executable = Path(sys.executable).resolve()
+
+    def config(server_id: str, env_name: str) -> McpServerConfig:
+        return McpServerConfig(
+            server_id=server_id,
+            command=executable,
+            args=(),
+            pass_env=(env_name,),
+            cwd=tmp_path,
+            subprocess_path=str(executable.parent),
+            subprocess_pathext=".EXE;.COM" if os.name == "nt" else None,
+        )
+
+    alpha_secret = "alpha-secret-ef68313d"
+    beta_secret = "beta-secret-c53f98b1"
+    starts = mcp_runtime_module._prepare_server_starts(
+        (config("alpha", "ALPHA_TOKEN"), config("beta", "BETA_TOKEN")),
+        {
+            **_safe_environment(),
+            "ALPHA_TOKEN": alpha_secret,
+            "BETA_TOKEN": beta_secret,
+        },
+    )
+    assert "ALPHA_TOKEN" not in dict(starts[1].environment)
+    assert starts[0].secrets is starts[1].secrets
+
+    class Tool:
+        name = "echo"
+        description = f"cross-server value: {alpha_secret}"
+        inputSchema = {"type": "object"}
+        outputSchema = None
+
+    definition = mcp_runtime_module._definitions_from_tools(
+        "beta",
+        [Tool()],
+        starts[1].secrets,
+    )[0]
+    assert alpha_secret not in definition.description
+    assert "[REDACTED]" in definition.description
+
+    Tool.inputSchema = {"type": "object", "description": alpha_secret}
+    with pytest.raises(mcp_runtime_module._SnapshotSafetyError):
+        mcp_runtime_module._definitions_from_tools(
+            "beta",
+            [Tool()],
+            starts[1].secrets,
+        )
+
+
+def test_stdio_runtime_close_interruption_still_stops_loop_and_reaches_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runtime = _runtime(tmp_path)
+    assert runtime.discover_tools()
+    original_enqueue = runtime._enqueue
+    interrupted = False
+
+    def enqueue_with_interrupted_wait(server_id, command) -> None:
+        nonlocal interrupted
+        original_enqueue(server_id, command)
+        if command.kind == "close" and not interrupted:
+            interrupted = True
+
+            def interrupt_result(timeout: float | None = None):
+                raise KeyboardInterrupt
+
+            command.future.result = interrupt_result
+
+    monkeypatch.setattr(runtime, "_enqueue", enqueue_with_interrupted_wait)
+
+    with pytest.raises(KeyboardInterrupt):
+        runtime.close()
+
+    assert interrupted
+    assert runtime._state == "closed"
+    assert runtime._loop_finished.wait(timeout=2)
+    _assert_runtime_stopped(runtime)
+    runtime.close()
+
+
+def test_stdio_runtime_close_timeout_does_not_claim_closed_and_can_retry(tmp_path) -> None:
+    class SlowThread:
+        def __init__(self) -> None:
+            self.alive = True
+            self.join_calls = 0
+
+        def join(self, timeout: float | None = None) -> None:
+            self.join_calls += 1
+
+        def is_alive(self) -> bool:
+            return self.alive
+
+    runtime = McpStdioRuntime(
+        tmp_path / "workspace",
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    thread = SlowThread()
+    runtime._state = "ready"
+    runtime._thread = thread
+    runtime._loop_ready.set()
+
+    with pytest.raises(McpRuntimeError) as exc_info:
+        runtime.close()
+
+    assert exc_info.value.stage == "runtime"
+    assert runtime._state == "failed"
+    assert thread.join_calls == 1
+
+    thread.alive = False
+    runtime._loop_finished.set()
+    runtime.close()
+    assert runtime._state == "closed"
+
+
+@pytest.mark.parametrize("phase", ["initial", "refresh"])
+def test_stdio_runtime_cleanup_timeout_does_not_leave_discovery_waiters_blocked(
+    tmp_path,
+    monkeypatch,
+    phase: str,
+) -> None:
+    runtime = McpStdioRuntime(
+        tmp_path / "workspace",
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    discovery_error = McpRuntimeError(
+        stage="discovery",
+        server_id="local",
+        message="Simulated discovery failure.",
+    )
+
+    def fail_cleanup() -> None:
+        raise mcp_runtime_module._transport_cleanup_error()
+
+    monkeypatch.setattr(runtime, "_close_transport", fail_cleanup)
+    if phase == "initial":
+        runtime._state = "starting"
+        fail = lambda: runtime._fail_initial(discovery_error)
+    else:
+        runtime._state = "ready"
+        runtime._refreshing = True
+
+        def fail_dispatch(_server_ids, *, initial: bool):
+            raise discovery_error
+
+        monkeypatch.setattr(runtime, "_dispatch_discovery", fail_dispatch)
+        fail = lambda: runtime._refresh_discovery({"local": 1})
+
+    with pytest.raises(McpRuntimeError) as exc_info:
+        fail()
+
+    assert exc_info.value.stage == "runtime"
+    assert runtime._state == "failed"
+    assert not runtime._refreshing
+    with pytest.raises(McpRuntimeError):
+        runtime.discover_tools()
+
+
+def test_stdio_runtime_close_releases_runtime_owned_secrets_and_snapshot(tmp_path) -> None:
+    secret = "close-secret-cf593641"
+    runtime = _runtime(
+        tmp_path,
+        pass_env=("MCP_TOKEN",),
+        environ={"MCP_TOKEN": secret},
+    )
+    definitions = runtime.discover_tools()
+    assert secret in runtime._starts["local"].secrets.values
+
+    runtime.close()
+
+    assert definitions
+    assert runtime._state == "closed"
+    assert runtime._snapshot == ()
+    assert runtime._server_snapshots == {}
+    assert runtime._starts == {}
+    assert runtime._configs == ()
+    assert runtime._environ is None
+    assert runtime._owners == {}
+    assert runtime._thread is None
