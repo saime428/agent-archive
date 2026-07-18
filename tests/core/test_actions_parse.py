@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from agent.core.actions import (
     ActionParseError,
@@ -11,6 +13,8 @@ from agent.core.actions import (
     make_observation,
     parse_model_action,
 )
+from agent.core.tool_catalog import build_tool_catalog
+from agent.mcp_runtime import McpToolDefinition, McpToolTarget
 
 
 CREATED_AT = datetime(2026, 6, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -954,3 +958,83 @@ def test_parse_model_action_rejects_extra_git_diff_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+
+def _dynamic_tool_catalog():
+    schema = {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"],
+        "additionalProperties": False,
+    }
+    runtime_definition = McpToolDefinition(
+        exposed_name="mcp__local__echo",
+        target=McpToolTarget(
+            server_id="local",
+            remote_name="echo",
+            snapshot_contract=SimpleNamespace(output_validator=None),
+        ),
+        description="Echo a message.",
+        input_schema=dict(schema),
+        output_schema=None,
+        input_validator=Draft202012Validator(dict(schema)),
+    )
+    return build_tool_catalog((runtime_definition,))
+
+
+def test_parse_model_action_accepts_dynamic_catalog_tool() -> None:
+    action = parse_model_action(
+        {
+            "message": "Call echo.",
+            "action": {
+                "name": "mcp__local__echo",
+                "args": {"message": "hello"},
+            },
+        },
+        run_id="run_dynamic",
+        action_index=1,
+        created_at=CREATED_AT,
+        tool_catalog=_dynamic_tool_catalog(),
+    )
+
+    assert action.action.name == "mcp__local__echo"
+    assert action.action.args == {"message": "hello"}
+
+
+@pytest.mark.parametrize(
+    "args, expected_code",
+    [
+        ({}, ErrorCode.MISSING_REQUIRED_FIELD),
+        ({"message": 1}, ErrorCode.INVALID_ARGUMENT),
+        ({"message": "ok", "extra": True}, ErrorCode.INVALID_ARGUMENT),
+    ],
+)
+def test_parse_model_action_rejects_invalid_dynamic_args(args, expected_code) -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Call echo.",
+                "action": {"name": "mcp__local__echo", "args": args},
+            },
+            run_id="run_dynamic",
+            action_index=1,
+            created_at=CREATED_AT,
+            tool_catalog=_dynamic_tool_catalog(),
+        )
+
+    assert exc_info.value.code == expected_code
+
+
+def test_parse_model_action_rejects_dynamic_tool_absent_from_catalog() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Call unknown.",
+                "action": {"name": "mcp__local__missing", "args": {}},
+            },
+            run_id="run_dynamic",
+            action_index=1,
+            created_at=CREATED_AT,
+            tool_catalog=_dynamic_tool_catalog(),
+        )
+
+    assert exc_info.value.code == ErrorCode.UNKNOWN_TOOL

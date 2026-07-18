@@ -5,28 +5,9 @@ from typing import Literal
 
 from agent.config import AgentConfig
 from agent.core.actions import InternalAction
+from agent.core.tool_catalog import ToolDefinition, builtin_tool_catalog
 
 DecisionStatus = Literal["allow", "approval_required", "deny"]
-
-LOW_RISK_ACTIONS = {
-    "done",
-    "list_dir",
-    "read_file",
-    "read_pdf",
-    "read_docx",
-    "read_xlsx",
-    "read_pptx",
-    "search_files",
-    "web_search",
-    "git_status",
-    "git_diff",
-}
-CONFIRMATION_REQUIRED_ACTIONS = {
-    "write_file",
-    "apply_patch",
-    "run_command",
-    "write_markdown_report",
-}
 
 
 @dataclass(frozen=True)
@@ -35,8 +16,44 @@ class PolicyDecision:
     reason: str
 
 
-def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecision:
+def _builtin_names(risk: str) -> set[str]:
+    return {
+        definition.name
+        for definition in builtin_tool_catalog().definitions
+        if definition.risk == risk
+    }
+
+
+LOW_RISK_ACTIONS = _builtin_names("low-risk") | {"done"}
+CONFIRMATION_REQUIRED_ACTIONS = _builtin_names("confirmation-required")
+
+
+def _mcp_approval_reason(definition: ToolDefinition) -> str:
+    return (
+        f"MCP tool {definition.name!r} from server {definition.server_id!r} "
+        f"(remote tool {definition.remote_name!r}) executes through a server process "
+        "with the user's OS permissions; approval is required for every call."
+    )
+
+
+def classify_action(
+    action: InternalAction,
+    config: AgentConfig,
+    definition: ToolDefinition | None = None,
+) -> PolicyDecision:
     action_name = action.action.name
+    resolved = definition or builtin_tool_catalog().resolve(action_name)
+    if resolved is None or resolved.name != action_name:
+        return PolicyDecision("deny", "Action is not supported by policy.")
+
+    if resolved.source == "mcp":
+        reason = _mcp_approval_reason(resolved)
+        if config.sandbox == "read-only":
+            return PolicyDecision("deny", f"{reason} The read-only sandbox denies this call.")
+        if config.approval == "never":
+            return PolicyDecision("deny", f"{reason} Approval is disabled, so this call is denied.")
+        return PolicyDecision("approval_required", reason)
+
     approval_reason = "Action requires approval before execution."
     if action_name == "run_command":
         approval_reason = (
@@ -49,16 +66,16 @@ def classify_action(action: InternalAction, config: AgentConfig) -> PolicyDecisi
         return PolicyDecision("allow", "Ask-user terminal actions are always allowed.")
     if action_name == "web_search" and not config.web_search_enabled:
         return PolicyDecision("deny", "Web search is disabled. Enable it in Settings before searching the internet.")
-    if config.sandbox == "read-only" and action_name in CONFIRMATION_REQUIRED_ACTIONS:
+    if config.sandbox == "read-only" and resolved.risk == "confirmation-required":
         return PolicyDecision("deny", "Action is blocked by read-only sandbox.")
 
     if config.approval == "always":
         return PolicyDecision("approval_required", approval_reason)
 
-    if action_name in LOW_RISK_ACTIONS:
+    if resolved.risk == "low-risk":
         return PolicyDecision("allow", "Low-risk action is allowed.")
 
-    if action_name in CONFIRMATION_REQUIRED_ACTIONS:
+    if resolved.risk == "confirmation-required":
         if config.approval == "never":
             return PolicyDecision(
                 "deny",

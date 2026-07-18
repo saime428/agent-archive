@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from agent.core.tool_catalog import ToolCatalog
 
 
 ACTION_PROTOCOL_VERSION = "agent-action-v1"
@@ -352,7 +355,10 @@ def parse_model_action(
     run_id: str,
     action_index: int,
     created_at: datetime,
+    tool_catalog: ToolCatalog | None = None,
 ) -> InternalAction:
+    from agent.core.tool_catalog import ToolArgumentError, builtin_tool_catalog
+
     raw_obj = _load_raw_action(raw)
     _validate_top_level_shape(raw_obj)
 
@@ -360,14 +366,23 @@ def parse_model_action(
     _validate_action_shape(action_obj)
 
     name = action_obj["name"]
-    if name not in ARGS_MODELS:
+    catalog = tool_catalog or builtin_tool_catalog()
+    definition = catalog.resolve(name)
+    if definition is None:
         raise ActionParseError(
             ErrorCode.UNKNOWN_TOOL,
             f"Unknown tool: {name}",
             {"tool": name},
         )
 
-    args = _validate_args(name, _normalize_args(name, action_obj["args"]))
+    try:
+        args = definition.validate_arguments(action_obj["args"])
+    except ToolArgumentError as exc:
+        raise ActionParseError(
+            ErrorCode.MISSING_REQUIRED_FIELD if exc.missing else ErrorCode.INVALID_ARGUMENT,
+            exc.message,
+            {"errors": exc.details},
+        ) from None
 
     return InternalAction(
         run_id=run_id,
@@ -492,34 +507,6 @@ def _validate_action_shape(action_obj: dict[str, Any]) -> None:
 
     if not isinstance(action_obj["args"], dict):
         raise ActionParseError(ErrorCode.INVALID_ARGUMENT, "Action args must be an object.")
-
-
-def _validate_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    model = ARGS_MODELS[name]
-    try:
-        parsed = model.model_validate(args)
-    except ValidationError as exc:
-        error_types = {error["type"] for error in exc.errors()}
-        code = (
-            ErrorCode.MISSING_REQUIRED_FIELD
-            if "missing" in error_types
-            else ErrorCode.INVALID_ARGUMENT
-        )
-        raise ActionParseError(
-            code,
-            f"Invalid args for action: {name}",
-            {"errors": exc.errors()},
-        ) from exc
-
-    return parsed.model_dump()
-
-
-def _normalize_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(args)
-    for alias, target in ARG_ALIASES.get(name, {}).items():
-        if alias in normalized and target not in normalized:
-            normalized[target] = normalized.pop(alias)
-    return normalized
 
 
 def format_action_id(action_index: int) -> str:
