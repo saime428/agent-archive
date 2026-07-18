@@ -11,8 +11,7 @@ import threading
 import time
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
 from urllib.parse import urljoin
@@ -27,6 +26,7 @@ _WINDOWS_NATIVE_EXTENSIONS = {".COM", ".EXE"}
 _STARTUP_PATH = os.environ.get("PATH", "")
 _STARTUP_PATHEXT = os.environ.get("PATHEXT")
 _DISCOVERY_TIMEOUT_SECONDS = 15.0
+_CALL_TIMEOUT_SECONDS = 30.0
 _CLOSE_TIMEOUT_SECONDS = 5.0
 _MAX_TOOL_SCHEMA_BYTES = 64 * 1024
 _MAX_DISCOVERY_PAGES = 64
@@ -51,6 +51,9 @@ _SCHEMA_SINGLE_KEYWORDS = {
 _SUPPORTED_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 _REDACTION_MARKER = "[REDACTED]"
 _MCP_LOGGERS = ("mcp.client.stdio", "client.stdio.win32")
+_MAX_CALL_SUMMARY_CHARS = 4 * 1024
+_MAX_CALL_DIAGNOSTIC_BYTES = 4 * 1024
+_MAX_CALL_DATA_BYTES = 128 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,6 +439,11 @@ class _SecretValues:
     def redact(self, value: str) -> str:
         return value if self.pattern is None else self.pattern.sub(_REDACTION_MARKER, value)
 
+    def redact_with_count(self, value: str) -> tuple[str, int]:
+        if self.pattern is None:
+            return value, 0
+        return self.pattern.subn(_REDACTION_MARKER, value)
+
 
 @dataclass(frozen=True, slots=True)
 class _SnapshotContract:
@@ -451,9 +459,32 @@ class _ServerStart:
 
 @dataclass(slots=True)
 class _OwnerCommand:
-    kind: Literal["discover", "close"]
+    kind: Literal["discover", "call", "close"]
     future: concurrent.futures.Future[Any]
     initial: bool = False
+    target: McpToolTarget | None = None
+    arguments: dict[str, Any] | None = None
+    state: Literal["queued", "running", "canceled", "finished"] = "queued"
+    state_lock: threading.Lock = dataclass_field(default_factory=threading.Lock)
+
+    def try_start(self) -> bool:
+        with self.state_lock:
+            if self.state != "queued":
+                return False
+            self.state = "running"
+            return True
+
+    def cancel_if_queued(self) -> bool:
+        with self.state_lock:
+            if self.state != "queued":
+                return False
+            self.state = "canceled"
+            return True
+
+    def finish(self) -> None:
+        with self.state_lock:
+            if self.state == "running":
+                self.state = "finished"
 
 
 class _SnapshotSafetyError(RuntimeError):
@@ -814,6 +845,257 @@ def _transport_cleanup_error() -> McpRuntimeError:
         message="The MCP runtime transport did not stop in time.",
     )
 
+
+@dataclass(frozen=True, slots=True)
+class _OwnerCallOutcome:
+    result: McpCallResult
+    poison_server: bool = False
+
+
+def _bounded_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    marker = "?[truncated]"
+    return value[: max(0, limit - len(marker))] + marker
+
+
+def _redact_call_value(
+    value: Any,
+    secrets: _SecretValues,
+    *,
+    depth: int = 0,
+) -> tuple[Any, int]:
+    if depth >= 12:
+        return {"omitted": True, "reason": "maximum depth exceeded"}, 0
+    if isinstance(value, str):
+        redacted, count = secrets.redact_with_count(value)
+        return _bounded_text(redacted, 32 * 1024), count
+    if value is None or isinstance(value, (bool, int)):
+        return value, 0
+    if isinstance(value, float):
+        return value if value == value and abs(value) != float("inf") else None, 0
+    if isinstance(value, Mapping):
+        normalized: dict[str, Any] = {}
+        replacements = 0
+        for index, (raw_key, child) in enumerate(value.items()):
+            if index >= 256:
+                normalized["_omitted"] = {"reason": "item limit exceeded"}
+                break
+            key, key_count = secrets.redact_with_count(str(raw_key))
+            replacements += key_count
+            public_key = _bounded_text(key, 512)
+            if public_key in normalized:
+                public_key = f"{public_key}#{index}"
+            public_child, child_count = _redact_call_value(child, secrets, depth=depth + 1)
+            replacements += child_count
+            normalized[public_key] = public_child
+        return normalized, replacements
+    if isinstance(value, (list, tuple)):
+        normalized_list = []
+        replacements = 0
+        for child in value[:256]:
+            public_child, child_count = _redact_call_value(child, secrets, depth=depth + 1)
+            normalized_list.append(public_child)
+            replacements += child_count
+        if len(value) > 256:
+            normalized_list.append({"omitted": True, "reason": "item limit exceeded"})
+        return normalized_list, replacements
+    redacted, count = secrets.redact_with_count(str(value))
+    return _bounded_text(redacted, 1024), count
+
+
+def _bounded_call_data(data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        encoded = json.dumps(
+            data,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (RecursionError, TypeError, ValueError):
+        return {"omitted": True, "reason": "result is not bounded JSON data"}
+    if len(encoded) <= _MAX_CALL_DATA_BYTES:
+        return data
+    return {
+        "omitted": True,
+        "reason": "result exceeded the 128 KiB safety limit",
+        "size": len(encoded),
+    }
+
+
+def _bounded_diagnostic(details: dict[str, Any]) -> dict[str, Any]:
+    try:
+        encoded = json.dumps(
+            details,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (RecursionError, TypeError, ValueError):
+        return {"stage": "normalization"}
+    if len(encoded) <= _MAX_CALL_DIAGNOSTIC_BYTES:
+        return details
+    return {"stage": str(details.get("stage", "call")), "truncated": True}
+
+
+def _base64_payload_size(value: str) -> int:
+    stripped = value.rstrip("=")
+    return max(0, (len(stripped) * 3) // 4)
+
+
+def _resource_metadata(resource: Any, *, include_text: bool) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "uri": str(getattr(resource, "uri", "")),
+        "mime_type": getattr(resource, "mimeType", None),
+    }
+    if include_text:
+        data["text"] = getattr(resource, "text", "")
+    else:
+        blob = getattr(resource, "blob", "")
+        data.update({"size": _base64_payload_size(blob), "omitted": True})
+    return data
+
+
+def _normalize_content_block(block: Any) -> tuple[dict[str, Any], str | None]:
+    block_type = getattr(block, "type", None)
+    if block_type == "text":
+        text = str(getattr(block, "text", ""))
+        return {"type": "text", "text": text}, text
+    if block_type in {"image", "audio"}:
+        encoded = str(getattr(block, "data", ""))
+        return {
+            "type": block_type,
+            "mime_type": getattr(block, "mimeType", None),
+            "size": _base64_payload_size(encoded),
+            "omitted": True,
+        }, None
+    if block_type == "resource_link":
+        return {
+            "type": "resource_link",
+            "name": getattr(block, "name", ""),
+            "title": getattr(block, "title", None),
+            "uri": str(getattr(block, "uri", "")),
+            "description": getattr(block, "description", None),
+            "mime_type": getattr(block, "mimeType", None),
+            "size": getattr(block, "size", None),
+        }, None
+    if block_type == "resource":
+        resource = getattr(block, "resource", None)
+        if resource is None:
+            return {"type": "resource", "omitted": True}, None
+        is_text = hasattr(resource, "text")
+        return {
+            "type": "resource",
+            "resource": _resource_metadata(resource, include_text=is_text),
+        }, getattr(resource, "text", None) if is_text else None
+    return {"type": "unknown", "omitted": True}, None
+
+
+def _output_validation_diagnostic(error: Any, secrets: _SecretValues) -> tuple[dict[str, Any], int]:
+    path = "$"
+    for segment in getattr(error, "absolute_path", ()):
+        path += f"[{segment}]" if isinstance(segment, int) else f".{segment}"
+    redacted_path, replacements = secrets.redact_with_count(path)
+    return _bounded_diagnostic(
+        {
+            "stage": "output_validation",
+            "path": _bounded_text(redacted_path, 1024),
+            "validator": _bounded_text(str(getattr(error, "validator", "unknown")), 128),
+        }
+    ), replacements
+
+
+def _normalize_call_result(
+    raw_result: Any,
+    target: McpToolTarget,
+    secrets: _SecretValues,
+) -> _OwnerCallOutcome:
+    contract = target.snapshot_contract
+    output_validator = (
+        contract.output_validator if isinstance(contract, _SnapshotContract) else None
+    )
+    if not bool(getattr(raw_result, "isError", False)) and output_validator is not None:
+        structured = getattr(raw_result, "structuredContent", None)
+        if structured is None:
+            return _OwnerCallOutcome(
+                McpCallResult(
+                    status="failed",
+                    summary="MCP tool output validation failed.",
+                    diagnostic_details={
+                        "stage": "output_validation",
+                        "path": "$",
+                        "validator": "required",
+                    },
+                ),
+                poison_server=True,
+            )
+        error = next(iter(output_validator.iter_errors(structured)), None)
+        if error is not None:
+            diagnostic, replacements = _output_validation_diagnostic(error, secrets)
+            return _OwnerCallOutcome(
+                McpCallResult(
+                    status="failed",
+                    summary="MCP tool output validation failed.",
+                    diagnostic_details=diagnostic,
+                    redaction_replacements=replacements,
+                ),
+                poison_server=True,
+            )
+
+    content = []
+    summary_parts = []
+    for block in list(getattr(raw_result, "content", ()))[:256]:
+        normalized, summary_text = _normalize_content_block(block)
+        content.append(normalized)
+        if summary_text:
+            summary_parts.append(summary_text)
+    raw_data: dict[str, Any] = {"content": content}
+    structured = getattr(raw_result, "structuredContent", None)
+    if structured is not None:
+        raw_data["structured_content"] = structured
+
+    public_data, replacements = _redact_call_value(raw_data, secrets)
+    assert isinstance(public_data, dict)
+    data = _bounded_call_data(public_data)
+    summary_source = "\n".join(summary_parts) or (
+        "MCP tool returned an error."
+        if bool(getattr(raw_result, "isError", False))
+        else "MCP tool completed."
+    )
+    summary, summary_replacements = secrets.redact_with_count(summary_source)
+    replacements += summary_replacements
+    status: McpCallStatus = "tool_error" if bool(getattr(raw_result, "isError", False)) else "ok"
+    return _OwnerCallOutcome(
+        McpCallResult(
+            status=status,
+            summary=_bounded_text(summary, _MAX_CALL_SUMMARY_CHARS),
+            data=data,
+            redaction_replacements=replacements,
+        )
+    )
+
+
+def _call_failure_result(
+    *,
+    status: Literal["timeout", "failed"],
+    summary: str,
+    stage: str,
+    secrets: _SecretValues | None = None,
+    error: BaseException | None = None,
+) -> McpCallResult:
+    replacements = 0
+    if secrets is not None and error is not None:
+        _, replacements = secrets.redact_with_count(str(error))
+    return McpCallResult(
+        status=status,
+        summary=summary,
+        diagnostic_details={"stage": stage},
+        redaction_replacements=replacements,
+    )
+
+
 class McpStdioRuntime:
     def __init__(
         self,
@@ -830,6 +1112,7 @@ class McpStdioRuntime:
         self._failure: McpRuntimeError | None = None
         self._snapshot: tuple[McpToolDefinition, ...] = ()
         self._server_snapshots: dict[str, tuple[McpToolDefinition, ...]] = {}
+        self._known_targets: set[McpToolTarget] = set()
         self._configs: tuple[McpServerConfig, ...] = ()
         self._starts: dict[str, _ServerStart] = {}
         self._dirty_generation: dict[str, int] = {}
@@ -897,6 +1180,114 @@ class McpStdioRuntime:
                 self._abort_discovery()
             raise
 
+    def call_tool(
+        self,
+        target: McpToolTarget,
+        arguments: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> McpCallResult:
+        timeout = _CALL_TIMEOUT_SECONDS if timeout_seconds is None else max(0.0, timeout_seconds)
+        with self._condition:
+            start = self._starts.get(getattr(target, "server_id", ""))
+            if (
+                self._state != "ready"
+                or target not in self._known_targets
+                or start is None
+                or target.server_id in self._dead_servers
+            ):
+                return _call_failure_result(
+                    status="failed",
+                    summary="MCP tool target is not available.",
+                    stage="routing",
+                )
+
+        try:
+            encoded_arguments = json.dumps(
+                arguments,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            public_arguments = json.loads(encoded_arguments)
+        except (RecursionError, TypeError, ValueError):
+            return _call_failure_result(
+                status="failed",
+                summary="MCP tool arguments are not valid JSON.",
+                stage="arguments",
+            )
+        if not isinstance(public_arguments, dict):
+            return _call_failure_result(
+                status="failed",
+                summary="MCP tool arguments must be an object.",
+                stage="arguments",
+            )
+
+        future: concurrent.futures.Future[Any] = concurrent.futures.Future()
+        command = _OwnerCommand(
+            kind="call",
+            future=future,
+            target=target,
+            arguments=public_arguments,
+        )
+        self._enqueue(target.server_id, command)
+        try:
+            result = future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            if command.cancel_if_queued():
+                result = _call_failure_result(
+                    status="timeout",
+                    summary="MCP tool call timed out before it started.",
+                    stage="queue_timeout",
+                )
+                _set_future_result(future, result)
+                return result
+            if future.done():
+                try:
+                    completed = future.result()
+                except BaseException as exc:
+                    return _call_failure_result(
+                        status="failed",
+                        summary="MCP tool call failed.",
+                        stage="request",
+                        secrets=start.secrets,
+                        error=exc,
+                    )
+                return completed
+            result = _call_failure_result(
+                status="timeout",
+                summary="MCP tool call timed out after the request started.",
+                stage="request_timeout",
+            )
+            self._fail_running_call(target.server_id)
+            return result
+        except BaseException as exc:
+            return _call_failure_result(
+                status="failed",
+                summary="MCP tool call failed.",
+                stage="request",
+                secrets=start.secrets,
+                error=exc,
+            )
+        return result
+
+    def _fail_running_call(self, server_id: str) -> None:
+        error = McpRuntimeError(
+            stage="call",
+            server_id=server_id,
+            message="The MCP tool request timed out.",
+        )
+        with self._condition:
+            if self._state == "ready":
+                self._state = "failed"
+                self._failure = error
+                self._refreshing = False
+                self._condition.notify_all()
+        try:
+            self._close_transport()
+        except McpRuntimeError:
+            pass
+
     def _abort_discovery(self) -> None:
         error = McpRuntimeError(
             stage="discovery",
@@ -920,6 +1311,7 @@ class McpStdioRuntime:
         self._failure = None
         self._snapshot = ()
         self._server_snapshots.clear()
+        self._known_targets.clear()
         self._configs = ()
         self._starts.clear()
         self._dirty_generation.clear()
@@ -1016,6 +1408,7 @@ class McpStdioRuntime:
             else:
                 self._server_snapshots = snapshots
                 self._snapshot = snapshot
+                self._known_targets.update(definition.target for definition in snapshot)
                 self._state = "ready"
                 self._condition.notify_all()
                 publish = True
@@ -1107,6 +1500,7 @@ class McpStdioRuntime:
             else:
                 self._server_snapshots = snapshots
                 self._snapshot = snapshot
+                self._known_targets.update(definition.target for definition in snapshot)
                 for server_id, generation in captured.items():
                     self._published_generation[server_id] = generation
                 self._refresh_error = None
@@ -1302,7 +1696,7 @@ class McpStdioRuntime:
                     async with ClientSession(
                         read_stream,
                         write_stream,
-                        read_timeout_seconds=timedelta(seconds=_DISCOVERY_TIMEOUT_SECONDS),
+                        read_timeout_seconds=None,
                         message_handler=message_handler,
                     ) as session:
                         disconnect_task = asyncio.create_task(
@@ -1329,25 +1723,34 @@ class McpStdioRuntime:
                             return
                         initialized = True
                         while current is not None:
-                            try:
-                                async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
-                                    definitions = await self._list_tools(session, start)
-                            except _SnapshotSafetyError as exc:
-                                _set_future_exception(current.future, exc)
-                                if current.initial:
+                            if current.kind == "discover":
+                                try:
+                                    async with asyncio.timeout(_DISCOVERY_TIMEOUT_SECONDS):
+                                        definitions = await self._list_tools(session, start)
+                                except _SnapshotSafetyError as exc:
+                                    _set_future_exception(current.future, exc)
+                                    if current.initial:
+                                        return
+                                except Exception:
+                                    _set_future_exception(
+                                        current.future,
+                                        McpRuntimeError(
+                                            stage="discovery",
+                                            server_id=start.config.server_id,
+                                            message="The MCP server failed tool discovery.",
+                                        ),
+                                    )
                                     return
-                            except Exception:
-                                _set_future_exception(
-                                    current.future,
-                                    McpRuntimeError(
-                                        stage="discovery",
-                                        server_id=start.config.server_id,
-                                        message="The MCP server failed tool discovery.",
-                                    ),
-                                )
-                                return
-                            else:
-                                _set_future_result(current.future, definitions)
+                                else:
+                                    _set_future_result(current.future, definitions)
+                            elif current.kind == "call" and current.try_start():
+                                try:
+                                    outcome = await self._call_remote_tool(session, start, current)
+                                finally:
+                                    current.finish()
+                                _set_future_result(current.future, outcome.result)
+                                if outcome.poison_server:
+                                    return
 
                             current = await self._next_owner_command(
                                 queue,
@@ -1383,6 +1786,60 @@ class McpStdioRuntime:
                     _set_future_exception(command.future, self._closed_error())
             if close_future is not None:
                 _set_future_result(close_future, None)
+
+    async def _call_remote_tool(
+        self,
+        session: Any,
+        start: _ServerStart,
+        command: _OwnerCommand,
+    ) -> _OwnerCallOutcome:
+        import mcp.types as types
+
+        target = command.target
+        if target is None:
+            return _OwnerCallOutcome(
+                _call_failure_result(
+                    status="failed",
+                    summary="MCP tool target is unavailable.",
+                    stage="routing",
+                ),
+                poison_server=True,
+            )
+        try:
+            request = types.ClientRequest(
+                types.CallToolRequest(
+                    params=types.CallToolRequestParams(
+                        name=target.remote_name,
+                        arguments=command.arguments or {},
+                    )
+                )
+            )
+            raw_result = await session.send_request(request, types.CallToolResult)
+            return _normalize_call_result(raw_result, target, start.secrets)
+        except asyncio.CancelledError:
+            raise
+        except TimeoutError as exc:
+            return _OwnerCallOutcome(
+                _call_failure_result(
+                    status="timeout",
+                    summary="MCP tool call timed out.",
+                    stage="request_timeout",
+                    secrets=start.secrets,
+                    error=exc,
+                ),
+                poison_server=True,
+            )
+        except Exception as exc:
+            return _OwnerCallOutcome(
+                _call_failure_result(
+                    status="failed",
+                    summary="MCP tool call failed.",
+                    stage="request",
+                    secrets=start.secrets,
+                    error=exc,
+                ),
+                poison_server=True,
+            )
 
     async def _list_tools(self, session: Any, start: _ServerStart) -> tuple[McpToolDefinition, ...]:
         import mcp.types as types
@@ -1466,7 +1923,7 @@ class McpStdioRuntime:
                     _set_future_exception(
                         command.future,
                         McpRuntimeError(
-                            stage="discovery",
+                            stage="call" if command.kind == "call" else "discovery",
                             server_id=server_id,
                             message="The MCP server session is not available.",
                         ),

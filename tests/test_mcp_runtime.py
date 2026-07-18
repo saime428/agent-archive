@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -1894,3 +1895,323 @@ def test_stdio_runtime_close_releases_runtime_owned_secrets_and_snapshot(tmp_pat
     assert runtime._environ is None
     assert runtime._owners == {}
     assert runtime._thread is None
+
+def _call_payload(result: McpCallResult) -> str:
+    return json.dumps(
+        {
+            "status": result.status,
+            "summary": result.summary,
+            "data": result.data,
+            "diagnostic_details": result.diagnostic_details,
+            "redaction_replacements": result.redaction_replacements,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _wait_for_runtime_state(
+    runtime: McpStdioRuntime,
+    state: str,
+    *,
+    timeout: float = 2.0,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if runtime._state == state:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"runtime did not reach {state!r}: {runtime._state!r}")
+
+
+def test_stdio_runtime_calls_real_fixture_and_keeps_tool_errors_healthy(tmp_path) -> None:
+    runtime = _runtime(tmp_path, mode="call-results")
+    target = runtime.discover_tools()[0].target
+    try:
+        success = runtime.call_tool(target, {"message": "hello"})
+        tool_error = runtime.call_tool(target, {"message": "tool-error"})
+        success_after_error = runtime.call_tool(target, {"message": "again"})
+    finally:
+        runtime.close()
+
+    assert success.status == "ok"
+    assert success.summary == "hello"
+    assert success.data == {
+        "content": [{"type": "text", "text": "hello"}],
+        "structured_content": {"message": "hello"},
+    }
+    assert tool_error.status == "tool_error"
+    assert tool_error.summary == "business failure"
+    assert success_after_error.status == "ok"
+
+
+def test_stdio_runtime_normalizes_rich_results_and_redacts_every_public_copy(tmp_path) -> None:
+    secret = "runtime-call-secret-f83f"
+    runtime = _runtime(
+        tmp_path,
+        mode="call-results",
+        pass_env=("MCP_TOKEN",),
+        environ={"MCP_TOKEN": secret},
+    )
+    target = runtime.discover_tools()[0].target
+    try:
+        redacted = runtime.call_tool(target, {"message": secret})
+        rich = runtime.call_tool(target, {"message": "rich"})
+    finally:
+        runtime.close()
+
+    redacted_payload = _call_payload(redacted)
+    assert redacted.status == "ok"
+    assert secret not in redacted_payload
+    assert redacted_payload.count("[REDACTED]") == 3
+    assert redacted.redaction_replacements == 3
+
+    assert rich.status == "ok"
+    assert rich.data is not None
+    rich_payload = json.dumps(rich.data, ensure_ascii=False)
+    assert "discard-me" not in rich_payload
+    assert "YWJj" not in rich_payload
+    assert "MTI=" not in rich_payload
+    assert "YmxvYg==" not in rich_payload
+    assert rich.data["content"][1] == {
+        "type": "image",
+        "mime_type": "image/png",
+        "size": 3,
+        "omitted": True,
+    }
+    assert rich.data["content"][2]["size"] == 2
+    assert rich.data["content"][4]["resource"]["text"] == "embedded text"
+    assert rich.data["content"][5]["resource"]["size"] == 4
+    assert rich.data["content"][5]["resource"]["omitted"] is True
+
+
+def test_stdio_runtime_output_validation_failure_poison_server_without_leaking_data(tmp_path) -> None:
+    call_file = tmp_path / "calls.txt"
+    runtime = _runtime(
+        tmp_path,
+        mode="call-results",
+        output_schema="valid",
+        extra_args=("--call-file", str(call_file)),
+    )
+    target = runtime.discover_tools()[0].target
+    try:
+        result = runtime.call_tool(target, {"message": "invalid-output"})
+        _wait_for_runtime_state(runtime, "failed")
+        failed_fast = runtime.call_tool(target, {"message": "must-not-run"})
+    finally:
+        runtime.close()
+
+    assert result.status == "failed"
+    assert result.data is None
+    assert result.diagnostic_details == {
+        "stage": "output_validation",
+        "path": "$.message",
+        "validator": "type",
+    }
+    assert "42" not in _call_payload(result)
+    assert failed_fast.status == "failed"
+    assert len(call_file.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_stdio_runtime_queue_timeout_cancels_before_request_start(tmp_path) -> None:
+    call_file = tmp_path / "calls.txt"
+    runtime = _runtime(
+        tmp_path,
+        mode="call-delay",
+        extra_args=("--delay", "0.25", "--call-file", str(call_file)),
+    )
+    target = runtime.discover_tools()[0].target
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            active = pool.submit(
+                runtime.call_tool,
+                target,
+                {"message": "active"},
+                timeout_seconds=1.0,
+            )
+            _wait_for_file(call_file)
+            queued = runtime.call_tool(
+                target,
+                {"message": "queued"},
+                timeout_seconds=0.05,
+            )
+            active_result = active.result(timeout=2.0)
+    finally:
+        runtime.close()
+
+    assert queued.status == "timeout"
+    assert queued.diagnostic_details == {"stage": "queue_timeout"}
+    assert active_result.status == "ok"
+    assert len(call_file.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_stdio_runtime_request_timeout_closes_server_and_never_retries(tmp_path) -> None:
+    call_file = tmp_path / "calls.txt"
+    runtime = _runtime(
+        tmp_path,
+        mode="call-delay",
+        extra_args=("--delay", "0.5", "--call-file", str(call_file)),
+    )
+    target = runtime.discover_tools()[0].target
+    result = runtime.call_tool(target, {"message": "slow"}, timeout_seconds=0.05)
+    failed_fast = runtime.call_tool(target, {"message": "must-not-run"})
+    runtime.close()
+
+    assert result.status == "timeout"
+    assert result.diagnostic_details == {"stage": "request_timeout"}
+    assert failed_fast.status == "failed"
+    assert len(call_file.read_text(encoding="utf-8").splitlines()) == 1
+    _assert_runtime_stopped(runtime)
+
+
+def test_stdio_runtime_transport_failure_does_not_retry(tmp_path) -> None:
+    call_file = tmp_path / "calls.txt"
+    runtime = _runtime(
+        tmp_path,
+        mode="call-crash",
+        extra_args=("--call-file", str(call_file)),
+    )
+    target = runtime.discover_tools()[0].target
+    try:
+        result = runtime.call_tool(target, {"message": "crash"})
+        _wait_for_runtime_state(runtime, "failed")
+        failed_fast = runtime.call_tool(target, {"message": "must-not-run"})
+    finally:
+        runtime.close()
+
+    assert result.status == "failed"
+    assert result.diagnostic_details == {"stage": "request"}
+    assert failed_fast.status == "failed"
+    assert len(call_file.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_stdio_runtime_serializes_same_server_but_allows_different_servers(tmp_path) -> None:
+    delay = 0.25
+    (tmp_path / "same").mkdir()
+    same_runtime = _runtime(
+        tmp_path / "same",
+        mode="call-delay",
+        extra_args=("--delay", str(delay)),
+    )
+    same_target = same_runtime.discover_tools()[0].target
+    try:
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(
+                    same_runtime.call_tool,
+                    same_target,
+                    {"message": str(index)},
+                    timeout_seconds=2.0,
+                )
+                for index in range(2)
+            ]
+            assert [future.result(timeout=3.0).status for future in futures] == ["ok", "ok"]
+        same_elapsed = time.monotonic() - started
+    finally:
+        same_runtime.close()
+
+    root = tmp_path / "different"
+    workspace = root / "workspace"
+    home = root / "home"
+    workspace.mkdir(parents=True)
+    args = [
+        str(_STDIO_FIXTURE),
+        "--mode",
+        "call-delay",
+        "--delay",
+        str(delay),
+    ]
+    server = (
+        "command = " + _toml_string(Path(sys.executable).resolve()) + "\n"
+        + "args = " + json.dumps(args) + "\n"
+        + "pass_env = []\n"
+    )
+    _write_config(home, "[servers.one]\n" + server + "[servers.two]\n" + server)
+    different_runtime = McpStdioRuntime(
+        workspace,
+        home=home,
+        environ=_safe_environment(),
+    )
+    targets = [definition.target for definition in different_runtime.discover_tools()]
+    try:
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(
+                    different_runtime.call_tool,
+                    target,
+                    {"message": target.server_id},
+                    timeout_seconds=2.0,
+                )
+                for target in targets
+            ]
+            assert [future.result(timeout=3.0).status for future in futures] == ["ok", "ok"]
+        different_elapsed = time.monotonic() - started
+    finally:
+        different_runtime.close()
+
+    assert same_elapsed >= delay * 1.8
+    assert different_elapsed < delay * 1.7
+
+
+def test_stdio_runtime_old_snapshot_target_survives_rejected_refresh(tmp_path) -> None:
+    runtime = _runtime(
+        tmp_path,
+        mode="list-changed-unsafe",
+        output_schema="valid",
+        extra_args=("--notify-delay", "0.05"),
+    )
+    old_target = runtime.discover_tools()[0].target
+    deadline = time.monotonic() + 2.0
+    while runtime._dirty_generation.get("local", 0) == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    with pytest.raises(McpRuntimeError):
+        runtime.discover_tools()
+    try:
+        result = runtime.call_tool(old_target, {"message": "snapshot-one"})
+    finally:
+        runtime.close()
+
+    assert result.status == "ok"
+    assert result.data is not None
+    assert result.data["structured_content"] == {"message": "snapshot-one"}
+
+
+def test_stdio_runtime_sdk_error_redaction_and_unknown_block_are_bounded(tmp_path) -> None:
+    secret = "sdk-error-secret-c129"
+    runtime = _runtime(
+        tmp_path,
+        pass_env=("MCP_TOKEN",),
+        environ={"MCP_TOKEN": secret},
+    )
+    target = runtime.discover_tools()[0].target
+    start = runtime._starts["local"]
+
+    class FailingSession:
+        async def send_request(self, *_args, **_kwargs):
+            raise RuntimeError(f"SDK failed with {secret}")
+
+    command = mcp_runtime_module._OwnerCommand(
+        kind="call",
+        future=mcp_runtime_module.concurrent.futures.Future(),
+        target=target,
+        arguments={"message": "ignored"},
+    )
+    outcome = asyncio.run(runtime._call_remote_tool(FailingSession(), start, command))
+    runtime.close()
+
+    payload = _call_payload(outcome.result)
+    assert outcome.poison_server is True
+    assert outcome.result.status == "failed"
+    assert outcome.result.redaction_replacements == 1
+    assert secret not in payload
+
+    class FutureBlock:
+        type = "future-content"
+        raw = secret
+
+    normalized, summary = mcp_runtime_module._normalize_content_block(FutureBlock())
+    assert normalized == {"type": "unknown", "omitted": True}
+    assert summary is None

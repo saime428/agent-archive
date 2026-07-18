@@ -17,6 +17,9 @@ from mcp.server.lowlevel import NotificationOptions, Server
 
 
 MODES = (
+    "call-crash",
+    "call-delay",
+    "call-results",
     "child-process",
     "default",
     "duplicate-tools",
@@ -119,6 +122,7 @@ def _arguments() -> argparse.Namespace:
     )
     parser.add_argument("--start-file", type=Path)
     parser.add_argument("--child-file", type=Path)
+    parser.add_argument("--call-file", type=Path)
     parser.add_argument("--description-env")
     parser.add_argument("--schema", choices=SCHEMAS, default="valid")
     parser.add_argument("--output-schema", choices=("none", *SCHEMAS), default="none")
@@ -308,9 +312,86 @@ async def _run(args: argparse.Namespace) -> int:
         server.list_tools()(list_tools)
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+    async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         message = str(arguments.get("message", ""))
+        if args.call_file is not None:
+            with args.call_file.open("a", encoding="utf-8") as calls:
+                calls.write(f"{os.getpid()}:{name}:{message}\n")
+        if args.mode == "call-delay":
+            await asyncio.sleep(args.delay)
+        if args.mode == "call-crash":
+            os._exit(19)
+        if args.mode == "call-results":
+            if message == "tool-error":
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text="business failure")],
+                    isError=True,
+                )
+            if message == "invalid-output":
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text="invalid output")],
+                    structuredContent={"message": 42},
+                )
+            if message == "rich":
+                return types.CallToolResult(
+                    content=[
+                        types.TextContent(
+                            type="text",
+                            text="rich text",
+                            _meta={"private": "discard-me"},
+                        ),
+                        types.ImageContent(
+                            type="image",
+                            data="YWJj",
+                            mimeType="image/png",
+                            _meta={"private": "discard-me"},
+                        ),
+                        types.AudioContent(
+                            type="audio",
+                            data="MTI=",
+                            mimeType="audio/wav",
+                        ),
+                        types.ResourceLink(
+                            type="resource_link",
+                            name="fixture-link",
+                            uri="file:///fixture-link.txt",
+                            description="fixture metadata",
+                            mimeType="text/plain",
+                            size=7,
+                            _meta={"private": "discard-me"},
+                        ),
+                        types.EmbeddedResource(
+                            type="resource",
+                            resource=types.TextResourceContents(
+                                uri="file:///fixture.txt",
+                                mimeType="text/plain",
+                                text="embedded text",
+                                _meta={"private": "discard-me"},
+                            ),
+                        ),
+                        types.EmbeddedResource(
+                            type="resource",
+                            resource=types.BlobResourceContents(
+                                uri="file:///fixture.bin",
+                                mimeType="application/octet-stream",
+                                blob="YmxvYg==",
+                                _meta={"private": "discard-me"},
+                            ),
+                        ),
+                    ],
+                    structuredContent={"message": "rich", "nested": {"value": message}},
+                    _meta={"private": "discard-me"},
+                )
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=message)],
+                structuredContent={"message": message},
+            )
         if name == echo.name or name == "refreshed":
+            if output_schema is not None:
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=message)],
+                    structuredContent={"message": message},
+                )
             return [types.TextContent(type="text", text=message)]
         if name == "upper":
             return [types.TextContent(type="text", text=message.upper())]
