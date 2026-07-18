@@ -1,7 +1,7 @@
 # 设计：stdio MCP + 动态 Tool 注册 + 现有安全链
 
 - 日期：2026-07-17
-- 状态：设计已获用户批准，implementation plan 已审查修订，未实施
+- 状态：已实施（自动门禁与真实本地验收通过）
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)
 - 实施计划：[stdio MCP + 动态 Tool 注册实现计划](../plans/2026-07-17-stdio-mcp-dynamic-tools.md)
 - 性质：开放扩展内核第一切片的已确认实现 spec
@@ -556,3 +556,17 @@ parse envelope
 | 二进制结果丢失 | 只记录安全元数据 | artifact store 成为真实产品能力后接 image/audio/resource preview |
 
 下一阶段不是立刻做商店，而是在本地调用链稳定后补 **MCP 配置管理、启停、健康诊断与 Skills 完整生命周期**；只有 install → validate → enable → diagnose → update/remove 闭环可靠，Frontend vNext 才接真实 Hub。
+
+## 实施与验收证据（2026-07-18）
+
+| 门禁 / 路径 | Provider / model | 结果 | 进程与存储清理证据 |
+| --- | --- | --- | --- |
+| D 盘干净 venv：`pip install -e .`、`pip check`、无 MCP 配置的 `agent doctor` | 无 Provider 调用 | editable install、依赖一致性与 doctor 通过 | home/cache/temp/venv 全在 `D:\CodexScratch`，最终统一删除 |
+| focused + full pytest | Fake、本地 fixture | `147 passed, 4 skipped`；最终全量 `767 passed, 5 skipped` | fixture close/timeout/竞态测试通过；无测试 Server 残留 |
+| SDK initialize → 分页 list → call → close | 官方 MCP SDK 1.28.1 + 本地 fixture | 发现 `echo` / `upper`，调用 `echo` 成功 | fixture PID 210524 已退出 |
+| `agent provider smoke openai-compat` | 本地确定性 `openai-compat/local-scripted` | 通过；请求未带 Authorization，不使用用户凭据或付费 endpoint | 本地 HTTP Server 验收结束后关闭 |
+| `agent run`，`native_tools=true` | 本地确定性 `openai-compat/local-scripted` | 模型选 MCP → CLI 批准 → call/result → done | fixture PID 191180 已退出 |
+| 两轮 `agent chat`，JSON-in-text fallback | 本地确定性 `openai-compat/local-scripted` | 2 turn、2 call，复用同一 Server 后 `/exit` | 仅启动 PID 215548，退出后已消失 |
+| Workbench HTTP/SSE | 本地确定性 `openai-compat/local-scripted` | MCP Tool → approval → 流式参数 → observation → final；trace 为 `mcp/local/echo` | fixture PID 212264 已退出；Workbench 经 KeyboardInterrupt/finally 正常退出 |
+
+验收使用 `D:\CodexScratch\agent-mcp-acceptance\home`，没有创建或修改 `C:\Users\admin\.agent\mcp.toml`。本表只证明本地 stdio 动态 Tool 切片，不代表 Marketplace、管理 UI、远程 transport 或完整生态已经完成。

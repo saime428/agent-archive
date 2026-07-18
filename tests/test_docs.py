@@ -336,6 +336,39 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Visual Workbench product" in roadmap
 
 
+def test_stdio_mcp_docs_record_config_security_scope_and_acceptance() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    direction = (ROOT / "docs" / "project-vnext-direction.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-17-stdio-mcp-dynamic-tools-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-17-stdio-mcp-dynamic-tools.md"
+    ).read_text(encoding="utf-8")
+
+    assert "~/.agent/mcp.toml" in readme
+    assert 'pass_env = ["EXAMPLE_API_KEY"]' in readme
+    assert 'cwd = "workspace"' in readme
+    assert "{workspace}" in readme
+    assert "confirmation-required" in readme
+    assert "they never send `tools/call`" in readme
+    assert "OS permissions" in readme
+    assert "agent tools list" in readme and "built-in-only inventory" in readme
+    assert "Marketplace, management UI, automatic reconnect" in readme
+    assert "本地 stdio MCP Tool" in changelog
+    assert "MCP 后端切片已完成" in direction
+    assert "尚无 MCP runtime" not in direction
+    assert "Project vNext Extension Track" in roadmap
+    assert "Full Project vNext ecosystem | In progress" in roadmap
+    assert "状态：已实施（自动门禁与真实本地验收通过）" in spec
+    assert "实施与验收证据（2026-07-18）" in spec
+    assert "不代表 Marketplace、管理 UI、远程 transport 或完整生态已经完成" in spec
+    assert "状态：** 已完成（2026-07-18）" in plan
+    assert "- [ ] Step" not in plan
+
+
 def test_v07_shell_decision_keeps_static_workbench_until_needed() -> None:
     decision = (ROOT / "docs" / "v0.7-shell-decision.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

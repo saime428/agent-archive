@@ -59,6 +59,50 @@ model = "llama3"
 
 With `native_tools = true` the agent uses native function calling with `tool_choice: "auto"` (thinking-mode models such as DeepSeek reject `"required"`); a plain-text reply without a tool call is routed through the repair channel. Endpoints without tool support should keep it `false`.
 
+### Local stdio MCP tools
+
+Local MCP servers are configured only in the user-level `~/.agent/mcp.toml`.
+Project `.agent/config.toml` files and repository files cannot grant permission
+to start an MCP process.
+
+```toml
+[servers.example]
+command = "C:/Python313/python.exe"
+args = ["D:/mcp/example_server.py", "--workspace", "{workspace}"]
+cwd = "config"                 # "config" (default) or "workspace"
+pass_env = ["EXAMPLE_API_KEY"] # variable names only; values come from the environment
+```
+
+On Windows, `command` must resolve to a native `.exe` or `.com`; relative paths
+are rejected. An argument equal to `{workspace}` is replaced with the resolved
+workspace path. `cwd = "workspace"` is explicit trust: imports and configuration
+discovery performed by that server can then be influenced by project files, so
+prefer the default `config` working directory.
+
+Adding a server is startup authorization. The server process has the Agent
+user's OS permissions and may access files, the network, or child processes;
+the Agent workspace sandbox does not contain code running inside that process.
+Every exposed MCP Tool call is separately classified as
+`confirmation-required`. `sandbox = "read-only"`, dry-run, and
+`approval = "never"` can still start a configured server for discovery, but
+they never send `tools/call`.
+
+Secrets belong in environment variables named by `pass_env`, never in
+`command`, `args`, or TOML values. MCP metadata and results are untrusted,
+schema-checked, bounded, redacted, and routed through the same catalog,
+approval, observation, and trace path as built-in Tools. Public names use
+`mcp__<server-id>__<normalized-tool-name>`; collisions and unsafe schemas fail
+closed before the model is called.
+
+Configuration is snapshotted for the lifetime of the CLI/Workbench process;
+restart it after editing `mcp.toml`. Configuration errors fail before server
+startup, while initialize or discovery failures stop the run/chat job before a
+model call and close processes already started by that Runtime. This first
+slice supports local stdio Tools only: there is no remote transport,
+Marketplace, management UI, automatic reconnect, or install/update lifecycle.
+`agent tools list` intentionally remains a built-in-only inventory and does
+not start configured MCP servers.
+
 ### Additional command allowlist
 
 `run_command` keeps a small safe default set. Add explicit argv prefixes only when a project needs more commands:

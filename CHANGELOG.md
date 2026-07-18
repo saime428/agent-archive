@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 本地 stdio MCP Tool：新增用户级配置、官方 SDK 生命周期与动态 Tool Catalog；CLI、Chat 和 Workbench 共用现有 schema 校验、Skill、policy、逐次审批、observation、脱敏与 trace，并在退出或失败时关闭 Server 进程。
 - Workbench 编码任务验收修复：流式模型碎片按小批次写入 SSE，设置页可切换 `mode`，`code-dev` 明确优先最简正确改动与标准库。
 - 命令白名单:新增 `allowed_commands` argv 前缀配置;首 token 忽略大小写与 `.exe`,后续 token 精确匹配;shell/network/dangerous 硬拒绝、审批与路径沙箱保持不变;CLI、审计日志和 Workbench 可只读查看生效值。
 - 错误恢复:可恢复的工具错误(TOOL_FAILED/TIMEOUT/SANDBOX_VIOLATION/INVALID_ARGUMENT/POLICY_DENIED)回喂模型自我纠正,新增 `max_consecutive_errors` 配置(默认 3),连续错误耗尽预算才终止;写操作成功结果同样回喂;迭代预算剩 2 次时提醒模型收尾。

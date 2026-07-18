@@ -1,9 +1,10 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-07-07
+Last updated: 2026-07-18
 
-Status update (2026-07-17): this file keeps the completed local-baseline
-milestones. Future project-wide direction now lives in
+Status update (2026-07-18): this file keeps the completed local-baseline
+milestones and records completed Project vNext slices separately. The
+project-wide direction lives in
 [Project vNext Direction](project-vnext-direction.md).
 
 ## Product Goal
@@ -24,7 +25,15 @@ workflow is actually useful.
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required roadmap is complete; packaging, desktop shell, and browser settings writes are trigger-based options |
 
-These percentages are product estimates, not exact engineering metrics.
+These percentages are product estimates for the legacy local-baseline roadmap,
+not a claim that the full Project vNext ecosystem is complete.
+
+## Project vNext Extension Track
+
+| Slice | Status | Evidence / next gap |
+| --- | --- | --- |
+| Phase 1: stdio MCP dynamic Tools | Complete | User-only config, SDK lifecycle, unified catalog/safety chain, and real CLI/Chat/Workbench acceptance |
+| Full Project vNext ecosystem | In progress | Next: managed MCP/Skills lifecycle; later phases still cover productivity, distribution, remote, and community loops |
 
 ## Completed Milestones
 
@@ -42,6 +51,7 @@ These percentages are product estimates, not exact engineering metrics.
 | v1.0 | Release prep | One-command startup alias, Settings Readiness, settings page decision, release readiness doctor, packaging decision, closeout |
 | post-v1.0 | Polish and local secrets | Ordered polish backlog, copy pass, manual smoke, accessibility, local secret flow |
 | v2.0 | Tokenicode Workbench | Tokenicode-style visual refresh, SSE browser chat, dark theme, resizable columns, conversation tabs, resource detail panels |
+| vNext Phase 1 slice | Open extension kernel | Local stdio MCP dynamic Tools share the built-in Tool catalog, approval, observation, redaction, trace, and composition-root lifecycle |
 
 ## Active v0.6 Plan
 
@@ -296,6 +306,10 @@ columns, theme switching, and compact resource inspection while keeping the
 stdlib server and local safety model intact.
 
 Next slice: optional trigger-based work only if explicitly needed.
+
+Completed slice: Project vNext Phase 1 stdio MCP dynamic tools.
+
+Next Project vNext slice: MCP configuration management, enable/disable, health diagnostics, and the Skills local lifecycle.
 
 ## Guardrails
 

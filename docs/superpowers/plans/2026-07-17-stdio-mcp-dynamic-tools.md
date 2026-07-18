@@ -2,6 +2,8 @@
 
 > **执行口径：** 按 Task 顺序实施。每个行为 Task 先写失败测试，完成 focused verification 后独立提交；不要跨 Task 预先搭壳。
 
+**状态：** 已完成（2026-07-18）；8 个 Task 均已实现、验证并按 Task 提交。
+
 **Goal：** 让用户显式配置的本地 stdio MCP Tool 动态进入一次 run 的统一 Tool Catalog，并复用现有 Skill、policy、approval、observation、redaction 和 trace。
 
 **Architecture：** 新增单个 `mcp_runtime.py` 隔离官方异步 SDK 与子进程；现有 `tool_catalog.py` 深化为每 run 唯一事实源；`run_once` 只在安全链末端区分内置 executor 与 MCP call。CLI/Workbench 组合根拥有 Runtime，核心只借用。
@@ -52,11 +54,11 @@
 - replacement count 不因第二次 redaction 变成 0。
 - 普通路径、diff、token budget 数字不被误删。
 
-- [ ] Step 1: 写实时泄漏的失败测试
-- [ ] Step 2: 实现一个共享 helper 并接到所有 Observation 出口
-- [ ] Step 3: 运行 `python -m pytest tests/test_redaction.py tests/core/test_loop_core.py tests/test_chat.py -q`
-- [ ] Step 4: 运行 `git diff --check`
-- [ ] Step 5: 仅提交本 Task 文件：`git commit -m "fix: redact observations before feedback"`
+- [x] Step 1: 写实时泄漏的失败测试
+- [x] Step 2: 实现一个共享 helper 并接到所有 Observation 出口
+- [x] Step 3: 运行 `python -m pytest tests/test_redaction.py tests/core/test_loop_core.py tests/test_chat.py -q`
+- [x] Step 4: 运行 `git diff --check`
+- [x] Step 5: 仅提交本 Task 文件：`git commit -m "fix: redact observations before feedback"`
 
 ---
 
@@ -88,11 +90,11 @@
 - `{workspace}` 仅完整 token 展开，字符串内不插值。
 - 名称规范化、长度和摘要稳定。
 
-- [ ] Step 1: 写配置与 workspace shadow 失败测试
-- [ ] Step 2: 实现纯 stdlib 配置/解析和值对象
-- [ ] Step 3: 运行 `python -m pytest tests/test_mcp_runtime.py -q`
-- [ ] Step 4: 运行 `git diff --check`
-- [ ] Step 5: 仅提交本 Task 文件：`git commit -m "feat: validate stdio MCP configuration"`
+- [x] Step 1: 写配置与 workspace shadow 失败测试
+- [x] Step 2: 实现纯 stdlib 配置/解析和值对象
+- [x] Step 3: 运行 `python -m pytest tests/test_mcp_runtime.py -q`
+- [x] Step 4: 运行 `git diff --check`
+- [x] Step 5: 仅提交本 Task 文件：`git commit -m "feat: validate stdio MCP configuration"`
 
 ---
 
@@ -132,13 +134,13 @@
 - 高流量 stderr 不阻塞且不进入 `capsys`；畸形 stdout，以及带 secret 的无效 ServerRequest/ServerNotification，都不把 ValidationError、instance 或 SDK 原始 payload 写进 `caplog`/console。owner thread 的应用日志、其他线程日志仍可见，close 后 logging filter 不残留。
 - Windows wrapper 由 SDK 启动并清理子进程树。
 
-- [ ] Step 1: 在 D 盘一次性 venv 执行 editable install 与 `pip check`
-- [ ] Step 2: 写真实 fixture discovery 失败测试
-- [ ] Step 3: 实现 lazy config、single-flight owner、分页、精确脱敏、日志抑制与 close
-- [ ] Step 4: 运行 `python -m pytest tests/test_mcp_runtime.py -q`
-- [ ] Step 5: 运行 `python -m pytest -q` 验证依赖升级未破坏全仓
-- [ ] Step 6: 运行 `git diff --check`
-- [ ] Step 7: 仅提交本 Task 文件：`git commit -m "feat: discover stdio MCP tools"`
+- [x] Step 1: 在 D 盘一次性 venv 执行 editable install 与 `pip check`
+- [x] Step 2: 写真实 fixture discovery 失败测试
+- [x] Step 3: 实现 lazy config、single-flight owner、分页、精确脱敏、日志抑制与 close
+- [x] Step 4: 运行 `python -m pytest tests/test_mcp_runtime.py -q`
+- [x] Step 5: 运行 `python -m pytest -q` 验证依赖升级未破坏全仓
+- [x] Step 6: 运行 `git diff --check`
+- [x] Step 7: 仅提交本 Task 文件：`git commit -m "feat: discover stdio MCP tools"`
 
 ---
 
@@ -170,11 +172,11 @@
 - output schema/结果结构错误调用数恰好 1、Server failed，原始 structured data 与 secret 不进入 result/exception/log。
 - Run A 冻结 S1、Run B dirty refresh 到随后因外部 `$ref` 被拒绝的 S2 时，A 仍按 S1 validator 校验且 retrieval 次数为 0；SDK session cache 变化不影响旧 Target。
 
-- [ ] Step 1: 写结果/output validation/timeout 线性化/secret 失败测试
-- [ ] Step 2: 实现最小 call 与结果规整
-- [ ] Step 3: 运行 `python -m pytest tests/test_mcp_runtime.py -q`
-- [ ] Step 4: 运行 `git diff --check`
-- [ ] Step 5: 仅提交本 Task 文件：`git commit -m "feat: call stdio MCP tools safely"`
+- [x] Step 1: 写结果/output validation/timeout 线性化/secret 失败测试
+- [x] Step 2: 实现最小 call 与结果规整
+- [x] Step 3: 运行 `python -m pytest tests/test_mcp_runtime.py -q`
+- [x] Step 4: 运行 `git diff --check`
+- [x] Step 5: 仅提交本 Task 文件：`git commit -m "feat: call stdio MCP tools safely"`
 
 ---
 
@@ -212,12 +214,12 @@
 - MCP risk 永远 confirmation-required；reason 含完整身份与 OS 权限警告，read-only/never 拒绝，annotations 无法降权。
 - 静态 CLI/Web Tool 列表不触发 discovery。
 
-- [ ] Step 1: 写 catalog/schema/policy 失败测试
-- [ ] Step 2: 深化现有 catalog，删除重复事实源
-- [ ] Step 3: 接 actions/tool_schemas/approvals，保持 parse/classify/description 默认契约兼容
-- [ ] Step 4: 运行 `python -m pytest tests/core/test_tool_schemas.py tests/core/test_actions_parse.py tests/test_approvals.py tests/test_cli.py::test_tools_list_outputs_v01_tools_and_policy_categories tests/test_ui.py::test_build_tools_payload_reuses_policy_categories -q`
-- [ ] Step 5: 运行 `git diff --check`
-- [ ] Step 6: 仅提交本 Task 文件：`git commit -m "refactor: unify runtime tool catalog"`
+- [x] Step 1: 写 catalog/schema/policy 失败测试
+- [x] Step 2: 深化现有 catalog，删除重复事实源
+- [x] Step 3: 接 actions/tool_schemas/approvals，保持 parse/classify/description 默认契约兼容
+- [x] Step 4: 运行 `python -m pytest tests/core/test_tool_schemas.py tests/core/test_actions_parse.py tests/test_approvals.py tests/test_cli.py::test_tools_list_outputs_v01_tools_and_policy_categories tests/test_ui.py::test_build_tools_payload_reuses_policy_categories -q`
+- [x] Step 5: 运行 `git diff --check`
+- [x] Step 6: 仅提交本 Task 文件：`git commit -m "refactor: unify runtime tool catalog"`
 
 ---
 
@@ -252,13 +254,13 @@
 - success/`isError`/queue timeout/request timeout/transport/output validation failure 映射、恢复循环和 failed fast。
 - observation 实时脱敏、Adapter replacement count、预算、feedback、trace 均无 secret；`tool_calls.jsonl` 明确存在 `tool_source/server_id/remote_name`，现有 `action.action.args` 继续保存 Tool 调用参数的脱敏副本，但不出现 MCP Server 启动 command/argv/cwd/pass_env/stderr；内置 Tool 回归全绿。
 
-- [ ] Step 1: 用最小 Fake Runtime 写端到端失败测试
-- [ ] Step 2: 接 catalog 到 JSON/native/parse/policy
-- [ ] Step 3: 只在执行链末端接 MCP Result
-- [ ] Step 4: 接 Skill wildcard 与 trace 元数据
-- [ ] Step 5: 运行 `python -m pytest tests/core/test_loop_mcp.py tests/core/test_loop_core.py tests/core/test_loop_native.py tests/core/test_tool_schemas.py tests/test_skills.py -q`
-- [ ] Step 6: 运行 `git diff --check`
-- [ ] Step 7: 仅提交本 Task 文件：`git commit -m "feat: register MCP tools in the agent loop"`
+- [x] Step 1: 用最小 Fake Runtime 写端到端失败测试
+- [x] Step 2: 接 catalog 到 JSON/native/parse/policy
+- [x] Step 3: 只在执行链末端接 MCP Result
+- [x] Step 4: 接 Skill wildcard 与 trace 元数据
+- [x] Step 5: 运行 `python -m pytest tests/core/test_loop_mcp.py tests/core/test_loop_core.py tests/core/test_loop_native.py tests/core/test_tool_schemas.py tests/test_skills.py -q`
+- [x] Step 6: 运行 `git diff --check`
+- [x] Step 7: 仅提交本 Task 文件：`git commit -m "feat: register MCP tools in the agent loop"`
 
 ---
 
@@ -294,12 +296,12 @@
 - 前一端口 bind 失败的 Runtime 已 close，CLI 才尝试下一端口。
 - ChatRuntime 公共 Interface 测试仍只允许 `start/poll/decide`。
 
-- [ ] Step 1: 写 ownership/close 失败测试
-- [ ] Step 2: 接 ChatSession 与 CLI 组合根
-- [ ] Step 3: 接 Workbench 两条 chat 路径
-- [ ] Step 4: 运行 `python -m pytest tests/test_chat.py tests/test_cli.py tests/test_web.py -q`
-- [ ] Step 5: 运行 `git diff --check`
-- [ ] Step 6: 仅提交本 Task 文件：`git commit -m "feat: own MCP lifecycle at app boundaries"`
+- [x] Step 1: 写 ownership/close 失败测试
+- [x] Step 2: 接 ChatSession 与 CLI 组合根
+- [x] Step 3: 接 Workbench 两条 chat 路径
+- [x] Step 4: 运行 `python -m pytest tests/test_chat.py tests/test_cli.py tests/test_web.py -q`
+- [x] Step 5: 运行 `git diff --check`
+- [x] Step 6: 仅提交本 Task 文件：`git commit -m "feat: own MCP lifecycle at app boundaries"`
 
 ---
 
@@ -344,11 +346,11 @@ python -m agent.cli release doctor --cwd .
 5. 真实 Workbench 跑“选择 MCP Tool → approval → 流式 observation → trace”，关闭后确认进程树消失。
 6. 第 1、3、4、5 步默认使用 `D:\CodexScratch\agent-mcp-acceptance\home` 临时 home，验收后清理。只有确实需要证明默认 Windows 用户路径时才申请创建/修改 `C:\Users\admin\.agent\mcp.toml`：说明预计不足 2 KiB、具体内容、D 盘替代方案和恢复/删除方式；未获许可不得写。
 
-- [ ] Step 1: 写 README 安全契约失败测试
-- [ ] Step 2: 更新 README/CHANGELOG/roadmap，spec 暂标“实施中”
-- [ ] Step 3: 跑 focused、全量和 D 盘干净安装门禁
-- [ ] Step 4: 默认用 D 盘临时 home 做 CLI run/chat 与 Workbench 真实门禁；Provider 费用或 C 盘默认路径另行获权
-- [ ] Step 5: 门禁全部通过后补 spec 证据表，并把 spec/roadmap/project vNext 改为完成
-- [ ] Step 6: 再跑 `git diff --check`，仅提交本 Task 文件：`git commit -m "docs: document stdio MCP tools"`
+- [x] Step 1: 写 README 安全契约失败测试
+- [x] Step 2: 更新 README/CHANGELOG/roadmap，spec 暂标“实施中”
+- [x] Step 3: 跑 focused、全量和 D 盘干净安装门禁
+- [x] Step 4: 默认用 D 盘临时 home 做 CLI run/chat 与 Workbench 真实门禁；Provider 费用或 C 盘默认路径另行获权
+- [x] Step 5: 门禁全部通过后补 spec 证据表，并把 spec/roadmap/project vNext 改为完成
+- [x] Step 6: 再跑 `git diff --check`，仅提交本 Task 文件：`git commit -m "docs: document stdio MCP tools"`
 
 Expected：MCP 与内置 Tool 共用一个 catalog 和安全链；默认配置无进程副作用；危险路径 fail closed；自动与真实 CLI/Workbench 路径都有证据；本期范围外能力没有空壳。
