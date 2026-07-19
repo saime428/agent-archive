@@ -1,7 +1,7 @@
 # 设计：可管理的本地 MCP 与 Skills 生命周期
 
 - 日期：2026-07-18
-- 状态：草案，待确认
+- 状态：草案，已完成双轴审查，待确认
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)
 - 前置实现：[stdio MCP 动态工具集成](2026-07-17-stdio-mcp-dynamic-tools-design.md)
 - 前置加固：[MCP Server 故障隔离](2026-07-18-mcp-server-fault-isolation-design.md)
@@ -97,6 +97,7 @@ cwd = "config"
 - 先读取手写 `mcp.toml`，再读取按 Server ID 排序的 `mcp.d/*.toml`；同一 ID 出现在两个来源时 fail closed，不采用 last-wins。
 - managed Server ID 沿用现有 ASCII 字母/数字/`_`/`-` 规则，并限制为 1–64 字符；同时拒绝 Windows 设备保留名、尾随点/空格和大小写折叠后的文件名冲突。手写配置保持现有兼容语义。
 - `mcp-state.json` 是高信任用户状态覆盖，可禁用任一来源的 Server，但不能增加或修改命令。
+- 状态中名称合法、但当前没有对应 manual/managed 来源的 disabled 项是 orphan：普通 Runtime 忽略且不计入 Server 上限，`list/doctor` 显式报告；`enable/disable` 对不存在的来源返回非零。新建 `set` 会清除同名 orphan 并以 enabled 发布，替换现有 managed Server 则保留原 enabled/disabled 状态；`remove` 可幂等清理同名 managed 来源或 state-only orphan。
 - disabled Server 仍必须有合法 ID 和可解析 TOML；跳过命令解析、PATH/env 检查和进程启动，使用户能先禁用一个已损坏或暂时缺依赖的配置。
 - enabled Server 继续走现有完整 `_parse_server_config` 安全校验；Server 总数、PATH 净化、workspace command 拒绝、`pass_env` 和 `cwd` 语义不变。
 - 配置来源与 enabled/disabled 可出现在显式管理诊断中，但普通 run summary、trace 和 session 不记录 command、argv、cwd、环境变量名或值。
@@ -117,7 +118,7 @@ agent mcp doctor [--cwd PATH]
 
 - `list` 不启动进程，输出 ID、来源 `manual|managed`、enabled 状态与静态校验状态；默认不回显完整 argv。
 - `validate` 只做配置、路径、字段、环境变量存在性与信任边界检查，不执行命令。
-- `set` 对受管片段执行 create-or-replace；候选必须先通过与 Runtime 相同的校验，再原子发布。若 ID 来自手写 `mcp.toml`，拒绝覆盖并提示用户手工迁移。
+- `set` 对受管片段执行 create-or-replace；候选必须先通过与 Runtime 相同的校验，再原子发布。新建项 enabled，替换项保留原状态。若 ID 来自手写 `mcp.toml`，拒绝覆盖并提示用户手工迁移。
 - `enable/disable` 只更新状态覆盖，不启动或停止其他进程；已有 Workbench 在重启后生效。
 - `remove` 只删除受管片段并清理对应状态。手写来源拒绝删除，避免破坏用户文件。
 - `doctor` 复用 `McpStdioRuntime.discover_tools()`，成功时按配置 ID 报告 ready 与 Tool 数量，失败时只输出有界 `stage/server_id/message`，永不输出 stderr、secret 或原始协议 payload。
@@ -146,6 +147,7 @@ state:            ~/.agent/skills-state.json
 - 保留现有 project-over-builtin 行为，避免破坏已有项目。
 - 用户安装名必须满足安全文件名规则，且安装/启用时不得与当前 builtin 或 project 名冲突；冲突明确失败，不静默 shadow。
 - enabled user Skill 参与 `discover_skills()`；disabled user Skill 只出现在管理 inventory，不可被 `load_selected_skills()` 选择。
+- `skills-state.json` 中名称合法但 user store 已无对应目录的 disabled 项是 orphan：普通 discovery 忽略，`list/doctor` 报告，`enable/disable` 返回非零；同名 `install` 清除 orphan 并 enabled，`remove` 可幂等清理 state-only orphan。
 - 如果其他 workspace 后来出现同名 project Skill，discovery 对 user/project 冲突 fail closed，并给出可操作诊断；用户可 rename、disable 或 remove，不采用隐式优先级。
 - Skill 内容继续是低信任上下文；安装来源和 enable 状态不能扩大 Tool catalog、绕过 policy/approval 或提高指令优先级。
 
@@ -185,10 +187,10 @@ agent skills doctor [--cwd PATH]
 ```
 
 - `validate` 检查候选但不写文件。
-- `install` 只创建不存在的 user Skill，成功后 enabled；不修改 `default_skills`。
+- `install` 只创建不存在的 user Skill；成功后清除同名 orphan disabled 状态并 enabled，不修改 `default_skills`。
 - `enable/disable` 只适用于 user Skill；builtin/project 由 package/project 与现有选择配置管理。
 - `update` 要求目标是 user Skill、候选 name 完全相同；先完整校验并 staging，失败时旧版本保持可用。更新保留 disabled 状态。
-- `package` 对选中来源做同一安全遍历，使用 stdlib `zipfile` 按稳定路径顺序和规范化元数据生成归档；不打包内部状态、staging 或 backup 文件。
+- `package` 对选中来源做同一安全遍历，使用 stdlib `zipfile` 按稳定路径顺序和规范化元数据生成归档；不打包内部状态、staging 或 backup 文件。`--output` 的父目录必须已存在，目标必须以 `.skill.zip` 结尾，不得是 symlink、不得已存在，也不得位于源目录或 `~/.agent` 用户 store 内；首期不增加 `--force`。归档先写同目录临时文件并完整复验，再以 `os.link(temp, output)` 原子 no-clobber 发布并删除临时名；文件系统不支持 hard link 时明确失败，不回退到可覆盖已有目标的发布方式。可捕获失败时目标不存在，进程崩溃后目标也只能是不存在或完整归档。
 - `remove` 只删除 user Skill，builtin/project 明确拒绝；删除失败不得丢失状态或留下半目录。
 - `doctor` 检查所有来源、用户状态、同名冲突和 effective `default_skills` 可加载性，但不把正文送给模型、不执行资源。
 
@@ -197,11 +199,13 @@ agent skills doctor [--cwd PATH]
 所有用户级生命周期写操作遵守同一组内部规则：
 
 1. 先解析并校验全部输入，再触碰目标。
-2. 在 `~/.agent` 下使用一个有界等待的本地互斥锁；Runtime/Skill discovery 读取用户 store 时也经过同一锁，避免读到 rename 窗口。
-3. JSON/TOML 先写同目录临时文件，再 flush 并用 `os.replace` 发布；不直接截断现有文件。
-4. Skill install/update 先复制到同卷 staging 目录并重新校验；update 采用旧目录临时备份、staging rename、失败回滚的固定顺序。
-5. 只清理本 Module 创建且名称匹配的 staging/backup；不递归删除未知目录。doctor 报告无法自动判定的残留，不猜测删除。
-6. 锁超时、磁盘满、权限错误、杀毒软件占用或回滚失败都返回非零，不把操作写成成功。
+2. `~/.agent/.extension.lock` 使用标准库文件锁：Windows 为 `msvcrt.locking(..., LK_NBLCK, 1)`，POSIX 为 `fcntl.flock(..., LOCK_EX | LOCK_NB)`；按 monotonic deadline 最多等待 5 秒。锁句柄由 OS 在进程退出时释放，不使用 PID/stale-lock 猜测。Runtime/Skill discovery 读取用户 store 时也经过同一锁。
+3. 单文件 JSON/TOML 先写同目录临时文件，flush + `os.fsync` 后用 `os.replace` 发布；package 输出使用上述 no-clobber hard-link 发布。支持目录 fsync 的平台再同步父目录，不直接截断现有文件。
+4. 任何同时改变目标与状态、或需要替换/删除非空目录的操作，都在同卷 `~/.agent/.extension-transactions/<txid>/` 建立私有事务目录。记录只包含版本、Module、操作、安全 ID/name、旧状态和 `prepared|committed` 阶段；不得保存或信任任意绝对路径，实际路径只能由已校验标识推导。
+5. 候选与旧目标分别放在事务目录的固定 `candidate`/`backup` 位置并复验；先原子发布 `prepared` 记录，再按固定顺序更新目标和状态。只有二者都与预期一致后才原子写入 `committed`，随后清理事务目录并返回成功。
+6. 每次 Module 读写在取得锁后先恢复自身事务：`prepared` 必须恢复旧目标与旧状态，`committed` 必须保留新状态并完成清理。恢复后重新校验 authoritative target；记录畸形、路径不符、多个冲突事务或恢复失败时 fail closed，由 doctor 报告，不猜测删除。
+7. 无事务记录的孤立 staging/backup 只能在名称、位置、所有权标记和目标完整性都确定时清理；否则保留并报诊断。不得递归删除未知目录。
+8. 锁超时、磁盘满、权限错误、杀毒软件占用、进程中断或回滚失败都返回非零；新进程只能观察到完整旧状态或完整新状态，不能观察到缺失目标与新旧状态混配。
 
 单次操作的时间与空间复杂度均为 `O(files + bytes)`，并由上述文件数与大小上限约束；不建立数据库、索引或后台 watcher。
 
@@ -237,7 +241,7 @@ agent skills doctor [--cwd PATH]
 
 - Marketplace、社区 registry、评分、发布者身份、签名与信任网络。
 - URL/Git/npm/pip 一键安装、自动下载依赖或执行扩展安装脚本。
-- MCP Streamable HTTP/SSE transport、resources/prompts 管理或自动 reconnect/restart。
+- MCP Streamable HTTP/SSE transport、resources/prompts 管理或自动 reconnect/restart；重连属于阶段 2 后续独立的 Runtime 可靠性 spec，不混入本地管理事务。
 - Workbench/Frontend vNext 管理页面与用户级写 API。
 - 自动修改 `default_skills`、自动选择新 Skill 或按任务推荐扩展。
 - Skill 语义版本、在线更新源与跨设备同步；本地 update 由用户显式提供新候选。
@@ -251,6 +255,7 @@ agent skills doctor [--cwd PATH]
 - 手写 `mcp.toml` 与 managed fragments 可同时读取；同 ID 冲突、状态文件损坏和路径重定向明确失败。
 - disabled 的坏 command 不阻断普通 run，且不产生进程；重新 enable 后恢复完整校验。
 - `set` 候选失败不改变旧片段；enable/disable 状态在新 Runtime 生效，已有 Runtime 不热替换。
+- orphan disabled 项不阻断普通 Runtime；`list/doctor` 可见，`set/remove` 按上述确定语义清理。
 - `doctor` 使用真实 stdio fixture 完成 initialize/list/close；成功、缺环境变量、协议失败和进程清理均有证据。
 - 管理命令与普通 trace 均不泄漏 secret、stderr 或原始协议 payload。
 
@@ -260,14 +265,189 @@ agent skills doctor [--cwd PATH]
 - install 不改 `default_skills`；enabled user Skill 可被显式选择，disabled Skill 明确失败且正文不进入模型。
 - update 成功替换正文，失败完整回滚；remove 只作用 user store；builtin/project 不能被管理命令删除。
 - package → validate → install round-trip 保持 `SKILL.md` 与普通资源内容，且归档顺序稳定、不包含内部文件。
+- package 拒绝已有目标、symlink、源目录内和用户 store 内输出；写入失败不留下目标或半归档。
 - user 与 builtin/project 同名不发生静默覆盖；doctor 能报告冲突和失效 default。
 
 ### 全局门禁
 
 - 没有用户扩展状态时，现有 CLI、Chat、Workbench、MCP、Skill、Tool catalog 与安全链回归通过。
+- 对每个 `prepared/committed` 事务步骤注入进程终止；随后启动的新进程自动恢复，只能读到完整旧状态或完整新状态，且不存在丢失 Skill 目录、片段/状态混配或未知目录误删。
 - 全量 pytest、聚焦 lifecycle/CLI/runtime 测试、`agent doctor` 和 `git diff --check` 通过。
 - 所有测试 home、archive、staging、backup 和 fixture 进程位于 `D:\CodexScratch` 或 pytest `tmp_path`，验收后清理。
 - 默认 Windows 用户路径 `C:\Users\admin\.agent` 的真实写入验收在实施阶段另行申请许可；申请需说明具体路径、预计小于 10 MiB、D 盘替代验证和恢复/删除方式。
+
+### 真实 CLI 闭环
+
+实施时增加三个只含普通文件的测试 Skill：`reviewer-v1` 与 `reviewer-v2` 的 frontmatter name 都是 `reviewer`，正文分别含唯一标记 `revision:v1`、`revision:v2`；`reviewer-invalid` 同名但不通过候选校验。整个验收块在一个新的 PowerShell 进程中执行，所有实际 CLI 都绑定到当前 checkout 安装出的 D 盘 venv，不调用 PATH 中可能存在的旧 `agent`：
+
+```powershell
+$workspace = (Resolve-Path ".").Path
+$scratchRoot = [IO.Path]::GetFullPath("D:\CodexScratch")
+if (-not (Test-Path -LiteralPath $scratchRoot -PathType Container)) {
+    throw "D:\CodexScratch is unavailable"
+}
+$scratch = Join-Path $scratchRoot ("agent-extension-acceptance-" + [Guid]::NewGuid().ToString("N"))
+$home = Join-Path $scratch "home"
+$temp = Join-Path $scratch "temp"
+$venv = Join-Path $scratch "venv"
+$started = Join-Path $scratch "mcp-started.txt"
+$zip = Join-Path $scratch "reviewer.skill.zip"
+$fixture = Join-Path $workspace "tests\fixtures\mcp_stdio_server.py"
+$skillV1 = Join-Path $workspace "tests\fixtures\skills\reviewer-v1"
+$skillV2 = Join-Path $workspace "tests\fixtures\skills\reviewer-v2"
+$skillInvalid = Join-Path $workspace "tests\fixtures\skills\reviewer-invalid"
+$recordedPids = @()
+
+function Invoke-Agent([int]$Expected, [Parameter(ValueFromRemainingArguments=$true)][string[]]$Arguments) {
+    & $script:agent @Arguments
+    if ($LASTEXITCODE -ne $Expected) {
+        throw "agent $($Arguments -join ' ') exited $LASTEXITCODE, expected $Expected"
+    }
+}
+
+function Assert-Fixture-Exited {
+    if (-not (Test-Path -LiteralPath $script:started)) { throw "fixture did not record a PID" }
+    foreach ($pidValue in Get-Content -LiteralPath $script:started) {
+        $pidNumber = [int]$pidValue
+        $script:recordedPids += $pidNumber
+        if (Get-Process -Id $pidNumber -ErrorAction SilentlyContinue) {
+            throw "fixture process $pidNumber survived doctor"
+        }
+    }
+}
+
+try {
+    New-Item -ItemType Directory -Path $home, $temp -Force | Out-Null
+    $env:USERPROFILE = $home
+    $env:HOME = $home
+    $env:TEMP = $temp
+    $env:TMP = $temp
+    $env:PIP_CACHE_DIR = Join-Path $scratch "pip-cache"
+    $env:PYTHONUSERBASE = Join-Path $scratch "python-user"
+    $env:PIP_DISABLE_PIP_VERSION_CHECK = "1"
+
+    $bootstrapPython = (Get-Command python -ErrorAction Stop).Source
+    & $bootstrapPython -m venv $venv
+    if ($LASTEXITCODE -ne 0) { throw "venv creation failed" }
+    $python = Join-Path $venv "Scripts\python.exe"
+    $script:agent = Join-Path $venv "Scripts\agent.exe"
+    & $python -m pip install -e "${workspace}[dev]"
+    if ($LASTEXITCODE -ne 0) { throw "editable install failed" }
+    & $python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "pip check failed" }
+    if ((& $python -c "from pathlib import Path; print(Path.home())") -ne $home) {
+        throw "isolated home is not active"
+    }
+
+    Invoke-Agent 0 mcp set fixture --command $python "--arg=$fixture" "--arg=--start-file" "--arg=$started" --server-cwd workspace --cwd $workspace
+    Invoke-Agent 0 mcp validate fixture --cwd $workspace
+    Invoke-Agent 0 mcp doctor --cwd $workspace
+    Assert-Fixture-Exited
+    Invoke-Agent 0 mcp disable fixture --cwd $workspace
+    $list = & $script:agent mcp list --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $list -notmatch "fixture.*disabled") { throw "disabled state is not visible" }
+    Remove-Item -LiteralPath $started -ErrorAction SilentlyContinue
+    Invoke-Agent 0 mcp doctor --cwd $workspace
+    if (Test-Path -LiteralPath $started) { throw "disabled doctor started the fixture" }
+    Invoke-Agent 0 mcp enable fixture --cwd $workspace
+    $list = & $script:agent mcp list --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $list -notmatch "fixture.*enabled") { throw "enabled state is not visible" }
+    Invoke-Agent 0 mcp doctor --cwd $workspace
+    Assert-Fixture-Exited
+    Invoke-Agent 0 mcp remove fixture --cwd $workspace
+    $list = & $script:agent mcp list --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $list -match "fixture") { throw "removed MCP state remains visible" }
+
+    Invoke-Agent 0 skills validate $skillV1 --cwd $workspace
+    Invoke-Agent 0 skills install $skillV1 --cwd $workspace
+    $show = & $script:agent skills show reviewer --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $show -notmatch "revision:v1") { throw "installed v1 is not visible" }
+    Invoke-Agent 0 skills disable reviewer --cwd $workspace
+    Invoke-Agent 1 skills show reviewer --cwd $workspace
+    Invoke-Agent 0 skills enable reviewer --cwd $workspace
+    Invoke-Agent 0 skills update reviewer $skillV2 --cwd $workspace
+    $show = & $script:agent skills show reviewer --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $show -notmatch "revision:v2") { throw "updated v2 is not visible" }
+    Invoke-Agent 1 skills update reviewer $skillInvalid --cwd $workspace
+    $show = & $script:agent skills show reviewer --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $show -notmatch "revision:v2") { throw "failed update changed the installed Skill" }
+    Invoke-Agent 0 skills doctor --cwd $workspace
+    Invoke-Agent 0 skills package reviewer --output $zip --cwd $workspace
+    Invoke-Agent 0 skills remove reviewer --cwd $workspace
+    Invoke-Agent 0 skills install $zip --cwd $workspace
+    $show = & $script:agent skills show reviewer --cwd $workspace
+    if ($LASTEXITCODE -ne 0 -or $show -notmatch "revision:v2") { throw "package round-trip lost v2" }
+    Invoke-Agent 0 skills remove reviewer --cwd $workspace
+    Invoke-Agent 0 skills doctor --cwd $workspace
+
+    $userSkill = Join-Path $home ".agent\skills\reviewer"
+    $transactions = Join-Path $home ".agent\.extension-transactions"
+    $skillsState = Join-Path $home ".agent\skills-state.json"
+    if (Test-Path -LiteralPath $userSkill) { throw "user Skill was not removed" }
+    if ((Test-Path -LiteralPath $transactions) -and (Get-ChildItem -Force -LiteralPath $transactions)) {
+        throw "extension transaction residue remains"
+    }
+    if ((Test-Path -LiteralPath $skillsState) -and (Select-String -Quiet -LiteralPath $skillsState -Pattern '"reviewer"')) {
+        throw "Skill state residue remains"
+    }
+
+    Invoke-Agent 0 doctor
+    & $python -m pytest -q --basetemp (Join-Path $scratch "pytest")
+    if ($LASTEXITCODE -ne 0) { throw "full pytest failed" }
+}
+finally {
+    $cleanupErrors = @()
+    if (Test-Path -LiteralPath $started) {
+        foreach ($pidValue in (Get-Content -LiteralPath $started -ErrorAction SilentlyContinue)) {
+            $pidNumber = 0
+            if ([int]::TryParse([string]$pidValue, [ref]$pidNumber)) { $recordedPids += $pidNumber }
+        }
+    }
+
+    try {
+        $fixtureProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine.IndexOf($fixture, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $_.CommandLine.IndexOf($started, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+    }
+    catch {
+        $fixtureProcesses = @()
+        $cleanupErrors += "fixture process enumeration failed"
+    }
+    foreach ($process in $fixtureProcesses) {
+        $recordedPids += [int]$process.ProcessId
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+        Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
+    }
+
+    $resolvedScratch = [IO.Path]::GetFullPath($scratch)
+    $allowedPrefix = $scratchRoot.TrimEnd("\") + "\"
+    if (-not $resolvedScratch.StartsWith($allowedPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        $cleanupErrors += "refusing cleanup outside D:\CodexScratch"
+    }
+    elseif (Test-Path -LiteralPath $resolvedScratch) {
+        try { Remove-Item -LiteralPath $resolvedScratch -Recurse -Force -ErrorAction Stop }
+        catch { $cleanupErrors += "acceptance scratch removal failed" }
+    }
+    if (Test-Path -LiteralPath $resolvedScratch) { $cleanupErrors += "acceptance scratch residue remains" }
+
+    try {
+        $remainingFixtureProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine.IndexOf($fixture, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $_.CommandLine.IndexOf($started, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+        if ($remainingFixtureProcesses) { $cleanupErrors += "fixture process residue remains" }
+    }
+    catch {
+        $cleanupErrors += "fixture process negative check failed"
+    }
+    if ($cleanupErrors) { throw ($cleanupErrors -join "; ") }
+}
+```
+
+任何 CLI 未由 `$script:agent` 启动、任何 home/cache/temp 写入落到默认 C 盘、或 finally 后仍有验收目录/fixture 进程，都视为验收失败。
 
 ## 实施拆分原则
 
