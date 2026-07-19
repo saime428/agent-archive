@@ -1,8 +1,9 @@
 # 设计：可管理的本地 MCP 与 Skills 生命周期
 
 - 日期：2026-07-18
-- 状态：草案，已完成双轴审查，待确认
+- 状态：已确认，实施计划已审查
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)
+- 实施计划：[可管理的本地 MCP 与 Skills 生命周期](../plans/2026-07-18-managed-extension-lifecycle.md)
 - 前置实现：[stdio MCP 动态工具集成](2026-07-17-stdio-mcp-dynamic-tools-design.md)
 - 前置加固：[MCP Server 故障隔离](2026-07-18-mcp-server-fault-isolation-design.md)
 - 性质：Project vNext 阶段 2“可管理生态”的第一份后端 spec
