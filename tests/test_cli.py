@@ -1,4 +1,5 @@
 import errno
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -1099,6 +1100,131 @@ def test_skills_list_and_show_builtin_skill(tmp_path) -> None:
     assert show_result.exit_code == 0
     assert "name: code-dev" in show_result.output
     assert "allowed_tools:" in show_result.output
+
+
+def test_mcp_static_cli_lifecycle_never_starts_server(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    started = tmp_path / "started.txt"
+    fixture = (Path(__file__).parent / "fixtures" / "mcp_stdio_server.py").resolve()
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+
+    set_result = runner.invoke(
+        app,
+        [
+            "mcp",
+            "set",
+            "fixture",
+            "--command",
+            str(Path(sys.executable).resolve()),
+            "--arg",
+            str(fixture),
+            "--arg=--start-file",
+            "--arg",
+            str(started),
+            "--server-cwd",
+            "workspace",
+            "--cwd",
+            str(workspace),
+        ],
+    )
+    list_result = runner.invoke(app, ["mcp", "list", "--cwd", str(workspace)])
+    validate_result = runner.invoke(app, ["mcp", "validate", "fixture", "--cwd", str(workspace)])
+    disable_result = runner.invoke(app, ["mcp", "disable", "fixture", "--cwd", str(workspace)])
+    enable_result = runner.invoke(app, ["mcp", "enable", "fixture", "--cwd", str(workspace)])
+    remove_result = runner.invoke(app, ["mcp", "remove", "fixture", "--cwd", str(workspace)])
+
+    assert [result.exit_code for result in (set_result, list_result, validate_result, disable_result, enable_result, remove_result)] == [0] * 6
+    assert "fixture\tmanaged\tenabled\tvalid" in set_result.output
+    assert "fixture\tmanaged\tenabled\tvalid" in list_result.output
+    assert "fixture\tmanaged\tenabled\tvalid" in validate_result.output
+    assert "fixture\tmanaged\tdisabled\tdisabled" in disable_result.output
+    assert "fixture\tmanaged\tenabled\tvalid" in enable_result.output
+    assert "removed: fixture" in remove_result.output
+    assert str(Path(sys.executable).resolve()) not in list_result.output
+    assert str(fixture) not in list_result.output
+    assert not started.exists()
+    assert not (home / ".agent" / "mcp.d" / "fixture.toml").exists()
+
+
+def test_mcp_cli_keeps_disabled_bad_command_recoverable(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+
+    assert runner.invoke(
+        app,
+        ["mcp", "set", "broken", "--command", str(Path(sys.executable).resolve()), "--cwd", str(workspace)],
+    ).exit_code == 0
+    assert runner.invoke(app, ["mcp", "disable", "broken", "--cwd", str(workspace)]).exit_code == 0
+    fragment = home / ".agent" / "mcp.d" / "broken.toml"
+    fragment.write_text('command = "missing-command"\n', encoding="utf-8")
+
+    listed = runner.invoke(app, ["mcp", "list", "--cwd", str(workspace)])
+    validated = runner.invoke(app, ["mcp", "validate", "broken", "--cwd", str(workspace)])
+    enabled = runner.invoke(app, ["mcp", "enable", "broken", "--cwd", str(workspace)])
+
+    assert listed.exit_code == 0
+    assert "broken\tmanaged\tdisabled\tdisabled" in listed.output
+    assert validated.exit_code == 1
+    assert enabled.exit_code == 1
+    assert "sanitized PATH" in validated.output
+    assert str(Path(sys.executable).resolve()) not in validated.output
+
+
+def test_mcp_cli_bounds_static_validation_errors(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    manual = home / ".agent" / "mcp.toml"
+    manual.parent.mkdir(parents=True)
+    manual.write_text(
+        "[servers.broken]\n" f"command = {json.dumps('x' * 2048)}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+
+    result = CliRunner().invoke(app, ["mcp", "validate", "broken", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert len(result.output.rstrip("\n")) == 512
+    assert result.output.endswith("...\n")
+
+
+def test_mcp_cli_refuses_to_overwrite_or_remove_manual_server(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    manual = home / ".agent" / "mcp.toml"
+    manual.parent.mkdir(parents=True)
+    manual.write_text(
+        "[servers.manual]\n" f"command = {json.dumps(str(Path(sys.executable).resolve()))}\n",
+        encoding="utf-8",
+    )
+    original = manual.read_bytes()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+
+    replaced = runner.invoke(
+        app,
+        ["mcp", "set", "manual", "--command", str(Path(sys.executable).resolve()), "--cwd", str(workspace)],
+    )
+    removed = runner.invoke(app, ["mcp", "remove", "manual", "--cwd", str(workspace)])
+
+    assert replaced.exit_code == 1
+    assert removed.exit_code == 1
+    assert "manual" in replaced.output.lower()
+    assert manual.read_bytes() == original
 
 
 def test_skills_show_unknown_skill_returns_nonzero(tmp_path) -> None:

@@ -21,7 +21,8 @@ from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DEFAULT_DEEPSEEK_BASE_URL, DeepSeekError, smoke_deepseek_provider
 from agent.llm.factory import make_llm as make_llm_client
 from agent.llm.openai_compat import ProviderError, smoke_provider, smoke_provider_native
-from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
+from agent.mcp_config import McpConfigStore, McpInventoryItem, McpRuntimeError
+from agent.mcp_runtime import McpStdioRuntime
 from agent.secrets import load_workspace_secrets
 from agent.web.server import serve_workbench
 
@@ -29,6 +30,7 @@ app = typer.Typer(help="Minimal Python CLI agent.")
 runs_app = typer.Typer(help="Inspect agent run logs.")
 tools_app = typer.Typer(help="Inspect available agent tools.")
 config_app = typer.Typer(help="Inspect agent configuration.")
+mcp_app = typer.Typer(help="Manage local MCP server configuration.")
 skills_app = typer.Typer(help="Inspect and load agent skills.")
 memory_app = typer.Typer(help="Review and manage agent memory.")
 provider_app = typer.Typer(help="Inspect and smoke-test LLM providers.")
@@ -36,12 +38,14 @@ release_app = typer.Typer(help="Inspect release readiness.")
 app.add_typer(runs_app, name="runs")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
+app.add_typer(mcp_app, name="mcp")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(provider_app, name="provider")
 app.add_typer(release_app, name="release")
 
 WORKBENCH_PORT_ATTEMPTS = 200
+MCP_CLI_TEXT_LIMIT = 512
 console = Console(highlight=False)
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
@@ -556,6 +560,119 @@ def provider_smoke(
     console.print(f"final: {result.final}")
     for warning in diagnostics.warnings:
         console.print(f"config warning: {warning}")
+
+
+def _mcp_store(cwd: Path | None) -> McpConfigStore:
+    return McpConfigStore(cwd or Path.cwd())
+
+
+def _bounded_mcp_text(value: str) -> str:
+    text = " ".join(value.splitlines())
+    if len(text) <= MCP_CLI_TEXT_LIMIT:
+        return text
+    return f"{text[: MCP_CLI_TEXT_LIMIT - 3]}..."
+
+
+def _print_mcp_error(exc: McpRuntimeError) -> None:
+    console.file.write(f"{_bounded_mcp_text(str(exc))}\n")
+
+
+def _print_mcp_item(item: McpInventoryItem) -> None:
+    enabled = "enabled" if item.enabled else "disabled"
+    suffix = f"\t{_bounded_mcp_text(item.message)}" if item.message else ""
+    console.file.write(f"{item.server_id}\t{item.source}\t{enabled}\t{item.status}{suffix}\n")
+
+
+@mcp_app.command("list")
+def mcp_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory.")) -> None:
+    """List MCP sources and static status without starting servers."""
+    try:
+        items = _mcp_store(cwd).inventory()
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    for item in items:
+        _print_mcp_item(item)
+
+
+@mcp_app.command("validate")
+def mcp_validate(
+    server_id: str | None = typer.Argument(None),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory."),
+) -> None:
+    """Validate MCP configuration without starting servers."""
+    try:
+        items = _mcp_store(cwd).validate(server_id)
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    for item in items:
+        _print_mcp_item(item)
+
+
+@mcp_app.command("set")
+def mcp_set(
+    server_id: str,
+    command: str = typer.Option(..., "--command", help="Executable path or trusted PATH command."),
+    arg: list[str] | None = typer.Option(None, "--arg", help="Server argument; repeat as needed."),
+    pass_env: list[str] | None = typer.Option(None, "--pass-env", help="Environment name; repeat as needed."),
+    server_cwd: str = typer.Option("config", "--server-cwd", help="Server cwd: config or workspace."),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory."),
+) -> None:
+    """Create or replace one managed MCP fragment."""
+    try:
+        item = _mcp_store(cwd).set_server(
+            server_id,
+            command=command,
+            args=tuple(arg or ()),
+            pass_env=tuple(pass_env or ()),
+            cwd=server_cwd,
+        )
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    _print_mcp_item(item)
+
+
+def _set_mcp_enabled(server_id: str, enabled: bool, cwd: Path | None) -> None:
+    try:
+        item = _mcp_store(cwd).set_enabled(server_id, enabled)
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    _print_mcp_item(item)
+
+
+@mcp_app.command("enable")
+def mcp_enable(
+    server_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory."),
+) -> None:
+    """Enable one configured MCP server for new runtimes."""
+    _set_mcp_enabled(server_id, True, cwd)
+
+
+@mcp_app.command("disable")
+def mcp_disable(
+    server_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory."),
+) -> None:
+    """Disable one configured MCP server for new runtimes."""
+    _set_mcp_enabled(server_id, False, cwd)
+
+
+@mcp_app.command("remove")
+def mcp_remove(
+    server_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory."),
+) -> None:
+    """Remove one managed MCP server or state-only orphan."""
+    try:
+        _mcp_store(cwd).remove_server(server_id)
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    console.print(f"removed: {server_id}")
 
 
 @skills_app.command("list")
