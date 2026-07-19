@@ -266,7 +266,7 @@ pass_env = ["GITHUB_TOKEN"]
 
 `notifications/tools/list_changed` 只把 Runtime 标记为 dirty。通知 handler 不能在 SDK receive loop 内直接等待 `list_tools()`；下一次 `run_once` 构建 catalog 时再刷新。每个已发布 Target 自带原快照的 output contract；刷新即使更新 SDK 内部 cache，也不能改变旧 Target 的校验语义。已经开始的 run 永远使用原快照，不热替换模型 schema。
 
-首次 discovery 的任何配置、初始化、transport 或本地 metadata 校验失败都关闭已启动 Server。已经 `ready` 后的 refresh 要区分失败类型：transport/protocol/timeout 仍关闭并标 failed；新列表仅在 Runtime 边界负责的 per-Tool object/dialect/ref/64 KiB 等 metadata 安全检查失败时，不发布新快照、不中断健康 session，而是在 `ready` 状态旁保存有界 refresh error。触发刷新及之后的新 run 都在模型调用前看到该错误；旧快照只继续服务已经开始的 run。只有后续 `list_changed` 触发并成功刷新或进程重启才清除该错误，不自动轮询重试。跨 Tool 总预算和名称冲突仍由 Catalog 对当前 Runtime-valid snapshot fail closed，不回写 Runtime 状态。
+首次 discovery 的任何配置、初始化、transport 或本地 metadata 校验失败都关闭已启动 Server。Runtime 已经 `ready` 后，refresh 的 transport/protocol/timeout 只淘汰对应 Server，并从后续原子快照移除它；其他健康 Server 与内置 Tool 继续可用。新列表仅在 Runtime 边界负责的 per-Tool object/dialect/ref/64 KiB 等 metadata 安全检查失败时，不发布新快照、不中断健康 session，而是在 `ready` 状态旁保存有界 refresh error。触发刷新及之后的新 run 都在模型调用前看到该错误；旧快照只继续服务已经开始的 run。只有后续 `list_changed` 触发并成功刷新或进程重启才清除该错误，不自动轮询重试；重试批次不得重新包含已淘汰 Server。跨 Tool 总预算和名称冲突仍由 Catalog 对当前 Runtime-valid snapshot fail closed，不回写 Runtime 状态。
 
 ### 生命周期所有权
 
@@ -293,14 +293,15 @@ MCP Runtime 由最外层组合根拥有：
 - 每台 Server 的 owner queue 天然串行；不同 Server 的 owner task 可并发。Workbench 多 job 对同一 Server 排队，不建立连接池。
 - discovery 有非空总 timeout，首期固定每台 15 秒；排队 timeout 和已开始的 MCP request timeout 分别固定 60 秒；关闭宽限固定 5 秒。首期不开放配置。
 - 每个 call command 的状态由同一把锁保护：`queued` 只能原子转为 `running` 或 `canceled`，`running` 再转为 `finished`。排队 timeout 只有成功把 `queued` 原子改为 `canceled` 才能报告“未调用”；owner 只有成功把 `queued` 原子改为 `running` 才能发 request。若 timeout 观察到已经 `running`，必须按 request timeout 处理并关闭 session，禁止返回“调用数 0”后仍发生副作用。
-- 只有 owner 已确认开始远端 request 后发生的 timeout，才关闭该 session 并标为 failed；不能因为第二个 job 等待超时而杀掉第一个 job 的调用。
+- 只有 owner 已确认开始远端 request 后发生的 timeout，才关闭对应 Server 的 session 并淘汰该 Server；不能因为第二个 job 等待超时而杀掉第一个 job 的调用。
 - `close()` 退出 SDK 的两个 async context manager；SDK 负责 stdin 关闭、等待、terminate/kill，并在 Windows 使用 Job Object 清理子孙进程。
 - `close()` 必须让 owner task 进入自己的 `finally`；活跃 MCP request 被取消，所有排队/活跃 MCP completion future 都以明确的 closed/failed 结果完成。首期不建设通用 Chat job 取消，不声称关闭任意 Provider 或 approval wait worker。
 - 首期不采集 Server stderr：给 SDK 一个 Runtime 自己打开并关闭的 `os.devnull` 文本句柄，避免原文泄漏、PIPE 填满和跨平台 drain 复杂度。Runtime 还要覆盖 SDK 1.28.1 的全部已知协议校验日志路径：既包括 `mcp.client.stdio` 的畸形 stdout，也包括 `mcp.shared.session` 通过 root logging 输出的无效 ServerRequest/ServerNotification 与原消息。owner thread 在进入 SDK context 前把同一个窄 `logging.Filter` 实例安装到 root logger 与 `mcp.client.stdio` logger；只有同时命中 owner thread ID 和已安装 MCP package source path/明确 MCP logger 的 record 才被抑制或改写，并清空 `args/exc_info/stack_info`，其他 record 原样通过。owner `finally` 必须移除该实例，即使初始化或 close 失败也不残留；不能用全局禁用 logging 的方式掩盖问题。自有 diagnostic 只保留 stage、Server ID 和经过精确脱敏的有界摘要。
-- timeout 后该 session 必须被关闭并标为 failed，确保后台请求不会继续无限运行；当前 Runtime 内不自动重新初始化。用户重新启动 CLI/Workbench 后才重试。
+- timeout 后该 Server session 必须被关闭并淘汰，确保后台请求不会继续无限运行；当前 Runtime 内不自动重新初始化。用户重新启动 CLI/Workbench 后才重试。
 - `CallToolResult.isError=true` 是 Tool 业务失败，不把健康 session 标为 failed；transport、EOF、进程退出和协议损坏才标记 failed。
-- 当前 run 已冻结的 catalog 可以把一次 transport failure 作为 observation 回喂模型；之后的新 run 若发现任一已配置 Server 处于 failed，必须在模型调用前明确失败并提示重启，不能用旧 schema 假装健康或悄悄降级成部分 catalog。
+- 当前 run 已冻结的 catalog 可以把一次 transport failure 作为 observation 回喂模型；之后的新 run 从 catalog 移除已淘汰 Server，继续使用其他健康 MCP Server 与内置 Tool。全部 MCP Server 都失效时使用纯内置 catalog，不用旧 schema 假装健康。
 - 当前 run 内再次选择同一 failed Server 时只返回有界 `TOOL_FAILED`，远端调用计数不增加；仍可选择其他已健康 Server 或内置 Tool 完成本轮。
+- 单 Server owner 无法在 5 秒关闭宽限内停止，或共享事件循环/线程失败时，升级为 Runtime 级 `failed` 并全局关闭，避免遗留不确定后台请求。
 
 ## 动态名称、schema 与模型可见性
 
@@ -406,9 +407,9 @@ parse envelope
 | 模型参数不符合本地 `inputSchema` | `INVALID_ARGUMENT` | 是，走 repair |
 | `CallToolResult.isError=true` | `TOOL_FAILED`，把有界可操作文本回喂模型 | 是 |
 | owner queue 排队 timeout | `TIMEOUT` | 是；命令取消且未调用，Server 保持健康 |
-| 已开始的 MCP request timeout | `TIMEOUT` | 是；关闭并把该 Server 标为 failed |
-| EOF、进程退出、transport/protocol 错误 | `TOOL_FAILED` | 是，但该 Server 标为 failed |
-| snapshot output schema 或结果结构错误 | `TOOL_FAILED` | 是；Server 标为 failed，不把原始对象泄漏给模型 |
+| 已开始的 MCP request timeout | `TIMEOUT` | 是；只淘汰该 Server，其他 Tool 继续可用 |
+| EOF、进程退出、transport/protocol 错误 | `TOOL_FAILED` | 是；只淘汰该 Server，其他 Tool 继续可用 |
+| snapshot output schema 或结果结构错误 | `TOOL_FAILED` | 是；淘汰该 Server，不把原始对象泄漏给模型 |
 | discovery/config/initialize 失败 | run 启动错误，模型尚未调用 | 否；CLI 退出 1，Workbench 异步 job 发 error 后结束；同步 `/api/chat/turn` 按 config 400、initialize/discovery 502 返回 |
 
 所有 summary、data 和 diagnostic details 在进入 event、RunResult、模型 feedback、trace 或 session 前都经过共享实时 redaction。由于当前预算不会截断 `error.details`，MCP diagnostic details 必须在 Adapter 内先限制到 4 KiB，且不得包含环境值、Server stderr、SDK 原始 payload 或原始二进制。Adapter 的精确替换次数必须随 `McpCallResult` 传出并进入现有 redaction 审计。
@@ -540,7 +541,7 @@ parse envelope
 - 项目配置不能启动 MCP，用户配置不含明文 secret，子进程不继承无关环境；
 - 所有 MCP 调用默认确认，read-only/dry-run/never 不产生 `tools/call`；文档如实说明显式启用的 Server 仍可能为 discovery 启动；
 - native 与默认 JSON-in-text 两条真实路径均可用，不要求用户为了 MCP 被迫切换 Provider 协议；
-- timeout/崩溃不会自动重放，不会留下进程，错误能被现有 loop 安全恢复；
+- timeout/崩溃不会自动重放，不会留下进程；ready 后单 Server 故障不拖垮健康 Server 或内置 Tool，隔离无法安全完成时才升级为全局失败；
 - CLI、ChatSession、Workbench 与现有测试全部回归，前端和 Provider Interface 无破坏性变化；
 - README 如实说明外部进程拥有 OS 权限，本期没有 Marketplace、管理 UI、远程 transport 或低风险自动判定。
 
@@ -551,7 +552,7 @@ parse envelope
 | MCP Server 本身有恶意或漏洞 | 仅用户级显式配置、最小环境、每次调用审批、清晰 OS 权限提示 | 出现可信来源/安装需求后做来源、签名、版本和卸载生命周期 |
 | 大量 schema 挤占上下文 | Server/Tool/schema 硬上限，run 内冻结 | 真实 Server 经常撞上限时增加 include/exclude 配置与按需 Tool 集 |
 | description/schema prompt injection | 标记不可信、限制 description、policy 不读 annotations | 有 eval 证据后做 schema/description 更细的派生与隔离 |
-| 长驻 Server 失效 | timeout 后关闭并 fail closed，不自动重放 | 有真实可恢复需求后设计显式 reconnect 与健康状态机 |
+| 长驻 Server 失效 | ready 后只淘汰故障 Server，不自动重放；隔离失败时全局关闭 | 有真实可恢复需求后设计显式 reconnect 与健康状态机 |
 | Workbench 并发争用 | 每 Server 串行、不同 Server 独立 | 多 job 使用量证明需要时再做队列可视化或池化 |
 | 二进制结果丢失 | 只记录安全元数据 | artifact store 成为真实产品能力后接 image/audio/resource preview |
 
@@ -563,6 +564,7 @@ parse envelope
 | --- | --- | --- | --- |
 | D 盘干净 venv：`pip install -e .`、`pip check`、无 MCP 配置的 `agent doctor` | 无 Provider 调用 | editable install、依赖一致性与 doctor 通过 | home/cache/temp/venv 全在 `D:\CodexScratch`，最终统一删除 |
 | focused + full pytest | Fake、本地 fixture | `147 passed, 4 skipped`；最终全量 `767 passed, 5 skipped` | fixture close/timeout/竞态测试通过；无测试 Server 残留 |
+| Server 故障隔离增量：聚焦、开发者模式、全量 pytest 与 `agent doctor` | Fake、本地 stdio fixture | `190 passed`；symlink/junction `11 passed`、无 skip；全量 `777 passed`、无 skip；doctor 退出码 0 | pytest 临时根均位于 `D:\CodexScratch`，完成后按范围清理；无调用重放 |
 | SDK initialize → 分页 list → call → close | 官方 MCP SDK 1.28.1 + 本地 fixture | 发现 `echo` / `upper`，调用 `echo` 成功 | fixture PID 210524 已退出 |
 | `agent provider smoke openai-compat` | 本地确定性 `openai-compat/local-scripted` | 通过；请求未带 Authorization，不使用用户凭据或付费 endpoint | 本地 HTTP Server 验收结束后关闭 |
 | `agent run`，`native_tools=true` | 本地确定性 `openai-compat/local-scripted` | 模型选 MCP → CLI 批准 → call/result → done | fixture PID 191180 已退出 |

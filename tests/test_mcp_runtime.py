@@ -147,6 +147,30 @@ def _runtime(
     )
 
 
+def _runtime_with_servers(
+    tmp_path: Path,
+    servers: dict[str, tuple[str, tuple[str, ...]]],
+) -> McpStdioRuntime:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir(parents=True)
+    sections = []
+    for server_id, (mode, extra_args) in servers.items():
+        args = [str(_STDIO_FIXTURE), "--mode", mode, *extra_args]
+        sections.append(
+            f"[servers.{server_id}]\n"
+            f"command = {_toml_string(Path(sys.executable).resolve())}\n"
+            f"args = {json.dumps(args)}\n"
+            "pass_env = []\n"
+        )
+    _write_config(home, "".join(sections))
+    return McpStdioRuntime(
+        workspace,
+        home=home,
+        environ=_safe_environment(),
+    )
+
+
 def _wait_for_file(path: Path, *, timeout: float = 2.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -1196,7 +1220,7 @@ def test_stdio_runtime_unsafe_refresh_keeps_previous_snapshot_and_session(tmp_pa
     _assert_runtime_stopped(runtime)
 
 
-def test_stdio_runtime_refresh_transport_failure_closes_runtime(tmp_path) -> None:
+def test_stdio_runtime_refresh_transport_failure_retires_server(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         mode="list-changed-crash",
@@ -1205,26 +1229,21 @@ def test_stdio_runtime_refresh_transport_failure_closes_runtime(tmp_path) -> Non
     try:
         runtime.discover_tools()
         deadline = time.monotonic() + 2
-        refresh_error: McpRuntimeError | None = None
         while time.monotonic() < deadline:
-            try:
-                runtime.discover_tools()
-            except McpRuntimeError as exc:
-                refresh_error = exc
+            if runtime.discover_tools() == ():
                 break
             time.sleep(0.01)
+        else:
+            raise AssertionError("failed Server was not removed from the Runtime snapshot")
 
-        assert refresh_error is not None
-        assert refresh_error.stage == "discovery"
-        assert runtime._state == "failed"
-        _assert_runtime_stopped(runtime)
-        with pytest.raises(McpRuntimeError):
-            runtime.discover_tools()
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
     finally:
         runtime.close()
+    _assert_runtime_stopped(runtime)
 
 
-def test_stdio_runtime_idle_server_exit_invalidates_ready_snapshot(tmp_path) -> None:
+def test_stdio_runtime_idle_server_exit_retires_only_server(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         mode="idle-crash",
@@ -1232,12 +1251,47 @@ def test_stdio_runtime_idle_server_exit_invalidates_ready_snapshot(tmp_path) -> 
     )
     try:
         assert runtime.discover_tools()
-        assert runtime._loop_finished.wait(timeout=2)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if runtime.discover_tools() == ():
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("failed Server was not removed from the Runtime snapshot")
 
-        with pytest.raises(McpRuntimeError) as exc_info:
-            runtime.discover_tools()
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
+    finally:
+        runtime.close()
+    _assert_runtime_stopped(runtime)
 
-        assert exc_info.value.stage == "discovery"
+
+def test_stdio_runtime_idle_server_exit_keeps_healthy_server_available(tmp_path) -> None:
+    runtime = _runtime_with_servers(
+        tmp_path,
+        {
+            "unstable": ("idle-crash", ("--notify-delay", "0.03")),
+            "healthy": ("default", ()),
+        },
+    )
+    definitions = {definition.target.server_id: definition.target for definition in runtime.discover_tools()}
+    try:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            snapshot = runtime.discover_tools()
+            if {definition.target.server_id for definition in snapshot} == {"healthy"}:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("failed Server was not removed from the Runtime snapshot")
+
+        healthy = runtime.call_tool(definitions["healthy"], {"message": "ok"}, timeout_seconds=1.0)
+        failed_fast = runtime.call_tool(definitions["unstable"], {"message": "must-not-run"})
+
+        assert healthy.status == "ok"
+        assert failed_fast.status == "failed"
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
     finally:
         runtime.close()
     _assert_runtime_stopped(runtime)
@@ -1485,37 +1539,31 @@ def test_stdio_runtime_keyboard_interrupt_during_initial_wait_fails_closed(
     runtime.close()
 
 
-@pytest.mark.parametrize("failure", ["owner", "loop"])
-def test_stdio_runtime_ready_session_failure_is_sticky(
+def test_stdio_runtime_loop_failure_is_sticky(
     tmp_path,
     monkeypatch,
-    failure: str,
 ) -> None:
     runtime = _runtime(tmp_path)
-    if failure == "loop":
-        original_loop_main = runtime._loop_main
+    original_loop_main = runtime._loop_main
 
-        async def failing_loop_main(starts) -> None:
-            await original_loop_main(starts)
-            raise RuntimeError("simulated loop failure")
+    async def failing_loop_main(starts) -> None:
+        await original_loop_main(starts)
+        raise RuntimeError("simulated loop failure")
 
-        monkeypatch.setattr(runtime, "_loop_main", failing_loop_main)
-        monkeypatch.setattr(runtime, "_owner_finished", lambda _server_id: None)
+    monkeypatch.setattr(runtime, "_loop_main", failing_loop_main)
+    monkeypatch.setattr(runtime, "_owner_finished", lambda _server_id: None)
 
     try:
         assert runtime.discover_tools()
         assert runtime._loop is not None
-        if failure == "owner":
-            runtime._loop.call_soon_threadsafe(runtime._owners["local"].cancel)
-        else:
-            assert runtime._stop_event is not None
-            runtime._loop.call_soon_threadsafe(runtime._stop_event.set)
+        assert runtime._stop_event is not None
+        runtime._loop.call_soon_threadsafe(runtime._stop_event.set)
 
         assert runtime._loop_finished.wait(timeout=1)
         with pytest.raises(McpRuntimeError) as exc_info:
             runtime.discover_tools()
 
-        assert exc_info.value.stage == ("discovery" if failure == "owner" else "initialize")
+        assert exc_info.value.stage == "initialize"
     finally:
         runtime.close()
     _assert_runtime_stopped(runtime)
@@ -1614,7 +1662,7 @@ def test_stdio_runtime_processes_graceful_close_before_requesting_loop_stop(
     runtime.close()
 
 
-def test_stdio_runtime_session_receive_failure_invalidates_ready_snapshot(tmp_path) -> None:
+def test_stdio_runtime_session_receive_failure_retires_server(tmp_path) -> None:
     runtime = _runtime(
         tmp_path,
         mode="malformed-after-list",
@@ -1622,20 +1670,23 @@ def test_stdio_runtime_session_receive_failure_invalidates_ready_snapshot(tmp_pa
     )
     try:
         assert runtime.discover_tools()
-        assert runtime._loop_finished.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if runtime.discover_tools() == ():
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("failed Server was not removed from the Runtime snapshot")
 
-        with pytest.raises(McpRuntimeError) as exc_info:
-            runtime.discover_tools()
-
-        assert exc_info.value.stage == "discovery"
-        assert runtime._state == "failed"
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
     finally:
         runtime.close()
     _assert_runtime_stopped(runtime)
 
 
 @pytest.mark.parametrize("safety_failure", [False, True])
-def test_stdio_runtime_refresh_rejects_result_if_owner_ended(
+def test_stdio_runtime_refresh_discards_result_if_owner_ended(
     tmp_path,
     monkeypatch,
     safety_failure: bool,
@@ -1659,14 +1710,10 @@ def test_stdio_runtime_refresh_rejects_result_if_owner_ended(
 
         monkeypatch.setattr(runtime, "_dispatch_discovery", finish_after_owner_ended)
 
-        with pytest.raises(McpRuntimeError) as exc_info:
-            runtime.discover_tools()
-
-        assert exc_info.value.stage == "discovery"
-        assert runtime._state == "failed"
-        assert runtime._loop_finished.wait(timeout=2)
-        with pytest.raises(McpRuntimeError):
-            runtime.discover_tools()
+        assert runtime.discover_tools() == ()
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
+        assert runtime.discover_tools() == ()
     finally:
         runtime.close()
     _assert_runtime_stopped(runtime)
@@ -1734,6 +1781,18 @@ def test_stdio_runtime_reloads_entire_failed_refresh_batch_after_new_notificatio
     assert runtime.discover_tools() == ()
     assert dispatches[-1] == ("alpha", "beta")
     assert runtime._refresh_error is None
+
+    with runtime._condition:
+        runtime._retire_server_locked("beta")
+        runtime._refresh_error = McpRuntimeError(
+            stage="discovery",
+            server_id="alpha",
+            message="Simulated retry.",
+        )
+    runtime._mark_dirty("alpha")
+
+    assert runtime.discover_tools() == ()
+    assert dispatches[-1] == ("alpha",)
     runtime.close()
 
 
@@ -1854,6 +1913,29 @@ def test_stdio_runtime_close_timeout_does_not_claim_closed_and_can_retry(tmp_pat
     assert runtime._state == "closed"
 
 
+def test_stdio_runtime_server_cancel_timeout_escalates_to_runtime_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    runtime = McpStdioRuntime(
+        tmp_path / "workspace",
+        home=tmp_path / "home",
+        environ=_safe_environment(),
+    )
+    runtime._state = "ready"
+    closed = []
+    monkeypatch.setattr(runtime, "_cancel_server", lambda _server_id: False)
+    monkeypatch.setattr(runtime, "_close_transport", lambda: closed.append(True))
+
+    runtime._fail_running_call("slow")
+
+    assert runtime._state == "failed"
+    assert runtime._failure is not None
+    assert runtime._failure.stage == "runtime"
+    assert closed == [True]
+    runtime.close()
+
+
 @pytest.mark.parametrize("phase", ["initial", "refresh"])
 def test_stdio_runtime_cleanup_timeout_does_not_leave_discovery_waiters_blocked(
     tmp_path,
@@ -1881,6 +1963,7 @@ def test_stdio_runtime_cleanup_timeout_does_not_leave_discovery_waiters_blocked(
     else:
         runtime._state = "ready"
         runtime._refreshing = True
+        monkeypatch.setattr(runtime, "_cancel_server", lambda _server_id: False)
 
         def fail_dispatch(_server_ids, *, initial: bool):
             raise discovery_error
@@ -2020,8 +2103,16 @@ def test_stdio_runtime_output_validation_failure_poison_server_without_leaking_d
     target = runtime.discover_tools()[0].target
     try:
         result = runtime.call_tool(target, {"message": "invalid-output"})
-        _wait_for_runtime_state(runtime, "failed")
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if runtime.discover_tools() == ():
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("failed Server was not removed from the Runtime snapshot")
         failed_fast = runtime.call_tool(target, {"message": "must-not-run"})
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
     finally:
         runtime.close()
 
@@ -2088,6 +2179,40 @@ def test_stdio_runtime_request_timeout_closes_server_and_never_retries(tmp_path)
     _assert_runtime_stopped(runtime)
 
 
+def test_stdio_runtime_request_timeout_keeps_healthy_server_available(tmp_path) -> None:
+    call_file = tmp_path / "calls.txt"
+    runtime = _runtime_with_servers(
+        tmp_path,
+        {
+            "slow": ("call-delay", ("--delay", "0.5", "--call-file", str(call_file))),
+            "healthy": ("default", ()),
+        },
+    )
+    definitions = {definition.target.server_id: definition.target for definition in runtime.discover_tools()}
+    try:
+        timed_out = runtime.call_tool(
+            definitions["slow"],
+            {"message": "slow"},
+            timeout_seconds=0.05,
+        )
+        healthy = runtime.call_tool(
+            definitions["healthy"],
+            {"message": "ok"},
+            timeout_seconds=1.0,
+        )
+        failed_fast = runtime.call_tool(definitions["slow"], {"message": "must-not-run"})
+        remaining = runtime.discover_tools()
+    finally:
+        runtime.close()
+
+    assert timed_out.status == "timeout"
+    assert healthy.status == "ok"
+    assert failed_fast.status == "failed"
+    assert {definition.target.server_id for definition in remaining} == {"healthy"}
+    assert len(call_file.read_text(encoding="utf-8").splitlines()) == 1
+    _assert_runtime_stopped(runtime)
+
+
 def test_stdio_runtime_transport_failure_does_not_retry(tmp_path) -> None:
     call_file = tmp_path / "calls.txt"
     runtime = _runtime(
@@ -2098,8 +2223,16 @@ def test_stdio_runtime_transport_failure_does_not_retry(tmp_path) -> None:
     target = runtime.discover_tools()[0].target
     try:
         result = runtime.call_tool(target, {"message": "crash"})
-        _wait_for_runtime_state(runtime, "failed")
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if runtime.discover_tools() == ():
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("failed Server was not removed from the Runtime snapshot")
         failed_fast = runtime.call_tool(target, {"message": "must-not-run"})
+        assert runtime._state == "ready"
+        assert runtime._thread is not None and runtime._thread.is_alive()
     finally:
         runtime.close()
 

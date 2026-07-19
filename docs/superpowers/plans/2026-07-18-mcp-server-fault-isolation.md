@@ -1,7 +1,7 @@
 # 计划：MCP Server 故障隔离与空参数兼容
 
 - 日期：2026-07-18
-- 状态：已审查，待执行
+- 状态：已执行（全部 Task 与门禁完成）
 - 设计：[2026-07-18-mcp-server-fault-isolation-design.md](../specs/2026-07-18-mcp-server-fault-isolation-design.md)
 - Implementation base：`50a7b0870f4dc21a74c79b5e78b1fae38894f101`
 
@@ -84,3 +84,9 @@ git diff --check
 2. `fix: isolate failed MCP servers`
 
 完成后把本 spec/plan 状态更新为“已实施/已执行”，再做最终差异审查和干净工作区检查。
+
+## 执行结果
+
+- Task 1-3 已按设计完成，没有新增依赖、公开配置或重连状态机。
+- 聚焦门禁 `190 passed`；Windows 开发者模式相关用例 `11 passed`、无 skip；全量门禁 `777 passed`、无 skip。
+- `python -m agent.cli doctor` 与 `git diff --check` 通过；非项目测试产物只写入 `D:\CodexScratch` 并在提交前清理。

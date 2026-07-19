@@ -98,7 +98,13 @@ Configuration is snapshotted for the lifetime of the CLI/Workbench process;
 restart it after editing `mcp.toml`. Configuration errors fail before server
 startup, while initialize or discovery failures stop the run/chat job before a
 model call and close processes already started by that Runtime. This first
-slice supports local stdio Tools only: there is no remote transport,
+catalog remains all-or-nothing. After the Runtime is ready, a request timeout,
+EOF, process exit, or transport/protocol failure retires only the affected
+server; healthy servers and built-in Tools remain available. Calls are never
+replayed, reconnected, or restarted automatically. Failure to stop one owner
+within the close grace period, or failure of the shared Runtime loop, still
+closes the whole Runtime. This first slice supports local stdio Tools only:
+there is no remote transport,
 Marketplace, management UI, automatic reconnect, or install/update lifecycle.
 `agent tools list` intentionally remains a built-in-only inventory and does
 not start configured MCP servers.

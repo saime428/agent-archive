@@ -1,7 +1,7 @@
 # 设计：MCP Server 故障隔离与空参数兼容
 
 - 日期：2026-07-18
-- 状态：已确认，待实施
+- 状态：已实施（聚焦、开发者模式与全量门禁通过）
 - 实施计划：[2026-07-18-mcp-server-fault-isolation.md](../plans/2026-07-18-mcp-server-fault-isolation.md)
 - 上位设计：[stdio MCP 动态工具集成](2026-07-17-stdio-mcp-dynamic-tools-design.md)
 
@@ -72,3 +72,11 @@ new -> starting -> ready -> closing -> closed
 - 同步与流式 OpenAI-compatible 路径都把空参数归一化为 `{}`；非空畸形 JSON 仍进入 repair。
 - Windows 开发者模式相关 symlink/junction 用例全部实际运行，不再跳过。
 - 聚焦测试与全量 pytest 通过，工作区无测试进程残留。
+
+## 实施与验收证据
+
+- 双 Server fixture 覆盖 request timeout 与 owner 退出：故障 Server 被移除，健康 Server 仍可调用，旧 Target 快速失败且远端调用不重放。
+- 单 Server refresh、EOF、transport/protocol、output validation 与全部 Server 失效路径保持 `ready` 并发布剩余或空 MCP 快照；共享 loop 与隔离清理失败仍升级为 Runtime 失败。
+- 同步及流式 OpenAI-compatible 路径都把空白 `arguments` 归一化为 `{}`，原有畸形非空 JSON repair 用例继续通过。
+- 聚焦门禁：`190 passed`；Windows 开发者模式相关用例：`11 passed`、无 skip；全量门禁：`777 passed`、无 skip。
+- `python -m agent.cli doctor` 退出码为 0；所有 pytest `basetemp` 位于 `D:\CodexScratch`，验收后按范围清理。

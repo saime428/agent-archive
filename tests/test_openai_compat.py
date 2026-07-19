@@ -171,6 +171,19 @@ def test_chat_tools_returns_raw_string_for_invalid_arguments_json() -> None:
     assert result == '{"final": broken'
 
 
+@pytest.mark.parametrize("arguments", ["", " \t\r\n"])
+def test_chat_tools_treats_blank_arguments_as_empty_object(arguments: str) -> None:
+    transport = RecordingTransport(_tools_response(_done_tool_call(arguments)))
+    client = OpenAICompatClient(api_key="", model="m", base_url="http://localhost:11434/v1", transport=transport)
+
+    result = client.chat_tools([{"role": "user", "content": "hi"}], TOOLS)
+
+    assert result == {
+        "message": "Finishing.",
+        "action": {"name": "done", "args": {}},
+    }
+
+
 def test_chat_tools_invalid_first_call_with_extra_call_keeps_raw_repair_input() -> None:
     invalid_arguments = '{"final": broken'
     message_obj = {
@@ -268,6 +281,24 @@ def test_stream_chat_tools_without_tool_call_returns_actionless_envelope() -> No
     _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
 
     assert envelope == {"message": "no tools here"}
+
+
+def test_stream_chat_tools_treats_empty_arguments_as_empty_object() -> None:
+    events = [
+        json.dumps(
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "done", "arguments": ""}}]}}]}
+        )
+    ]
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url="http://localhost:11434/v1",
+        stream_transport=lambda url, headers, body, timeout: iter(_sse(events)),
+    )
+
+    _chunks, envelope = _drive(client.stream_chat_tools([{"role": "user", "content": "hi"}], TOOLS))
+
+    assert envelope == {"message": "", "action": {"name": "done", "args": {}}}
 
 
 def test_stream_chat_tools_ignores_non_zero_indexes() -> None:

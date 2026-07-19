@@ -1156,13 +1156,15 @@ class McpStdioRuntime:
                     captured = {
                         config.server_id: self._dirty_generation.get(config.server_id, 0)
                         for config in self._configs
-                        if self._dirty_generation.get(config.server_id, 0)
+                        if config.server_id not in self._dead_servers
+                        and self._dirty_generation.get(config.server_id, 0)
                         > self._published_generation.get(config.server_id, 0)
                     }
                     if captured and self._refresh_error is not None:
                         captured = {
                             config.server_id: self._dirty_generation.get(config.server_id, 0)
                             for config in self._configs
+                            if config.server_id not in self._dead_servers
                         }
                     if captured:
                         self._refreshing = True
@@ -1272,11 +1274,50 @@ class McpStdioRuntime:
         return result
 
     def _fail_running_call(self, server_id: str) -> None:
-        error = McpRuntimeError(
-            stage="call",
-            server_id=server_id,
-            message="The MCP tool request timed out.",
-        )
+        self._isolate_server(server_id)
+
+    def _retire_server_locked(self, server_id: str) -> None:
+        self._dead_servers.add(server_id)
+        self._server_snapshots.pop(server_id, None)
+        self._snapshot = self._combine_snapshots(self._server_snapshots)
+        self._known_targets = {
+            target for target in self._known_targets if target.server_id != server_id
+        }
+        self._dirty_generation.pop(server_id, None)
+        self._published_generation.pop(server_id, None)
+        if self._refresh_error is not None and self._refresh_error.server_id == server_id:
+            self._refresh_error = None
+
+    def _cancel_server(self, server_id: str) -> bool:
+        loop = self._loop
+        if loop is None:
+            return True
+        finished = threading.Event()
+
+        def cancel() -> None:
+            owner = self._owners.get(server_id)
+            if owner is None or owner.done():
+                finished.set()
+                return
+            owner.add_done_callback(lambda _task: finished.set())
+            owner.cancel()
+
+        try:
+            loop.call_soon_threadsafe(cancel)
+        except RuntimeError:
+            return False
+        return finished.wait(_CLOSE_TIMEOUT_SECONDS)
+
+    def _isolate_server(self, server_id: str) -> bool:
+        with self._condition:
+            if self._state != "ready":
+                return False
+            self._retire_server_locked(server_id)
+            self._condition.notify_all()
+        if self._cancel_server(server_id):
+            return True
+
+        error = _transport_cleanup_error()
         with self._condition:
             if self._state == "ready":
                 self._state = "failed"
@@ -1287,6 +1328,7 @@ class McpStdioRuntime:
             self._close_transport()
         except McpRuntimeError:
             pass
+        return False
 
     def _abort_discovery(self) -> None:
         error = McpRuntimeError(
@@ -1444,19 +1486,20 @@ class McpStdioRuntime:
                 message=exc.safe_message,
             )
             close_transport = False
+            final_snapshot: tuple[McpToolDefinition, ...] | None = None
+            final_error: McpRuntimeError | None
             with self._condition:
-                dead_server = self._ended_server_locked()
-                if self._state == "ready" and dead_server is None:
-                    for server_id, generation in captured.items():
-                        self._published_generation[server_id] = generation
-                    self._refresh_error = _runtime_error_copy(error)
-                    final_error = error
-                elif self._state == "ready":
-                    assert dead_server is not None
-                    final_error = _session_ended_error(dead_server)
-                    self._state = "failed"
-                    self._failure = _runtime_error_copy(final_error)
-                    close_transport = True
+                if self._state == "ready":
+                    ended_servers = self._retire_ended_servers_locked()
+                    if exc.server_id in ended_servers:
+                        final_snapshot = self._snapshot
+                        final_error = None
+                    else:
+                        for server_id, generation in captured.items():
+                            if server_id not in self._dead_servers:
+                                self._published_generation[server_id] = generation
+                        self._refresh_error = _runtime_error_copy(error)
+                        final_error = error
                 elif self._state == "failed" and self._failure is not None:
                     final_error = _runtime_error_copy(self._failure)
                     close_transport = True
@@ -1466,8 +1509,17 @@ class McpStdioRuntime:
                 self._condition.notify_all()
             if close_transport:
                 self._close_transport()
-            raise _runtime_error_copy(final_error)
+            if final_error is not None:
+                raise _runtime_error_copy(final_error)
+            assert final_snapshot is not None
+            return final_snapshot
         except McpRuntimeError as exc:
+            if exc.server_id is not None and self._isolate_server(exc.server_id):
+                with self._condition:
+                    if self._state == "ready":
+                        self._refreshing = False
+                        self._condition.notify_all()
+                        return self._snapshot
             with self._condition:
                 if self._state == "ready":
                     self._state = "failed"
@@ -1482,28 +1534,30 @@ class McpStdioRuntime:
             self._close_transport()
             raise _runtime_error_copy(final_error)
 
-        snapshots = dict(self._server_snapshots)
-        snapshots.update(discovered)
-        snapshot = self._combine_snapshots(snapshots)
         final_error: McpRuntimeError | None = None
+        snapshot: tuple[McpToolDefinition, ...] = ()
         with self._condition:
-            dead_server = self._ended_server_locked()
             if self._state != "ready":
                 final_error = (
                     _runtime_error_copy(self._failure)
                     if self._state == "failed" and self._failure is not None
                     else self._closed_error()
                 )
-            elif dead_server is not None:
-                final_error = _session_ended_error(dead_server)
-                self._state = "failed"
-                self._failure = _runtime_error_copy(final_error)
             else:
-                self._server_snapshots = snapshots
+                self._retire_ended_servers_locked()
+                self._server_snapshots.update(
+                    {
+                        server_id: definitions
+                        for server_id, definitions in discovered.items()
+                        if server_id not in self._dead_servers
+                    }
+                )
+                snapshot = self._combine_snapshots(self._server_snapshots)
                 self._snapshot = snapshot
                 self._known_targets.update(definition.target for definition in snapshot)
                 for server_id, generation in captured.items():
-                    self._published_generation[server_id] = generation
+                    if server_id not in self._dead_servers:
+                        self._published_generation[server_id] = generation
                 self._refresh_error = None
             self._refreshing = False
             self._condition.notify_all()
@@ -1523,10 +1577,19 @@ class McpStdioRuntime:
         )
 
     def _ended_server_locked(self) -> str | None:
-        ended_servers = self._dead_servers | {
+        ended_servers = self._ended_servers_locked()
+        return min(ended_servers) if ended_servers else None
+
+    def _ended_servers_locked(self) -> set[str]:
+        return self._dead_servers | {
             server_id for server_id, owner in self._owners.items() if owner.done()
         }
-        return min(ended_servers) if ended_servers else None
+
+    def _retire_ended_servers_locked(self) -> set[str]:
+        ended_servers = self._ended_servers_locked()
+        for server_id in ended_servers:
+            self._retire_server_locked(server_id)
+        return ended_servers
 
     def _start_loop(self, starts: tuple[_ServerStart, ...]) -> bool:
         with self._transport_lock:
@@ -1615,14 +1678,11 @@ class McpStdioRuntime:
                 logger.removeFilter(log_filter)
     def _owner_finished(self, server_id: str) -> None:
         with self._condition:
-            self._dead_servers.add(server_id)
-            if self._state != "ready" or self._refreshing:
-                return
-            self._state = "failed"
-            self._failure = _session_ended_error(server_id)
+            if self._state == "ready":
+                self._retire_server_locked(server_id)
+            else:
+                self._dead_servers.add(server_id)
             self._condition.notify_all()
-        if self._stop_event is not None:
-            self._stop_event.set()
 
     @staticmethod
     async def _wait_for_session_end(read_stream: Any, write_stream: Any) -> None:
@@ -1939,7 +1999,7 @@ class McpStdioRuntime:
 
     def _mark_dirty(self, server_id: str) -> None:
         with self._condition:
-            if self._state in {"starting", "ready"}:
+            if self._state in {"starting", "ready"} and server_id not in self._dead_servers:
                 self._dirty_generation[server_id] = self._dirty_generation.get(server_id, 0) + 1
                 self._condition.notify_all()
 

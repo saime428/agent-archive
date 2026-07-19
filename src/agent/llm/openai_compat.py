@@ -533,7 +533,7 @@ def _envelope_from_tool_message(
     if not isinstance(name, str) or not isinstance(arguments, str):
         return {"message": message_text}
     try:
-        args = json.loads(arguments)
+        args = json.loads(arguments if arguments.strip() else "{}")
     except json.JSONDecodeError:
         return arguments
     if not isinstance(args, dict):
