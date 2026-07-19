@@ -9,3 +9,8 @@ pytest-tmp/
 .agent/pytest-tmp/
 .agent/*.log
 .agent/secrets.env
+.codex/
+.superpowers/
+docs/main.pdf
+else/
+pytest-*.txt
