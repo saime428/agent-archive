@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from agent.core.actions import (
     ActionParseError,
@@ -11,6 +13,8 @@ from agent.core.actions import (
     make_observation,
     parse_model_action,
 )
+from agent.core.tool_catalog import build_tool_catalog
+from agent.mcp_runtime import McpToolDefinition, McpToolTarget
 
 
 CREATED_AT = datetime(2026, 6, 6, 12, 0, 0, tzinfo=timezone.utc)
@@ -129,6 +133,46 @@ def test_parse_model_action_rejects_extra_fields() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
+def test_parse_model_action_accepts_read_file_file_path_alias() -> None:
+    action = parse_model_action(
+        {
+            "message": "Read file.",
+            "action": {
+                "name": "read_file",
+                "args": {"file_path": "pyproject.toml"},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "read_file"
+    assert action.action.args == {"path": "pyproject.toml", "start_line": None, "max_lines": None}
+
+
+def test_parse_model_action_accepts_minimal_ask_user_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Ask.",
+            "action": {
+                "name": "ask_user",
+                "args": {"question": "Please describe the task."},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "ask_user"
+    assert action.action.args == {
+        "question": "Please describe the task.",
+        "options": [],
+        "reason": "The model requested more information.",
+    }
+
+
 def test_parse_model_action_accepts_search_files_args() -> None:
     action = parse_model_action(
         {
@@ -145,6 +189,24 @@ def test_parse_model_action_accepts_search_files_args() -> None:
 
     assert action.action.name == "search_files"
     assert action.action.args == {"query": "*.py", "path": ".", "max_matches": 10}
+
+
+def test_parse_model_action_accepts_web_search_args() -> None:
+    action = parse_model_action(
+        {
+            "message": "Search web.",
+            "action": {
+                "name": "web_search",
+                "args": {"query": "codex news", "max_results": 3},
+            },
+        },
+        run_id="run_123",
+        action_index=1,
+        created_at=CREATED_AT,
+    )
+
+    assert action.action.name == "web_search"
+    assert action.action.args == {"query": "codex news", "max_results": 3}
 
 
 def test_parse_model_action_rejects_extra_search_files_args() -> None:
@@ -896,53 +958,83 @@ def test_parse_model_action_rejects_extra_git_diff_args() -> None:
     assert exc_info.value.code == ErrorCode.INVALID_ARGUMENT
 
 
-def test_make_observation_matches_action_ids() -> None:
+
+def _dynamic_tool_catalog():
+    schema = {
+        "type": "object",
+        "properties": {"message": {"type": "string"}},
+        "required": ["message"],
+        "additionalProperties": False,
+    }
+    runtime_definition = McpToolDefinition(
+        exposed_name="mcp__local__echo",
+        target=McpToolTarget(
+            server_id="local",
+            remote_name="echo",
+            snapshot_contract=SimpleNamespace(output_validator=None),
+        ),
+        description="Echo a message.",
+        input_schema=dict(schema),
+        output_schema=None,
+        input_validator=Draft202012Validator(dict(schema)),
+    )
+    return build_tool_catalog((runtime_definition,))
+
+
+def test_parse_model_action_accepts_dynamic_catalog_tool() -> None:
     action = parse_model_action(
         {
-            "message": "Ask.",
+            "message": "Call echo.",
             "action": {
-                "name": "ask_user",
-                "args": {
-                    "question": "Proceed?",
-                    "options": ["yes", "no"],
-                    "reason": "Need confirmation.",
-                },
+                "name": "mcp__local__echo",
+                "args": {"message": "hello"},
             },
         },
-        run_id="run_123",
-        action_index=2,
+        run_id="run_dynamic",
+        action_index=1,
         created_at=CREATED_AT,
+        tool_catalog=_dynamic_tool_catalog(),
     )
 
-    observation = make_observation(
-        action,
-        observation_index=3,
-        summary="Asked user.",
-        data={"question": "Proceed?"},
-    )
-
-    assert observation.protocol_version == "agent-observation-v1"
-    assert observation.run_id == "run_123"
-    assert observation.action_id == "act_000002"
-    assert observation.observation_id == "obs_000003"
-    assert observation.status == "ok"
-    assert observation.error is None
-    assert observation.data == {"question": "Proceed?"}
+    assert action.action.name == "mcp__local__echo"
+    assert action.action.args == {"message": "hello"}
 
 
-def test_make_error_observation_uses_standard_error_shape() -> None:
-    observation = make_error_observation(
-        "act_000004",
-        "run_123",
-        observation_index=5,
-        code=ErrorCode.UNKNOWN_TOOL,
-        message="Unknown tool.",
-        details={"tool": "future_tool"},
-    )
+@pytest.mark.parametrize(
+    "args, expected_code",
+    [
+        ({}, ErrorCode.MISSING_REQUIRED_FIELD),
+        ({"message": 1}, ErrorCode.INVALID_ARGUMENT),
+        ({"message": "ok", "extra": True}, ErrorCode.INVALID_ARGUMENT),
+    ],
+)
+def test_parse_model_action_rejects_invalid_dynamic_args(args, expected_code) -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Call echo.",
+                "action": {"name": "mcp__local__echo", "args": args},
+            },
+            run_id="run_dynamic",
+            action_index=1,
+            created_at=CREATED_AT,
+            tool_catalog=_dynamic_tool_catalog(),
+        )
 
-    assert observation.status == "error"
-    assert observation.error is not None
-    assert observation.error.code == ErrorCode.UNKNOWN_TOOL
-    assert observation.error.message == "Unknown tool."
-    assert observation.error.details == {"tool": "future_tool"}
-    assert observation.summary == "Unknown tool."
+    assert exc_info.value.code == expected_code
+
+
+def test_parse_model_action_rejects_dynamic_tool_absent_from_catalog() -> None:
+    with pytest.raises(ActionParseError) as exc_info:
+        parse_model_action(
+            {
+                "message": "Call unknown.",
+                "action": {"name": "mcp__local__missing", "args": {}},
+            },
+            run_id="run_dynamic",
+            action_index=1,
+            created_at=CREATED_AT,
+            tool_catalog=_dynamic_tool_catalog(),
+        )
+
+    assert exc_info.value.code == ErrorCode.UNKNOWN_TOOL

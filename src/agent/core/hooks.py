@@ -16,6 +16,7 @@ class HookRecord:
     hook: str
     status: str
     created_at: str
+    payload: dict[str, Any] | None = None
     error: str | None = None
 
 
@@ -38,15 +39,17 @@ def run_hooks(
     records: list[HookRecord] = []
     blocking_error = None
     for hook_name in enabled_hooks:
+        if hook_name == "before_tool_format" and event != "after_tool":
+            continue
         handler = BUILTIN_HOOKS.get(hook_name)
         if handler is None:
             record = HookRecord(event=event, hook=hook_name, status="error", created_at=_now(), error="Unknown hook.")
         else:
             try:
                 handler(payload)
-                record = HookRecord(event=event, hook=hook_name, status="ok", created_at=_now())
+                record = HookRecord(event=event, hook=hook_name, status="ok", created_at=_now(), payload=dict(payload))
             except Exception as exc:  # noqa: BLE001 - hook failures are isolated and logged.
-                record = HookRecord(event=event, hook=hook_name, status="error", created_at=_now(), error=str(exc))
+                record = HookRecord(event=event, hook=hook_name, status="error", created_at=_now(), payload=dict(payload), error=str(exc))
         records.append(record)
         if record.status == "error" and hook_name in blocking_hooks and blocking_error is None:
             blocking_error = f"Blocking hook failed: {hook_name}: {record.error}"
@@ -64,6 +67,7 @@ def _fail_hook(payload: dict[str, Any]) -> None:
 
 BUILTIN_HOOKS: dict[str, HookHandler] = {
     "audit": _audit_hook,
+    "before_tool_format": _audit_hook,
     "fail": _fail_hook,
 }
 

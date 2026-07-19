@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from agent.core.tool_catalog import ToolCatalog
 
 
 ACTION_PROTOCOL_VERSION = "agent-action-v1"
@@ -26,6 +29,16 @@ class ErrorCode(StrEnum):
     TIMEOUT = "TIMEOUT"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
+
+RECOVERABLE_ERROR_CODES: frozenset[ErrorCode] = frozenset(
+    {
+        ErrorCode.TOOL_FAILED,
+        ErrorCode.TIMEOUT,
+        ErrorCode.SANDBOX_VIOLATION,
+        ErrorCode.INVALID_ARGUMENT,
+        ErrorCode.POLICY_DENIED,
+    }
+)
 
 class ActionParseError(ValueError):
     def __init__(
@@ -52,8 +65,8 @@ class DoneArgs(StrictModel):
 
 class AskUserArgs(StrictModel):
     question: str
-    options: list[str]
-    reason: str
+    options: list[str] = Field(default_factory=list)
+    reason: str = "The model requested more information."
 
 
 class ListDirArgs(StrictModel):
@@ -71,6 +84,25 @@ class SearchFilesArgs(StrictModel):
     query: str
     path: str | None = None
     max_matches: int | None = None
+
+
+class WebSearchArgs(StrictModel):
+    query: str
+    max_results: int | None = None
+
+    @field_validator("query")
+    @classmethod
+    def _reject_empty_query(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("query must not be empty.")
+        return value
+
+    @field_validator("max_results")
+    @classmethod
+    def _reject_invalid_max_results(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_results must be positive.")
+        return value
 
 
 class WriteFileArgs(StrictModel):
@@ -256,6 +288,7 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "list_dir": ListDirArgs,
     "read_file": ReadFileArgs,
     "search_files": SearchFilesArgs,
+    "web_search": WebSearchArgs,
     "write_file": WriteFileArgs,
     "apply_patch": ApplyPatchArgs,
     "run_command": RunCommandArgs,
@@ -266,6 +299,13 @@ ARGS_MODELS: dict[str, type[StrictModel]] = {
     "read_xlsx": ReadXlsxArgs,
     "read_pptx": ReadPptxArgs,
     "write_markdown_report": WriteMarkdownReportArgs,
+}
+ARG_ALIASES: dict[str, dict[str, str]] = {
+    "read_file": {"file_path": "path"},
+    "read_pdf": {"file_path": "path"},
+    "read_docx": {"file_path": "path"},
+    "read_xlsx": {"file_path": "path"},
+    "read_pptx": {"file_path": "path"},
 }
 
 TRUSTED_TOP_LEVEL_KEYS = {"message", "action"}
@@ -315,7 +355,10 @@ def parse_model_action(
     run_id: str,
     action_index: int,
     created_at: datetime,
+    tool_catalog: ToolCatalog | None = None,
 ) -> InternalAction:
+    from agent.core.tool_catalog import ToolArgumentError, builtin_tool_catalog
+
     raw_obj = _load_raw_action(raw)
     _validate_top_level_shape(raw_obj)
 
@@ -323,18 +366,27 @@ def parse_model_action(
     _validate_action_shape(action_obj)
 
     name = action_obj["name"]
-    if name not in ARGS_MODELS:
+    catalog = tool_catalog or builtin_tool_catalog()
+    definition = catalog.resolve(name)
+    if definition is None:
         raise ActionParseError(
             ErrorCode.UNKNOWN_TOOL,
             f"Unknown tool: {name}",
             {"tool": name},
         )
 
-    args = _validate_args(name, action_obj["args"])
+    try:
+        args = definition.validate_arguments(action_obj["args"])
+    except ToolArgumentError as exc:
+        raise ActionParseError(
+            ErrorCode.MISSING_REQUIRED_FIELD if exc.missing else ErrorCode.INVALID_ARGUMENT,
+            exc.message,
+            {"errors": exc.details},
+        ) from None
 
     return InternalAction(
         run_id=run_id,
-        action_id=_format_action_id(action_index),
+        action_id=format_action_id(action_index),
         created_at=created_at,
         message=raw_obj["message"],
         action=ActionCall(name=name, args=args),
@@ -457,27 +509,7 @@ def _validate_action_shape(action_obj: dict[str, Any]) -> None:
         raise ActionParseError(ErrorCode.INVALID_ARGUMENT, "Action args must be an object.")
 
 
-def _validate_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    model = ARGS_MODELS[name]
-    try:
-        parsed = model.model_validate(args)
-    except ValidationError as exc:
-        error_types = {error["type"] for error in exc.errors()}
-        code = (
-            ErrorCode.MISSING_REQUIRED_FIELD
-            if "missing" in error_types
-            else ErrorCode.INVALID_ARGUMENT
-        )
-        raise ActionParseError(
-            code,
-            f"Invalid args for action: {name}",
-            {"errors": exc.errors()},
-        ) from exc
-
-    return parsed.model_dump()
-
-
-def _format_action_id(action_index: int) -> str:
+def format_action_id(action_index: int) -> str:
     return f"act_{action_index:06d}"
 
 
@@ -487,3 +519,4 @@ def _format_observation_id(observation_index: int) -> str:
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+

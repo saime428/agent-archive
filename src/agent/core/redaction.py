@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from agent.core.actions import Observation
+
 
 REDACTED = "[REDACTED]"
 
@@ -52,6 +54,35 @@ class RedactionResult:
 
 def redact_record(record: dict[str, Any]) -> RedactionResult:
     return redact_value(record)
+
+
+def redact_observation(observation: Observation) -> RedactionResult:
+    result = redact_value(
+        {
+            "summary": observation.summary,
+            "data": observation.data,
+            "error": observation.error.model_dump(mode="python") if observation.error is not None else None,
+        }
+    )
+    value = result.value
+    error = observation.error
+    if error is not None:
+        error = error.model_copy(
+            update={
+                "message": value["error"]["message"],
+                "details": value["error"]["details"],
+            }
+        )
+    return RedactionResult(
+        observation.model_copy(
+            update={
+                "summary": value["summary"],
+                "data": value["data"],
+                "error": error,
+            }
+        ),
+        result.replacements,
+    )
 
 
 def redact_value(value: Any) -> RedactionResult:

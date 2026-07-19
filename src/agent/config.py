@@ -8,10 +8,10 @@ from typing import Any, Literal
 Mode = Literal["step", "guided", "auto", "plan-first"]
 SandboxMode = Literal["read-only", "workspace-write", "danger-full-access"]
 ApprovalMode = Literal["risky-confirm", "always", "never"]
-Provider = Literal["fake", "deepseek"]
+Provider = Literal["fake", "deepseek", "openai-compat"]
 
 VALID_VALUES = {
-    "provider": {"fake", "deepseek"},
+    "provider": {"fake", "deepseek", "openai-compat"},
     "mode": {"step", "guided", "auto", "plan-first"},
     "sandbox": {"read-only", "workspace-write", "danger-full-access"},
     "approval": {"risky-confirm", "always", "never"},
@@ -20,7 +20,10 @@ KNOWN_KEYS = {
     "provider",
     "model",
     "deepseek_api_key_env",
+    "base_url",
+    "api_key_env",
     "default_skills",
+    "allowed_commands",
     "memory_auto_write",
     "memory_max_items",
     "enabled_hooks",
@@ -29,6 +32,10 @@ KNOWN_KEYS = {
     "sandbox",
     "approval",
     "dry_run",
+    "web_search_enabled",
+    "computer_read_enabled",
+    "max_consecutive_errors",
+    "native_tools",
 }
 
 
@@ -41,7 +48,10 @@ class AgentConfig:
     provider: Provider = "fake"
     model: str = "deepseek-v4-flash"
     deepseek_api_key_env: str = "DEEPSEEK_API_KEY"
+    base_url: str = ""
+    api_key_env: str = "OPENAI_API_KEY"
     default_skills: tuple[str, ...] = ("code-dev",)
+    allowed_commands: tuple[str, ...] = ()
     memory_auto_write: bool = False
     memory_max_items: int = 5
     enabled_hooks: tuple[str, ...] = ()
@@ -50,6 +60,10 @@ class AgentConfig:
     sandbox: SandboxMode = "workspace-write"
     approval: ApprovalMode = "risky-confirm"
     dry_run: bool = False
+    web_search_enabled: bool = False
+    computer_read_enabled: bool = False
+    max_consecutive_errors: int = 3
+    native_tools: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,7 +71,10 @@ class ConfigOverrides:
     provider: Provider | None = None
     model: str | None = None
     deepseek_api_key_env: str | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
     default_skills: tuple[str, ...] | None = None
+    allowed_commands: tuple[str, ...] | None = None
     memory_auto_write: bool | None = None
     memory_max_items: int | None = None
     enabled_hooks: tuple[str, ...] | None = None
@@ -66,6 +83,10 @@ class ConfigOverrides:
     sandbox: SandboxMode | None = None
     approval: ApprovalMode | None = None
     dry_run: bool | None = None
+    web_search_enabled: bool | None = None
+    computer_read_enabled: bool | None = None
+    max_consecutive_errors: int | None = None
+    native_tools: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -151,36 +172,15 @@ def _read_config_file(path: Path) -> dict[str, Any]:
     return raw
 
 
-def _validate_value(key: str, value: Any, path: Path) -> None:
-    if key in {"dry_run", "memory_auto_write"}:
-        if not isinstance(value, bool):
-            raise ConfigError(f"Invalid value for {key} in {path}: expected boolean.")
-        return
-    if key == "memory_max_items":
-        if not isinstance(value, int) or value <= 0:
-            raise ConfigError(f"Invalid value for memory_max_items in {path}: expected positive integer.")
-        return
-    if key in {"model", "deepseek_api_key_env"}:
-        if not isinstance(value, str) or not value.strip():
-            raise ConfigError(f"Invalid value for {key} in {path}: expected non-empty string.")
-        return
-    if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
-        if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-            raise ConfigError(f"Invalid value for {key} in {path}: expected list of non-empty strings.")
-        return
-
-    valid_values = VALID_VALUES[key]
-    if value not in valid_values:
-        expected = ", ".join(sorted(valid_values))
-        raise ConfigError(f"Invalid value for {key} in {path}: {value!r}. Expected one of: {expected}.")
-
-
 def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentConfig:
     values = {
         "provider": overrides.provider,
         "model": overrides.model,
         "deepseek_api_key_env": overrides.deepseek_api_key_env,
+        "base_url": overrides.base_url,
+        "api_key_env": overrides.api_key_env,
         "default_skills": overrides.default_skills,
+        "allowed_commands": overrides.allowed_commands,
         "memory_auto_write": overrides.memory_auto_write,
         "memory_max_items": overrides.memory_max_items,
         "enabled_hooks": overrides.enabled_hooks,
@@ -189,39 +189,56 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "sandbox": overrides.sandbox,
         "approval": overrides.approval,
         "dry_run": overrides.dry_run,
+        "web_search_enabled": overrides.web_search_enabled,
+        "computer_read_enabled": overrides.computer_read_enabled,
+        "max_consecutive_errors": overrides.max_consecutive_errors,
+        "native_tools": overrides.native_tools,
     }
     for key, value in values.items():
         if value is None:
             continue
-        _validate_override(key, value)
+        _validate_value(key, value, None)
         config = replace(config, **{key: _normalize_value(key, value)})
     return config
 
 
-def _validate_override(key: str, value: Any) -> None:
-    if key in {"dry_run", "memory_auto_write"}:
+def _validate_value(key: str, value: Any, path: Path | None) -> None:
+    cli = path is None
+    sequence_type = tuple if cli else list
+    if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled", "native_tools"}:
         if not isinstance(value, bool):
-            raise ConfigError(f"Invalid CLI value for {key}: expected boolean.")
+            raise _invalid_config_value(key, "expected boolean", path)
         return
-    if key == "memory_max_items":
+    if key in {"memory_max_items", "max_consecutive_errors"}:
         if not isinstance(value, int) or value <= 0:
-            raise ConfigError("Invalid CLI value for memory_max_items: expected positive integer.")
+            raise _invalid_config_value(key, "expected positive integer", path)
         return
-    if key in {"model", "deepseek_api_key_env"}:
+    if key in {"model", "deepseek_api_key_env", "api_key_env"}:
         if not isinstance(value, str) or not value.strip():
-            raise ConfigError(f"Invalid CLI value for {key}: expected non-empty string.")
+            raise _invalid_config_value(key, "expected non-empty string", path)
         return
-    if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
-        if not isinstance(value, tuple) or any(not isinstance(item, str) or not item.strip() for item in value):
-            raise ConfigError(f"Invalid CLI value for {key}: expected tuple of non-empty strings.")
+    if key == "base_url":
+        if not isinstance(value, str):
+            raise _invalid_config_value(key, "expected string", path)
+        return
+    if key in {"default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"}:
+        type_name = "tuple" if cli else "list"
+        if not isinstance(value, sequence_type) or any(not isinstance(item, str) or not item.strip() for item in value):
+            raise _invalid_config_value(key, f"expected {type_name} of non-empty strings", path)
         return
     valid_values = VALID_VALUES[key]
     if value not in valid_values:
         expected = ", ".join(sorted(valid_values))
-        raise ConfigError(f"Invalid CLI value for {key}: {value!r}. Expected one of: {expected}.")
+        raise _invalid_config_value(key, f"{value!r}. Expected one of: {expected}", path)
+
+
+def _invalid_config_value(key: str, message: str, path: Path | None) -> ConfigError:
+    if path is None:
+        return ConfigError(f"Invalid CLI value for {key}: {message}.")
+    return ConfigError(f"Invalid value for {key} in {path}: {message}.")
 
 
 def _normalize_value(key: str, value: Any) -> Any:
-    if key in {"default_skills", "enabled_hooks", "blocking_hooks"}:
+    if key in {"default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"}:
         return tuple(value)
     return value

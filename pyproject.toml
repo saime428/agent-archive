@@ -1,9 +1,13 @@
 [project]
 name = "agent"
-version = "0.1.0"
+version = "2.1.0"
 description = "A minimal Python CLI agent core."
 requires-python = ">=3.11"
 dependencies = [
+    "jsonschema>=4.20,<5",
+    # Protocol-log filtering is verified against this exact SDK source layout.
+    "mcp==1.28.1",
+    "referencing>=0.28.4,<1",
     "pydantic>=2.0",
     "pypdf>=4.0",
     "rich>=13.0",
@@ -13,6 +17,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
+    # Typer 0.26 removed isolated_filesystem from its bundled test runner.
+    "typer<0.26",
 ]
 
 [project.scripts]
@@ -25,3 +32,11 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["agent"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

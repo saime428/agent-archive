@@ -1,3 +1,5 @@
+import errno
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +10,30 @@ from agent.config import AgentConfig
 from agent.core.chat import ConversationState
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.fake import FakeLLMClient
+from agent.mcp_runtime import McpRuntimeError
+
+
+def _install_recording_mcp_runtime(monkeypatch, *, discovery_error=None):
+    instances = []
+
+    class RecordingRuntime:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+            self.discover_calls = 0
+            self.close_calls = 0
+            instances.append(self)
+
+        def discover_tools(self) -> tuple:
+            self.discover_calls += 1
+            if discovery_error is not None:
+                raise discovery_error
+            return ()
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    monkeypatch.setattr("agent.cli.McpStdioRuntime", RecordingRuntime)
+    return instances
 
 
 def test_doctor_reports_python_and_cwd() -> None:
@@ -24,10 +50,12 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "config mode:" in result.output
     assert "config provider:" in result.output
     assert "config model:" in result.output
+    assert "config allowed_commands:" in result.output
     assert "deepseek api key env:" in result.output
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
+    assert "config web_search_enabled:" in result.output
     assert "document dependency pypdf:" in result.output
     assert "document dependency python-docx:" in result.output
     assert "document dependency openpyxl:" in result.output
@@ -48,10 +76,12 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "config mode:" in result.output
     assert "config provider:" in result.output
     assert "config model:" in result.output
+    assert "config allowed_commands:" in result.output
     assert "deepseek api key env:" in result.output
     assert "deepseek api key present:" in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
+    assert "config web_search_enabled:" in result.output
     assert "document dependency pypdf:" in result.output
     assert "document dependency python-docx:" in result.output
     assert "document dependency openpyxl:" in result.output
@@ -92,6 +122,197 @@ def test_run_reports_fake_llm_result(tmp_path) -> None:
     assert "terminal_reason: done" in result.output
     assert "final:" in result.output
     assert "summary:" in result.output
+
+
+def test_run_owns_and_closes_one_mcp_runtime(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 0
+    assert len(instances) == 1
+    assert instances[0].workspace == workspace.resolve()
+    assert instances[0].discover_calls == 1
+    assert instances[0].close_calls == 1
+
+
+def test_run_can_approve_and_execute_confirmation_required_action(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {
+                        "path": "notes.txt",
+                        "content": "approved\n",
+                        "create_parents": False,
+                    },
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {
+                        "final": "Wrote notes.",
+                        "changed_files": ["notes.txt"],
+                        "next_steps": [],
+                    },
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.cli._make_llm", lambda _config: llm)
+
+    result = runner.invoke(
+        app,
+        ["run", "--cwd", str(workspace), "write notes"],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert "activity: waiting for approval write_file" in result.output
+    assert "approval required: write_file" in result.output
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "approved\n"
+
+
+def test_run_closes_mcp_runtime_after_provider_failure(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    def fail_provider(_config):
+        raise DeepSeekError("provider failed safely")
+
+    monkeypatch.setattr("agent.cli._make_llm", fail_provider)
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "provider failed safely" in result.output
+    assert "Traceback" not in result.output
+    assert len(instances) == 1
+    assert instances[0].discover_calls == 0
+    assert instances[0].close_calls == 1
+
+
+def test_run_closes_mcp_runtime_after_keyboard_interrupt(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+    monkeypatch.setattr("agent.cli._make_llm", lambda _config: object())
+
+    def interrupt(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("agent.cli.run_once", interrupt)
+    result = runner.invoke(
+        app,
+        ["run", "--cwd", str(workspace), "inspect project"],
+    )
+
+    assert result.exit_code != 0
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+
+
+def test_run_maps_mcp_discovery_error_and_closes_without_traceback(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    error = McpRuntimeError(stage="discovery", server_id="local", message="safe discovery failure")
+    instances = _install_recording_mcp_runtime(monkeypatch, discovery_error=error)
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "MCP discovery failed for server 'local': safe discovery failure" in result.output
+    assert "Traceback" not in result.output
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+
+
+def test_chat_reuses_one_mcp_runtime_across_turns_and_closes_on_exit(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    result = runner.invoke(
+        app,
+        ["chat", "--cwd", str(workspace)],
+        input="first\nsecond\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "turn: 2" in result.output
+    assert len(instances) == 1
+    assert instances[0].discover_calls == 2
+    assert instances[0].close_calls == 1
+
+
+def test_chat_closes_mcp_runtime_on_eof_and_ctrl_c(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    eof_instances = _install_recording_mcp_runtime(monkeypatch)
+    eof_result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="")
+    assert eof_result.exit_code == 0
+    assert eof_instances[0].close_calls == 1
+
+    interrupt_instances = _install_recording_mcp_runtime(monkeypatch)
+
+    def interrupt(_prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", interrupt)
+    interrupt_result = runner.invoke(app, ["chat", "--cwd", str(workspace)])
+    assert interrupt_result.exit_code == 0
+    assert interrupt_instances[0].close_calls == 1
+
+
+def test_chat_maps_mcp_error_and_closes_without_traceback(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    error = McpRuntimeError(stage="config", server_id=None, message="safe config failure")
+    instances = _install_recording_mcp_runtime(monkeypatch, discovery_error=error)
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="hello\n")
+
+    assert result.exit_code == 1
+    assert "MCP config failed: safe config failure" in result.output
+    assert "Traceback" not in result.output
+    assert instances[0].close_calls == 1
+
+
+def test_chat_closes_mcp_runtime_after_provider_failure(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    instances = _install_recording_mcp_runtime(monkeypatch)
+
+    def fail_provider(_config):
+        raise DeepSeekError("chat provider failed safely")
+
+    monkeypatch.setattr("agent.cli._make_llm", fail_provider)
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "chat provider failed safely" in result.output
+    assert "Traceback" not in result.output
+    assert len(instances) == 1
+    assert instances[0].discover_calls == 0
+    assert instances[0].close_calls == 1
 
 
 def test_ui_command_invokes_workbench_server(monkeypatch, tmp_path) -> None:
@@ -136,6 +357,111 @@ def test_start_command_is_workbench_start_alias(monkeypatch, tmp_path) -> None:
     assert calls[0]["workspace"] == workspace.resolve()
     assert calls[0]["host"] == "127.0.0.1"
     assert calls[0]["port"] == 8767
+    assert calls[0]["open_browser"] is False
+
+
+def test_start_command_defaults_to_safe_workbench_port(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert calls[0]["port"] == 8000
+
+
+def test_start_command_tries_next_port_when_requested_port_is_busy(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        if kwargs["port"] == 8765:
+            raise OSError(errno.EADDRINUSE, "Address already in use")
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--port", "8765"])
+
+    assert result.exit_code == 0
+    assert [call["port"] for call in calls] == [8765, 8766]
+    assert "Port 8765 is busy; trying 8766." in result.output
+
+
+def test_start_command_tries_next_port_when_windows_denies_bind(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        if kwargs["port"] == 8765:
+            error = OSError("Access denied")
+            error.winerror = 10013
+            raise error
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--port", "8765"])
+
+    assert result.exit_code == 0
+    assert [call["port"] for call in calls] == [8765, 8766]
+
+
+def test_start_command_scans_past_short_denied_port_block(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        if kwargs["port"] < 8020:
+            error = OSError("Access denied")
+            error.winerror = 10013
+            raise error
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--port", "8000"])
+
+    assert result.exit_code == 0
+    assert calls[0]["port"] == 8000
+    assert calls[-1]["port"] == 8020
+
+
+def test_start_agent_launcher_points_at_workbench() -> None:
+    launcher = Path(__file__).resolve().parents[1] / "start-agent.cmd"
+    script = launcher.read_text(encoding="utf-8")
+
+    assert 'cd /d "%~dp0"' in script
+    assert 'set "PYTHONPATH=src"' in script
+    assert 'set "AGENT_PORT=8000"' in script
+    assert 'set "AGENT_LOG=%~dp0.agent\\start-agent.log"' in script
+    assert 'set "AGENT_PYTHON="' in script
+    assert 'if exist "%~dp0.venv\\Scripts\\python.exe"' in script
+    assert 'if not defined AGENT_PYTHON if defined CONDA_PREFIX if exist "%CONDA_PREFIX%\\python.exe"' in script
+    assert 'if not defined AGENT_PYTHON if exist "%USERPROFILE%\\miniconda3\\python.exe"' in script
+    assert 'findstr /I /C:"\\Microsoft\\WindowsApps\\python.exe"' in script
+    assert '"%AGENT_PYTHON%" -c "import agent.cli"' in script
+    assert "netstat -ano" not in script
+    assert ":found_port" not in script
+    assert 'start ""' not in script
+    assert '"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% --open-browser >> "%AGENT_LOG%" 2>&1' in script
+    assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' not in script
+    assert "Agent Workbench exited with code %AGENT_EXIT%." in script
+    assert "Python exited with code %AGENT_EXIT%." in script
+    assert "exit /b %AGENT_EXIT%" in script
 
 
 def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:
@@ -304,6 +630,41 @@ def test_chat_confirmed_approval_executes_write_action(monkeypatch, tmp_path) ->
     assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
 
 
+def test_chat_prints_run_command_capability_warning_before_approval(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Run command.",
+                "action": {
+                    "name": "run_command",
+                    "args": {
+                        "argv": [sys.executable, "-c", "print('capability-warning-smoke')"],
+                        "cwd": None,
+                        "timeout_seconds": 5,
+                    },
+                },
+            },
+            {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "Command finished.", "changed_files": [], "next_steps": []},
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr("agent.cli._make_llm", lambda config: llm)
+
+    result = runner.invoke(app, ["chat", "--cwd", str(workspace)], input="run command\ny\n")
+
+    assert result.exit_code == 0
+    assert result.output.index("Run commands execute local processes") < result.output.index("approve? [y/N]")
+    assert "final: Command finished." in result.output
+
+
 def test_chat_deepseek_uses_streaming_preview(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
@@ -440,6 +801,19 @@ def test_run_approval_never_is_recorded_in_summary(tmp_path) -> None:
     assert len(summary_paths) == 1
     summary = summary_paths[0].read_text(encoding="utf-8")
     assert "config_approval: never" in summary
+
+
+def test_run_and_chat_help_explain_approval_never_is_fail_closed() -> None:
+    runner = CliRunner()
+
+    run_help = runner.invoke(app, ["run", "--help"], terminal_width=200)
+    chat_help = runner.invoke(app, ["chat", "--help"], terminal_width=200)
+
+    assert run_help.exit_code == 0
+    assert chat_help.exit_code == 0
+    for output in (run_help.output, chat_help.output):
+        assert "never denies actions" in output
+        assert "that would require confirmation" in output
 
 
 def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
@@ -642,6 +1016,77 @@ def test_provider_smoke_rejects_unknown_provider() -> None:
     assert "Unsupported provider smoke target: fake" in result.output
 
 
+def test_provider_smoke_openai_compat_requires_base_url(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "base_url" in result.output
+
+
+def test_provider_smoke_openai_compat_calls_generic_smoke(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    config_dir = workspace / ".agent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\nmodel = "llama3"\n',
+        encoding="utf-8",
+    )
+    captured: dict = {}
+
+    def fake_smoke(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            provider="openai-compat",
+            model=kwargs["model"],
+            api_key_env=kwargs["api_key_env"],
+            status="ok",
+            action_name="done",
+            final="smoke ok",
+        )
+
+    monkeypatch.setattr("agent.cli.smoke_provider", fake_smoke)
+
+    result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert captured["base_url"] == "http://localhost:11434/v1"
+    assert captured["provider_name"] == "openai-compat"
+    assert "status: ok" in result.output
+
+
+def test_provider_smoke_native_flag_calls_native_smoke(tmp_path, monkeypatch) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\nmodel = "llama3"\n',
+        encoding="utf-8",
+    )
+    captured: dict = {}
+
+    def fake_native_smoke(**kwargs):
+        captured.update(kwargs)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            provider="openai-compat", model=kwargs["model"], api_key_env=kwargs["api_key_env"],
+            status="ok", action_name="done", final="smoke ok",
+        )
+
+    monkeypatch.setattr("agent.cli.smoke_provider_native", fake_native_smoke)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--native", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert captured["provider_name"] == "openai-compat"
+    assert "status: ok" in result.output
+
+
 def test_skills_list_and_show_builtin_skill(tmp_path) -> None:
     runner = CliRunner()
 
@@ -669,6 +1114,9 @@ def test_memory_review_accept_list_and_undo(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text("memory_auto_write = true\n", encoding="utf-8")
 
     run_result = runner.invoke(app, ["run", "--cwd", str(workspace), "remember parser tests"])
     assert run_result.exit_code == 0
@@ -704,8 +1152,11 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "sandbox: workspace-write" in result.output
     assert "approval: risky-confirm" in result.output
     assert "dry_run: false" in result.output
+    assert "web_search_enabled: false" in result.output
+    assert "computer_read_enabled: false" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
+    assert "allowed_commands: []" in result.output
     assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output
     assert f"cwd: {workspace.resolve()}" in result.output
     assert "loaded files: none" in result.output
@@ -716,12 +1167,16 @@ def test_config_show_outputs_project_config_and_warning(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     config_path = workspace / ".agent" / "config.toml"
     config_path.parent.mkdir(parents=True)
-    config_path.write_text('mode = "auto"\nsurprise = true\n', encoding="utf-8")
+    config_path.write_text(
+        'mode = "auto"\nallowed_commands = ["python", "pip show"]\nsurprise = true\n',
+        encoding="utf-8",
+    )
 
     result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
 
     assert result.exit_code == 0
     assert "mode: auto" in result.output
+    assert "allowed_commands: ['python', 'pip show']" in result.output
     assert f"loaded file: {config_path.resolve()}" in result.output
     assert "config warning: Ignoring unknown config key surprise" in result.output
 

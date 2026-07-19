@@ -1,38 +1,23 @@
 from __future__ import annotations
 
-import json
-from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
-from agent.core.actions import ActionParseError, parse_model_action
-
+from agent.llm.openai_compat import (
+    OpenAICompatClient,
+    ProviderError,
+    RetrySleep,
+    SmokeResult,
+    StreamTransport,
+    Transport,
+    smoke_provider,
+)
 
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
-Transport = Callable[[str, dict[str, str], bytes, float], bytes]
-StreamTransport = Callable[[str, dict[str, str], bytes, float], Iterable[bytes]]
+DeepSeekError = ProviderError
+DeepSeekSmokeResult = SmokeResult
 
 
-class DeepSeekError(RuntimeError):
-    pass
-
-
-@dataclass(frozen=True)
-class DeepSeekSmokeResult:
-    provider: str
-    model: str
-    api_key_env: str
-    status: str
-    action_name: str
-    final: str
-
-
-class DeepSeekClient:
+class DeepSeekClient(OpenAICompatClient):
     def __init__(
         self,
         *,
@@ -42,82 +27,20 @@ class DeepSeekClient:
         timeout: float = 60.0,
         transport: Transport | None = None,
         stream_transport: StreamTransport | None = None,
+        retry_sleep: RetrySleep | None = None,
     ) -> None:
         if not api_key.strip():
             raise DeepSeekError("DeepSeek API key is required.")
-        if not model.strip():
-            raise DeepSeekError("DeepSeek model is required.")
-        self.api_key = api_key
-        self.model = model
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
-        self.transport = transport or _urllib_transport
-        self.stream_transport = stream_transport or _urllib_stream_transport
-
-    def chat(
-        self,
-        messages: list[dict],
-        *,
-        temperature: float | None = None,
-    ) -> dict | str:
-        payload: dict[str, object] = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-        }
-        if temperature is not None:
-            payload["temperature"] = temperature
-        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            response_body = self.transport(
-                f"{self.base_url}/chat/completions",
-                headers,
-                body,
-                self.timeout,
-            )
-        except HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek API request failed: {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise DeepSeekError(f"DeepSeek API request failed: {exc.reason}") from exc
-
-        return _parse_chat_response(response_body)
-
-    def stream_chat(
-        self,
-        messages: list[dict],
-        *,
-        temperature: float | None = None,
-    ) -> Iterator[str]:
-        payload: dict[str, object] = {
-            "model": self.model,
-            "messages": messages,
-            "stream": True,
-        }
-        if temperature is not None:
-            payload["temperature"] = temperature
-        body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            stream = self.stream_transport(
-                f"{self.base_url}/chat/completions",
-                headers,
-                body,
-                self.timeout,
-            )
-            yield from _parse_streaming_chat_response(stream)
-        except HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek API request failed: {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise DeepSeekError(f"DeepSeek API request failed: {exc.reason}") from exc
+        super().__init__(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            provider_label="DeepSeek",
+            timeout=timeout,
+            transport=transport,
+            stream_transport=stream_transport,
+            retry_sleep=retry_sleep,
+        )
 
 
 def smoke_deepseek_provider(
@@ -129,155 +52,15 @@ def smoke_deepseek_provider(
     timeout: float = 60.0,
     transport: Transport | None = None,
 ) -> DeepSeekSmokeResult:
-    client = DeepSeekClient(
+    if not api_key.strip():
+        raise DeepSeekError("DeepSeek API key is required.")
+    return smoke_provider(
+        provider_name="deepseek",
         api_key=api_key,
         model=model,
         base_url=base_url,
+        api_key_env=api_key_env,
+        provider_label="DeepSeek",
         timeout=timeout,
         transport=transport,
     )
-    raw_action = client.chat(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "You are testing an agent provider connection. Return only JSON, "
-                    "with no markdown, comments, or extra text."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    'Return exactly this JSON shape: {"message":"Smoke complete.",'
-                    '"action":{"name":"done","args":{"final":"smoke ok",'
-                    '"changed_files":[],"next_steps":[]}}}'
-                ),
-            }
-        ],
-        temperature=0,
-    )
-    raw_action = _normalize_smoke_action(raw_action)
-    try:
-        action = parse_model_action(
-            raw_action,
-            run_id="provider_smoke",
-            action_index=1,
-            created_at=datetime.now(timezone.utc),
-        )
-    except ActionParseError as exc:
-        raise DeepSeekError(f"DeepSeek smoke returned invalid action: {exc.message}") from exc
-    if action.action.name != "done":
-        raise DeepSeekError(f"DeepSeek smoke expected done action, got {action.action.name}.")
-
-    return DeepSeekSmokeResult(
-        provider="deepseek",
-        model=model,
-        api_key_env=api_key_env,
-        status="ok",
-        action_name=action.action.name,
-        final=action.action.args["final"],
-    )
-
-
-def _normalize_smoke_action(raw_action: dict | str) -> dict | str:
-    if not isinstance(raw_action, dict):
-        return raw_action
-    if _looks_like_action_envelope(raw_action):
-        return raw_action
-    if raw_action.get("action") and "message" not in raw_action:
-        return {"message": "Smoke complete.", "action": raw_action["action"]}
-    if raw_action.get("name") == "done" and isinstance(raw_action.get("args"), dict):
-        return {"message": "Smoke complete.", "action": raw_action}
-    if {"final", "changed_files", "next_steps"} <= raw_action.keys():
-        return {
-            "message": "Smoke complete.",
-            "action": {
-                "name": "done",
-                "args": {
-                    "final": raw_action["final"],
-                    "changed_files": raw_action["changed_files"],
-                    "next_steps": raw_action["next_steps"],
-                },
-            },
-        }
-    return raw_action
-
-
-def _looks_like_action_envelope(raw_action: dict) -> bool:
-    return isinstance(raw_action.get("message"), str) and isinstance(raw_action.get("action"), dict)
-
-
-def _urllib_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
-    request = Request(url, data=body, headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:
-        return response.read()
-
-
-def _urllib_stream_transport(url: str, headers: dict[str, str], body: bytes, timeout: float) -> Iterable[bytes]:
-    request = Request(url, data=body, headers=headers, method="POST")
-    with urlopen(request, timeout=timeout) as response:
-        yield from response
-
-
-def _parse_chat_response(response_body: bytes) -> dict | str:
-    try:
-        response = json.loads(response_body.decode("utf-8"))
-        content = response["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise DeepSeekError("DeepSeek API returned an invalid chat completion response.") from exc
-
-    if not isinstance(content, str):
-        raise DeepSeekError("DeepSeek API returned non-text model content.")
-
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError:
-        return content
-    if not isinstance(parsed, dict):
-        raise DeepSeekError("DeepSeek model content must be a valid JSON action object.")
-    return parsed
-
-
-def _parse_streaming_chat_response(chunks: Iterable[bytes]) -> Iterator[str]:
-    buffer = ""
-    for chunk in chunks:
-        try:
-            buffer += chunk.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise DeepSeekError("DeepSeek API returned an invalid streaming response.") from exc
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            result = _parse_sse_line(line)
-            if result is _StreamDone:
-                return
-            if result:
-                yield result
-    if buffer.strip():
-        result = _parse_sse_line(buffer)
-        if result is not _StreamDone and result:
-            yield result
-
-
-class _StreamDone:
-    pass
-
-
-def _parse_sse_line(line: str) -> str | type[_StreamDone] | None:
-    stripped = line.strip()
-    if not stripped or stripped.startswith(":"):
-        return None
-    if not stripped.startswith("data:"):
-        raise DeepSeekError("DeepSeek API returned an invalid streaming response.")
-    payload = stripped[len("data:") :].strip()
-    if payload == "[DONE]":
-        return _StreamDone
-    try:
-        event = json.loads(payload)
-        content = event["choices"][0]["delta"].get("content")
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        raise DeepSeekError("DeepSeek API returned an invalid streaming response.") from exc
-    if content is None:
-        return None
-    if not isinstance(content, str):
-        raise DeepSeekError("DeepSeek API returned non-text streaming content.")
-    return content

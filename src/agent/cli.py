@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
@@ -10,15 +11,17 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from agent.config import ConfigError, ConfigOverrides, load_config
+from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, ConfigOverrides, load_config
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.skills import SkillError, discover_skills, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
-from agent.llm.deepseek import DeepSeekError, smoke_deepseek_provider
+from agent.llm.deepseek import DEFAULT_DEEPSEEK_BASE_URL, DeepSeekError, smoke_deepseek_provider
 from agent.llm.factory import make_llm as make_llm_client
+from agent.llm.openai_compat import ProviderError, smoke_provider, smoke_provider_native
+from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
 from agent.secrets import load_workspace_secrets
 from agent.web.server import serve_workbench
 
@@ -37,6 +40,8 @@ app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(provider_app, name="provider")
 app.add_typer(release_app, name="release")
+
+WORKBENCH_PORT_ATTEMPTS = 200
 console = Console(highlight=False)
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
@@ -72,14 +77,22 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"rg available: {str(rg_available).lower()}")
     console.print(f"search backend: {'rg' if rg_available else 'python'}")
     console.print(f"config mode: {config.mode}")
+    console.print(f"native_tools: {config.native_tools}")
     console.print(f"config provider: {config.provider}")
     console.print(f"config model: {config.model}")
     console.print(f"config default_skills: {list(config.default_skills)}")
+    console.print(f"config allowed_commands: {list(config.allowed_commands)}")
     console.print(f"deepseek api key env: {config.deepseek_api_key_env}")
     console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
+    if config.provider == "openai-compat":
+        console.print(f"base_url: {config.base_url}")
+        console.print(f"api_key_env: {config.api_key_env}")
+        console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
     console.print(f"config dry_run: {str(config.dry_run).lower()}")
+    console.print(f"config web_search_enabled: {str(config.web_search_enabled).lower()}")
+    console.print(f"config computer_read_enabled: {str(config.computer_read_enabled).lower()}")
     for package_name, import_name in DOCUMENT_DEPENDENCIES.items():
         present = importlib.util.find_spec(import_name) is not None
         console.print(f"document dependency {package_name}: {'present' if present else 'missing'}")
@@ -124,7 +137,11 @@ def run(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the run."),
     mode: str | None = typer.Option(None, "--mode", help="Run mode."),
     sandbox: str | None = typer.Option(None, "--sandbox", help="Sandbox mode."),
-    approval: str | None = typer.Option(None, "--approval", help="Approval mode."),
+    approval: str | None = typer.Option(
+        None,
+        "--approval",
+        help="Approval mode; never denies actions that would require confirmation.",
+    ),
     dry_run: bool | None = typer.Option(None, "--dry-run/--no-dry-run", help="Record dry-run intent in config."),
     provider: str | None = typer.Option(None, "--provider", help="LLM provider."),
     model: str | None = typer.Option(None, "--model", help="LLM model."),
@@ -149,18 +166,39 @@ def run(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
+    runtime = McpStdioRuntime(workspace)
+    close_error: McpRuntimeError | None = None
     try:
-        llm = _make_llm(config)
-    except DeepSeekError as exc:
-        console.print(str(exc))
-        raise typer.Exit(code=1) from exc
+        try:
+            llm = _make_llm(config)
+        except DeepSeekError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
 
-    selected_skills = skill if skill else None
-    try:
-        result = run_once(task, llm, cwd=workspace, config=config, selected_skills=selected_skills)
-    except DeepSeekError as exc:
-        console.print(str(exc))
-        raise typer.Exit(code=1) from exc
+        selected_skills = skill if skill else None
+        try:
+            result = run_once(
+                task,
+                llm,
+                cwd=workspace,
+                config=config,
+                selected_skills=selected_skills,
+                mcp_runtime=runtime,
+                approval_handler=_chat_approval_handler,
+                event_handler=_chat_event_handler,
+            )
+        except (DeepSeekError, McpRuntimeError) as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+    finally:
+        try:
+            runtime.close()
+        except McpRuntimeError as exc:
+            close_error = exc
+    if close_error is not None:
+        console.print(str(close_error))
+        raise typer.Exit(code=1) from close_error
+
     final = (result.observation.data or {}).get("final", "")
     terminal_reason = _result_terminal_reason(result)
     console.print(f"run_id: {result.context.run_id}")
@@ -168,6 +206,8 @@ def run(
     console.print(f"sandbox: {config.sandbox}")
     console.print(f"approval: {config.approval}")
     console.print(f"dry_run: {str(config.dry_run).lower()}")
+    console.print(f"web_search_enabled: {str(config.web_search_enabled).lower()}")
+    console.print(f"computer_read_enabled: {str(config.computer_read_enabled).lower()}")
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     console.print(f"skills: {[item.name for item in result.skills]}")
@@ -188,36 +228,54 @@ def run(
 def ui(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
-    port: int = typer.Option(8765, "--port", help="Port for the local workbench."),
+    port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
+    open_browser: bool = typer.Option(False, "--open-browser/--no-open-browser", help="Open the selected workbench URL."),
 ) -> None:
     """Start the local read-only web workbench."""
     workspace = (cwd or Path.cwd()).resolve()
-    _start_workbench(workspace, host, port)
+    _start_workbench(workspace, host, port, open_browser=open_browser)
 
 
 @app.command()
 def start(
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for the workbench."),
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
-    port: int = typer.Option(8765, "--port", help="Port for the local workbench."),
+    port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
+    open_browser: bool = typer.Option(False, "--open-browser/--no-open-browser", help="Open the selected workbench URL."),
 ) -> None:
     """Start Agent Workbench."""
     workspace = (cwd or Path.cwd()).resolve()
-    _start_workbench(workspace, host, port)
+    _start_workbench(workspace, host, port, open_browser=open_browser)
 
 
-def _start_workbench(workspace: Path, host: str, port: int) -> None:
+def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: bool = False) -> None:
     load_workspace_secrets(workspace)
     try:
         load_config(workspace)
     except ConfigError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    try:
-        serve_workbench(workspace=workspace, host=host, port=port)
-    except OSError as exc:
-        console.print(f"Could not start Agent Workbench: {exc}")
-        raise typer.Exit(code=1) from exc
+    last_error: OSError | None = None
+    for candidate in range(port, port + WORKBENCH_PORT_ATTEMPTS):
+        try:
+            if candidate != port:
+                console.print(f"Port {candidate - 1} is busy; trying {candidate}.")
+            serve_workbench(workspace=workspace, host=host, port=candidate, open_browser=open_browser)
+            return
+        except McpRuntimeError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+        except OSError as exc:
+            if not _is_address_in_use(exc):
+                console.print(f"Could not start Agent Workbench: {exc}")
+                raise typer.Exit(code=1) from exc
+            last_error = exc
+    console.print(f"Could not start Agent Workbench: {last_error}")
+    raise typer.Exit(code=1)
+
+
+def _is_address_in_use(exc: OSError) -> bool:
+    return exc.errno == errno.EADDRINUSE or getattr(exc, "winerror", None) in {10013, 10048}
 
 
 @app.command()
@@ -226,7 +284,11 @@ def chat(
     resume: str | None = typer.Option(None, "--resume", help="Resume a chat session id."),
     mode: str | None = typer.Option(None, "--mode", help="Run mode."),
     sandbox: str | None = typer.Option(None, "--sandbox", help="Sandbox mode."),
-    approval: str | None = typer.Option(None, "--approval", help="Approval mode."),
+    approval: str | None = typer.Option(
+        None,
+        "--approval",
+        help="Approval mode; never denies actions that would require confirmation.",
+    ),
     dry_run: bool | None = typer.Option(None, "--dry-run/--no-dry-run", help="Record dry-run intent in config."),
     provider: str | None = typer.Option(None, "--provider", help="LLM provider."),
     model: str | None = typer.Option(None, "--model", help="LLM model."),
@@ -251,6 +313,40 @@ def chat(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
+    runtime = McpStdioRuntime(workspace)
+    close_error: McpRuntimeError | None = None
+    try:
+        try:
+            _run_chat_repl(
+                workspace,
+                config,
+                diagnostics,
+                resume=resume,
+                skill=skill,
+                mcp_runtime=runtime,
+            )
+        except McpRuntimeError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+    finally:
+        try:
+            runtime.close()
+        except McpRuntimeError as exc:
+            close_error = exc
+    if close_error is not None:
+        console.print(str(close_error))
+        raise typer.Exit(code=1) from close_error
+
+
+def _run_chat_repl(
+    workspace: Path,
+    config: AgentConfig,
+    diagnostics: ConfigDiagnostics,
+    *,
+    resume: str | None,
+    skill: list[str] | None,
+    mcp_runtime: McpStdioRuntime,
+) -> None:
     try:
         llm = _make_llm(config)
     except DeepSeekError as exc:
@@ -263,13 +359,13 @@ def chat(
         console.print(f"Could not resume chat session {resume}: {exc}")
         raise typer.Exit(code=1) from exc
 
-    selected_skills = skill if skill else None
     session = ChatSession(
         cwd=workspace,
         llm=llm,
         config=config,
         state=state,
-        selected_skills=selected_skills,
+        selected_skills=skill if skill else None,
+        mcp_runtime=mcp_runtime,
     )
     console.print(f"chat_id: {state.session_id}")
     console.print(f"workspace: {workspace}")
@@ -295,7 +391,9 @@ def chat(
             break
         if command_result == "handled":
             continue
-        stream_handler, stream_was_used = _make_chat_stream_handler(config.provider == "deepseek")
+        stream_handler, stream_was_used = _make_chat_stream_handler(
+            config.provider in {"deepseek", "openai-compat"}
+        )
         try:
             result = session.run_turn(
                 user_input,
@@ -341,15 +439,23 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
 
     console.print(f"cwd: {workspace}", soft_wrap=True)
     console.print(f"mode: {config.mode}")
+    console.print(f"native_tools: {config.native_tools}")
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     console.print(f"deepseek_api_key_env: {config.deepseek_api_key_env}")
+    if config.provider == "openai-compat":
+        console.print(f"base_url: {config.base_url}")
+        console.print(f"api_key_env: {config.api_key_env}")
+        console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
     console.print(f"default_skills: {list(config.default_skills)}")
+    console.print(f"allowed_commands: {list(config.allowed_commands)}")
     console.print(f"memory_auto_write: {str(config.memory_auto_write).lower()}")
     console.print(f"memory_max_items: {config.memory_max_items}")
     console.print(f"sandbox: {config.sandbox}")
     console.print(f"approval: {config.approval}")
     console.print(f"dry_run: {str(config.dry_run).lower()}")
+    console.print(f"web_search_enabled: {str(config.web_search_enabled).lower()}")
+    console.print(f"computer_read_enabled: {str(config.computer_read_enabled).lower()}")
     console.print(f"global config: {diagnostics.global_config_path}", soft_wrap=True)
     console.print(f"project config: {diagnostics.project_config_path}", soft_wrap=True)
     if diagnostics.loaded_files:
@@ -374,9 +480,10 @@ def provider_smoke(
     provider_name: str,
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config."),
     model: str | None = typer.Option(None, "--model", help="Model to smoke-test."),
+    native: bool = typer.Option(False, "--native", help="Smoke-test native tool calling."),
 ) -> None:
     """Run an explicit provider smoke test without creating an agent run."""
-    if provider_name != "deepseek":
+    if provider_name not in {"deepseek", "openai-compat"}:
         console.print(f"Unsupported provider smoke target: {provider_name}")
         raise typer.Exit(code=1)
     workspace = (cwd or Path.cwd()).resolve()
@@ -387,20 +494,59 @@ def provider_smoke(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
-    api_key = os.environ.get(config.deepseek_api_key_env, "")
-    if not api_key:
-        console.print(f"DeepSeek API key is required in {config.deepseek_api_key_env}.")
-        raise typer.Exit(code=1)
+    if provider_name == "deepseek":
+        api_key = os.environ.get(config.deepseek_api_key_env, "")
+        if not api_key:
+            console.print(f"DeepSeek API key is required in {config.deepseek_api_key_env}.")
+            raise typer.Exit(code=1)
 
-    try:
-        result = smoke_deepseek_provider(
-            api_key=api_key,
-            model=config.model,
-            api_key_env=config.deepseek_api_key_env,
-        )
-    except DeepSeekError as exc:
-        console.print(str(exc))
-        raise typer.Exit(code=1) from exc
+        try:
+            if native:
+                result = smoke_provider_native(
+                    provider_name="deepseek",
+                    api_key=api_key,
+                    model=config.model,
+                    base_url=DEFAULT_DEEPSEEK_BASE_URL,
+                    api_key_env=config.deepseek_api_key_env,
+                    provider_label="DeepSeek",
+                )
+            else:
+                result = smoke_deepseek_provider(
+                    api_key=api_key,
+                    model=config.model,
+                    api_key_env=config.deepseek_api_key_env,
+                )
+        except DeepSeekError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+
+    if provider_name == "openai-compat":
+        if not config.base_url.strip():
+            console.print("openai-compat smoke requires base_url in .agent/config.toml.")
+            raise typer.Exit(code=1)
+        api_key = os.environ.get(config.api_key_env, "")
+        try:
+            if native:
+                result = smoke_provider_native(
+                    provider_name="openai-compat",
+                    api_key=api_key,
+                    model=config.model,
+                    base_url=config.base_url,
+                    api_key_env=config.api_key_env,
+                    provider_label="openai-compat",
+                )
+            else:
+                result = smoke_provider(
+                    provider_name="openai-compat",
+                    api_key=api_key,
+                    model=config.model,
+                    base_url=config.base_url,
+                    api_key_env=config.api_key_env,
+                    provider_label="openai-compat",
+                )
+        except ProviderError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
 
     console.print(f"provider: {result.provider}")
     console.print(f"model: {result.model}")
@@ -520,6 +666,8 @@ def _chat_event_handler(event: dict) -> None:
         console.print(f"activity: tool {event.get('action')}")
     elif name == "approval_required":
         console.print(f"activity: waiting for approval {event.get('action')}")
+        if event.get("reason"):
+            console.print(str(event["reason"]))
 
 
 def _make_chat_stream_handler(enabled: bool):

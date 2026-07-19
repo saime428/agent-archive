@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agent.core.actions import ErrorCode
 
-PROTECTED_WRITE_PARTS = {".git", "__pycache__", ".pytest_cache"}
+PROTECTED_WRITE_PARTS = {".git", ".svn", ".hg", "node_modules", ".env", "__pycache__", ".pytest_cache"}
 
 
 class SandboxError(ValueError):
@@ -17,24 +17,29 @@ class SandboxError(ValueError):
 
 
 class WorkspaceSandbox:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, allow_external_read: bool = False, allow_external_write: bool = False) -> None:
         self.root = root.resolve()
         self.protected_runs_root = (self.root / ".agent" / "runs").resolve()
+        self.allow_external_read = allow_external_read
+        self.allow_external_write = allow_external_write
 
-    def resolve_read_path(self, path: str) -> Path:
-        requested = Path(path)
+    def resolve_read_path(self, path: str, *, allow_external: bool = True) -> Path:
+        requested = Path(path).expanduser()
+        explicit_external = requested.is_absolute() or path.startswith(("~", "~/", "~\\"))
         candidate = requested if requested.is_absolute() else self.root / requested
         resolved = candidate.resolve()
+        if _is_protected_read_path(resolved, self.protected_runs_root):
+            raise SandboxError(
+                ErrorCode.SANDBOX_VIOLATION,
+                "Path targets protected internal state.",
+                {"path": path},
+            )
         if not _is_within(resolved, self.root):
+            if self.allow_external_read and allow_external and explicit_external:
+                return resolved
             raise SandboxError(
                 ErrorCode.SANDBOX_VIOLATION,
                 "Path resolves outside the workspace.",
-                {"path": path},
-            )
-        if _is_within(resolved, self.protected_runs_root):
-            raise SandboxError(
-                ErrorCode.SANDBOX_VIOLATION,
-                "Path targets protected internal run state.",
                 {"path": path},
             )
         return resolved
@@ -45,19 +50,28 @@ class WorkspaceSandbox:
         nearest_parent = _nearest_existing_parent(candidate)
         resolved_parent = nearest_parent.resolve()
         if not _is_within(resolved_parent, self.root):
-            raise SandboxError(
-                ErrorCode.SANDBOX_VIOLATION,
-                "Path resolves outside the workspace.",
-                {"path": path},
-            )
+            if not self.allow_external_write or not requested.is_absolute():
+                raise SandboxError(
+                    ErrorCode.SANDBOX_VIOLATION,
+                    "Path resolves outside the workspace.",
+                    {"path": path},
+                )
 
         resolved = candidate.resolve(strict=False)
         if not _is_within(resolved, self.root):
-            raise SandboxError(
-                ErrorCode.SANDBOX_VIOLATION,
-                "Path resolves outside the workspace.",
-                {"path": path},
-            )
+            if not self.allow_external_write or not requested.is_absolute():
+                raise SandboxError(
+                    ErrorCode.SANDBOX_VIOLATION,
+                    "Path resolves outside the workspace.",
+                    {"path": path},
+                )
+            if not create_parents and not resolved.parent.exists():
+                raise SandboxError(
+                    ErrorCode.TOOL_FAILED,
+                    "Parent directory does not exist.",
+                    {"path": path, "parent": str(resolved.parent)},
+                )
+            return resolved
         if _has_protected_write_part(resolved, self.root):
             raise SandboxError(
                 ErrorCode.SANDBOX_VIOLATION,
@@ -82,6 +96,13 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
+def _is_protected_read_path(path: Path, protected_runs_root: Path) -> bool:
+    if _is_within(path, protected_runs_root):
+        return True
+    parts = tuple(os.path.normcase(part) for part in path.parts)
+    return any(parts[index] == ".agent" and parts[index + 1] == "secrets.env" for index in range(len(parts) - 1))
+
+
 def _nearest_existing_parent(path: Path) -> Path:
     current = path.parent
     while not current.exists() and current != current.parent:
@@ -94,6 +115,6 @@ def _has_protected_write_part(path: Path, root: Path) -> bool:
         relative_parts = path.relative_to(root).parts
     except ValueError:
         return True
-    if len(relative_parts) >= 2 and relative_parts[0] == ".agent" and relative_parts[1] == "runs":
+    if relative_parts and relative_parts[0] == ".agent":
         return True
     return any(part in PROTECTED_WRITE_PARTS for part in relative_parts)

@@ -46,6 +46,89 @@ Runs write durable files under `.agent/runs/<run-id>/`. Write tools create
 snapshot records before changing files; `agent runs show <run-id>` displays
 snapshot paths and restore hints when a run changed files.
 
+### OpenAI-compatible providers (local models)
+
+```toml
+# .agent/config.toml
+provider = "openai-compat"
+base_url = "http://localhost:11434/v1"   # e.g. Ollama
+model = "llama3"
+# api_key_env = "OPENAI_API_KEY"         # optional; empty key sends no Authorization header
+# native_tools = true                    # use native tool calling (requires endpoint tool support)
+```
+
+With `native_tools = true` the agent uses native function calling with `tool_choice: "auto"` (thinking-mode models such as DeepSeek reject `"required"`); a plain-text reply without a tool call is routed through the repair channel. Endpoints without tool support should keep it `false`.
+
+### Local stdio MCP tools
+
+Local MCP servers are configured only in the user-level `~/.agent/mcp.toml`.
+Project `.agent/config.toml` files and repository files cannot grant permission
+to start an MCP process.
+
+```toml
+[servers.example]
+command = "C:/Python313/python.exe"
+args = ["D:/mcp/example_server.py", "--workspace", "{workspace}"]
+cwd = "config"                 # "config" (default) or "workspace"
+pass_env = ["EXAMPLE_API_KEY"] # variable names only; values come from the environment
+```
+
+On Windows, `command` must resolve to a native `.exe` or `.com`; relative paths
+are rejected. An argument equal to `{workspace}` is replaced with the resolved
+workspace path. `cwd = "workspace"` is explicit trust: imports and configuration
+discovery performed by that server can then be influenced by project files, so
+prefer the default `config` working directory.
+
+Adding a server is startup authorization. The server process has the Agent
+user's OS permissions and may access files, the network, or child processes;
+the Agent workspace sandbox does not contain code running inside that process.
+Every exposed MCP Tool call is separately classified as
+`confirmation-required`. `sandbox = "read-only"`, dry-run, and
+`approval = "never"` can still start a configured server for discovery, but
+they never send `tools/call`.
+
+Secrets belong in environment variables named by `pass_env`, never in
+`command`, `args`, or TOML values. MCP metadata and results are untrusted,
+schema-checked, bounded, redacted, and routed through the same catalog,
+approval, observation, and trace path as built-in Tools. Public names use
+`mcp__<server-id>__<normalized-tool-name>`; collisions and unsafe schemas fail
+closed before the model is called.
+
+Configuration is snapshotted for the lifetime of the CLI/Workbench process;
+restart it after editing `mcp.toml`. Configuration errors fail before server
+startup, while initialize or discovery failures stop the run/chat job before a
+model call and close processes already started by that Runtime. This first
+slice supports local stdio Tools only: there is no remote transport,
+Marketplace, management UI, automatic reconnect, or install/update lifecycle.
+`agent tools list` intentionally remains a built-in-only inventory and does
+not start configured MCP servers.
+
+### Additional command allowlist
+
+`run_command` keeps a small safe default set. Add explicit argv prefixes only when a project needs more commands:
+
+```toml
+# .agent/config.toml
+allowed_commands = ["python", "pip show", "npm test"]
+```
+
+Prefixes match complete argv tokens. The executable token is case-insensitive and ignores a trailing `.exe`; later tokens are case-sensitive, so `pip Show` does not match `pip show`. Short prefixes grant more capability, so prefer the narrowest useful entry.
+
+An allowlist cannot override hard-denied shell wrappers, network commands, or dangerous commands. Allowlisting only passes command admission: under the default policy, `run_command` still requires approval and its argv still passes the existing workspace path checks. Approved commands run as local processes with the agent's OS permissions. Those path checks do not fully contain file, network, or subprocess access from inside the process; `allowed_commands` is capability authorization and approval is execution confirmation, not an OS or container sandbox. Commands such as `pytest` and `python -m pytest` execute project code.
+
+For example, `allowed_commands = ["git commit"]` intentionally bypasses the default read-only Git restriction, but `git commit` still requires approval before execution.
+
+### Run mode for coding tasks
+
+The default `guided` mode allows three actions, which is useful for short conversations but often too small for a coding task that must inspect, edit, and verify files. Select `auto` in Workbench Settings, or set it in project configuration:
+
+```toml
+# .agent/config.toml
+mode = "auto"
+```
+
+`auto` raises the action budget to ten without changing approval or sandbox rules.
+
 ## v1.0 Release Prep
 
 `agent start` is the one-command Workbench startup alias. It reuses `agent ui`
@@ -119,8 +202,8 @@ v0.7 closeout is recorded in `docs/v0.7-acceptance.md`. v0.7 manual smoke:
 ```powershell
 $env:PYTHONPATH="src"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/runs
 python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
 python -m pytest -q
 git diff --check
@@ -151,8 +234,8 @@ v0.8 closeout is recorded in `docs/v0.8-acceptance.md`. v0.8 manual smoke:
 ```powershell
 $env:PYTHONPATH="src"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/runs
 python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
 python -m pytest -q
 git diff --check
@@ -193,8 +276,8 @@ v0.9 closeout is recorded in `docs/v0.9-acceptance.md`. v0.9 manual smoke:
 ```powershell
 $env:PYTHONPATH="src"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/runs
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/runs
 python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q
 python -m pytest -q
 git diff --check
@@ -215,13 +298,20 @@ python -m agent.cli ui --cwd F:\agent
 Open the printed URL, usually:
 
 ```text
-http://127.0.0.1:8765
+http://127.0.0.1:8000
 ```
 
 The workbench shows a Runs Dashboard, effective config, tool catalog, run
 summary, and tool-call trace. It also supports a basic browser chat turn from
 the bottom input dock; each turn creates the same durable `.agent/runs` and
 `.agent/chats` records as terminal chat.
+
+Browser chat streams model output live: thinking (`reasoning_content`) and
+tool-argument fragments render into the collapsible 工作过程 area, and plain
+content streams into the reply bubble before the final answer replaces it.
+The input dock has three clickable config toggles (联网 / 电脑文件 / 原生工具)
+that write through `/api/config`, plus a 工作过程 visibility switch remembered
+in localStorage. Other status details live in the settings panel.
 
 Confirmation-required actions use a custom approval panel and then retry the
 same message with one approved action. The Files panel lists workspace files
@@ -239,9 +329,9 @@ health and runs every 10 seconds without replacing an open file editor or
 pending approval, and the Refresh button performs the same safe refresh on
 demand. The Task Review panel summarizes the selected run's latest action, last
 observation, changed files, snapshot count, and suggested manual checks.
-Current v0.6 limits: browser chat is synchronous, the file editor is a single
-textarea, token-level UI streaming and Electron packaging are deferred to later
-slices.
+Current v0.6 limits: the file editor is a single textarea and Electron
+packaging is deferred. (Browser chat later became asynchronous with SSE, and
+token-level UI streaming landed with the workbench streaming slice.)
 
 v0.6 manual smoke:
 
@@ -249,7 +339,7 @@ v0.6 manual smoke:
 $env:PYTHONPATH="src"
 python -m agent.cli run --cwd F:\agent "inspect project"
 python -m agent.cli ui --cwd F:\agent
-Invoke-RestMethod -Uri http://127.0.0.1:8765/api/health
+Invoke-RestMethod -Uri http://127.0.0.1:8000/api/health
 python -m pytest tests/test_ui.py tests/test_cli.py tests/test_docs.py -q
 python -m pytest -q
 git diff --check
@@ -344,13 +434,14 @@ live chat success criteria:
 ## Safety Model
 
 - Models emit structured JSON actions; the core validates and executes them.
-- File access is constrained to the workspace.
+- Built-in file and document tools enforce the configured path policy: workspace-only by default, with explicit read-only computer access when enabled. Command argv path checks do not fully contain access performed inside an approved local process.
 - Risky actions such as `write_file`, `apply_patch`, and `run_command` require
   approval and fail fast in the non-interactive v0.1 CLI.
 - `--dry-run` skips write tools and commands without side effects.
 - Durable logs are redacted before they are written.
 - `AGENTS.md`, command output, git diffs, and document contents are untrusted
   context and cannot override policy or tool schemas.
+- Recoverable tool errors are fed back to the model with a consecutive-error budget (`max_consecutive_errors`, default 3). Approval denials and hook blocks always terminate the run immediately.
 
 ## Development
 
@@ -542,7 +633,7 @@ $env:PYTHONPATH="src"
 python -m agent.cli tools list
 python -m agent.cli doctor
 python -m agent.cli config doctor --cwd F:\agent
-python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q
+python -m pytest tests/core/test_actions_parse.py tests/core/test_actions_observations.py tests/test_documents.py tests/core/test_loop_core.py tests/core/test_loop_modes.py tests/test_cli.py tests/test_docs.py -q
 python -m pytest -q
 git diff --check
 ```

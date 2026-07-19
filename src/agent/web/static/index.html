@@ -1,158 +1,369 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Workbench</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/assets/app.css" />
   </head>
   <body>
-    <div class="workbench-shell">
-      <nav class="rail" aria-label="Workbench navigation">
-        <div class="brand-mark">A</div>
-        <button class="rail-button active" type="button" title="Chat">C</button>
-        <button class="rail-button" type="button" title="Runs">R</button>
-        <button class="rail-button" type="button" title="Tools">T</button>
-        <button class="rail-button" type="button" title="Config">S</button>
-      </nav>
-
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <button class="collapse-button" type="button" title="Toggle sidebar" aria-label="Toggle sidebar">=</button>
-          <input id="run-search" type="search" placeholder="Search runs" aria-label="Search runs" />
+    <div class="apix-shell tokenicode-shell">
+      <aside class="context-column token-sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-mark" aria-hidden="true">A</div>
+          <strong>Agent Workbench</strong>
         </div>
-        <select id="run-risk-filter" aria-label="Run risk filter">
-          <option value="all">All risks</option>
-          <option value="attention">Attention</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <button class="new-run-button" type="button" aria-label="Start terminal chat">Start terminal chat</button>
-        <section>
-          <div class="section-label">Recent runs</div>
-          <div id="run-list" class="run-list"></div>
+
+        <button id="new-chat-button" class="new-task-button" type="button">
+          <span aria-hidden="true">+</span>
+          新任务
+        </button>
+
+        <div class="current-agent-card">
+          <span class="live-dot" aria-hidden="true"></span>
+          <div>
+            <strong>Codex</strong>
+            <small id="agent-status-label">Ready</small>
+          </div>
+        </div>
+
+        <section id="context-chat" class="context-panel active" data-view="chat" aria-label="会话">
+          <div class="search-row">
+            <input id="chat-search" class="search-input" type="search" placeholder="搜索任务..." aria-label="搜索任务" />
+          </div>
+          <div class="project-group">
+            <button class="project-title nav-button active" type="button" data-view="chat" aria-label="聊天" title="聊天">
+              <span>FocusZone</span>
+              <small>聊天</small>
+            </button>
+            <div id="chat-list" class="stack-list task-list"></div>
+          </div>
         </section>
-        <section class="sidebar-section">
-          <div class="section-label">Files</div>
-          <div id="file-list" class="file-list"></div>
+
+        <section id="context-editor" class="context-panel" data-view="editor" aria-label="文件资源">
+          <div class="search-row">
+            <input id="file-search" class="search-input" type="search" placeholder="搜索文件..." aria-label="搜索文件" />
+          </div>
+          <div class="project-group">
+            <button class="project-title nav-button" type="button" data-view="editor" aria-label="文件" title="文件">
+              <span>文件</span>
+              <small>资源管理</small>
+            </button>
+            <div id="file-list" class="stack-list task-list"></div>
+          </div>
         </section>
+
+        <section id="context-resources" class="context-panel" data-view="resources" aria-label="数据">
+          <div class="project-group">
+            <button class="project-title nav-button" type="button" data-view="resources" aria-label="数据" title="数据">
+              <span>数据中心</span>
+              <small>runs / memory</small>
+            </button>
+            <div id="resource-chat-list" class="stack-list task-list"></div>
+          </div>
+        </section>
+
+        <section id="context-settings" class="context-panel" data-view="settings" aria-label="设置">
+          <div class="project-group">
+            <button class="project-title nav-button" type="button" data-view="settings" aria-label="设置" title="设置">
+              <span>设置</span>
+              <small>Provider / 权限</small>
+            </button>
+            <div class="settings-nav">
+              <button type="button" data-settings-target="settings-api-section">API 提供商</button>
+              <button type="button" data-settings-target="settings-runtime-section">运行权限</button>
+              <button type="button" data-settings-target="settings-tools-section">工具能力</button>
+            </div>
+          </div>
+        </section>
+
+        <footer class="sidebar-footer">
+          <button class="sidebar-link nav-button" type="button" data-view="chat" aria-label="回到聊天">
+            <span aria-hidden="true">●</span>
+            聊天
+          </button>
+          <button class="sidebar-link nav-button" type="button" data-view="editor" aria-label="打开文件">
+            <span aria-hidden="true">▣</span>
+            文件
+          </button>
+          <button class="sidebar-link nav-button" type="button" data-view="resources" aria-label="打开数据">
+            <span aria-hidden="true">◇</span>
+            数据
+          </button>
+          <button class="sidebar-link nav-button" type="button" data-view="settings" aria-label="打开设置">
+            <span aria-hidden="true">⚙</span>
+            设置
+          </button>
+        </footer>
       </aside>
 
-      <main class="main-stage">
-        <header class="topbar">
-          <div>
-            <div class="eyebrow">Local workspace</div>
-            <h1>Agent Workbench</h1>
-          </div>
-          <div id="status-bar" class="status-bar" aria-label="Workbench status">
-            <span id="workspace-pill" class="workspace-pill">Loading workspace</span>
-            <span id="provider-chip" class="pill">provider</span>
-            <span id="model-chip" class="pill">model</span>
-            <span id="api-key-chip" class="pill muted">DeepSeek key</span>
-            <span id="session-chip" class="pill muted">new browser session</span>
-            <span id="last-refresh-chip" class="pill muted">Last refresh: never</span>
-            <button id="refresh-button" class="refresh-button" type="button">Refresh</button>
-          </div>
-        </header>
-        <div id="provider-notice" class="provider-notice" role="status">Checking provider...</div>
+      <div id="left-resizer" class="column-resizer" role="separator" aria-label="调整左栏宽度"></div>
 
-        <section class="conversation-panel" aria-label="Run summary and Diff Viewer">
-          <div class="conversation-header">
-            <div>
-              <div class="eyebrow">Latest run</div>
-              <h2 id="selected-run-title">No run selected</h2>
+      <main class="stage-column">
+        <header class="workspace-strip">
+          <div class="workspace-main-row">
+            <div class="top-status">
+              <span id="model-chip" class="model-name">DeepSeek</span>
+              <span id="workspace-pill" class="path-pill">正在读取工作区</span>
+              <span class="agent-dot"></span>
+              <span>Agent</span>
+              <span class="muted-dot"></span>
+              <span>本地运行</span>
             </div>
-            <div class="conversation-actions">
-              <button id="save-file-button" class="diff-button hidden" type="button">Save</button>
-              <div id="run-state" class="state-chip">read-only</div>
-            </div>
+            <button id="theme-toggle" class="icon-button" type="button" title="主题" aria-label="切换主题">☾</button>
+            <button id="refresh-button" class="icon-button" type="button" title="刷新" aria-label="刷新">↻</button>
           </div>
-          <pre id="summary-view" class="summary-view">Waiting for runs...</pre>
-          <textarea id="file-editor" class="summary-view hidden" spellcheck="false" aria-label="File editor"></textarea>
+          <div id="conversation-tabs" class="conversation-tabs" aria-label="打开的对话标签页"></div>
+        </header>
+
+        <section id="view-chat" class="app-view chat-stage active" data-view="chat" aria-label="聊天">
+          <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
+          <form id="chat-form" class="input-dock" aria-label="聊天输入">
+            <textarea id="message-input" name="message" placeholder="追加消息..." aria-label="消息"></textarea>
+            <div class="input-actions">
+              <button id="web-search-toggle" class="chip-toggle" type="button" aria-pressed="false">联网：关</button>
+              <button id="computer-read-toggle" class="chip-toggle" type="button" aria-pressed="false">电脑文件：关</button>
+              <button id="native-tools-toggle" class="chip-toggle" type="button" aria-pressed="false">原生工具：关</button>
+              <button id="thinking-toggle" class="chip-toggle" type="button" aria-pressed="true">工作过程</button>
+              <button id="send-button" class="send-button" type="submit" aria-label="发送">→</button>
+            </div>
+          </form>
         </section>
 
-        <form id="chat-form" class="input-dock" aria-label="Chat entry">
-          <textarea id="message-input" name="message" placeholder="Describe the next inspection or change..." aria-label="Message"></textarea>
-          <div class="dock-actions">
-            <button id="send-button" class="send-button" type="submit">Send</button>
+        <section id="view-editor" class="app-view editor-stage" data-view="editor" aria-label="文件编辑器">
+          <div class="tab-strip">
+            <span id="selected-file-title" class="tab active">选择文件</span>
+            <button id="save-file-button" class="ghost-button hidden" type="button">保存</button>
           </div>
-        </form>
+          <div id="summary-view" class="summary-view">
+            <section class="editor-home">
+              <div>
+                <div class="eyebrow">文件资源管理</div>
+                <h1>打开工作区文件</h1>
+                <p id="editor-workspace-path">正在读取工作区。</p>
+              </div>
+              <div>
+                <h2>当前目录</h2>
+                <div id="recent-file-list" class="stack-list flush"></div>
+              </div>
+            </section>
+          </div>
+          <textarea id="file-editor" class="file-editor hidden" spellcheck="false" aria-label="文件编辑器"></textarea>
+        </section>
+
+        <section id="view-resources" class="app-view resources-stage" data-view="resources" aria-label="数据中心">
+          <div class="section-title">
+            <h1>数据中心</h1>
+            <p>会话、运行记录、记忆和快照都来自本地工作区。</p>
+          </div>
+          <div class="resource-grid">
+            <article class="resource-panel" data-resource-panel="summary" tabindex="0">
+              <div class="resource-panel-header"><h2>状态概览</h2></div>
+              <div id="resource-summary-list" class="trace-list"></div>
+            </article>
+            <article class="resource-panel" data-resource-panel="chats" tabindex="0">
+              <div class="resource-panel-header"><h2>任务会话</h2></div>
+              <div id="resource-chat-main-list" class="stack-list flush"></div>
+            </article>
+            <article class="resource-panel" data-resource-panel="runs" tabindex="0">
+              <div class="resource-panel-header"><h2>运行记录</h2></div>
+              <div id="resource-run-list" class="stack-list flush"></div>
+            </article>
+            <article class="resource-panel" data-resource-panel="memory" tabindex="0">
+              <div class="resource-panel-header"><h2>记忆状态</h2></div>
+              <div id="resource-memory-list" class="trace-list"></div>
+            </article>
+            <article class="resource-panel" data-resource-panel="snapshots" tabindex="0" aria-label="快照">
+              <div class="resource-panel-header"><h2>快照</h2></div>
+              <div id="snapshot-list" class="trace-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-settings" class="app-view settings-stage" data-view="settings" aria-label="设置">
+          <form id="settings-form" class="settings-panel">
+            <div class="section-title">
+              <h1>设置</h1>
+              <p>这里只保存非密钥配置，API key 继续留在本地 secrets.env。</p>
+            </div>
+            <section class="settings-card" id="settings-readiness-section">
+              <h2>运行就绪</h2>
+              <div id="settings-key-status" class="settings-status">正在读取 DeepSeek key 状态。</div>
+              <div id="settings-readiness-list" class="trace-list"></div>
+            </section>
+            <label id="settings-api-section">
+              服务商
+              <select id="settings-provider" name="provider">
+                <option value="deepseek">deepseek</option>
+                <option value="fake">fake</option>
+              </select>
+            </label>
+            <label>
+              模型
+              <input id="settings-model" name="model" type="text" />
+            </label>
+            <label>
+              运行模式
+              <select id="settings-mode" name="mode">
+                <option value="guided">guided（3 步）</option>
+                <option value="auto">auto（10 步，适合编码任务）</option>
+                <option value="plan-first">plan-first（6 步）</option>
+                <option value="step">step（1 步）</option>
+              </select>
+            </label>
+            <label id="settings-runtime-section">
+              沙箱
+              <select id="settings-sandbox" name="sandbox">
+                <option value="workspace-write">workspace-write</option>
+                <option value="read-only">read-only</option>
+              </select>
+            </label>
+            <label>
+              审批
+              <select id="settings-approval" name="approval">
+                <option value="risky-confirm">risky-confirm</option>
+                <option value="always">always</option>
+              </select>
+            </label>
+            <label>
+              默认技能
+              <input id="settings-skills" name="default_skills" type="text" />
+            </label>
+            <label class="check-row">
+              <input id="settings-dry-run" name="dry_run" type="checkbox" />
+              只演练不写入
+            </label>
+            <label class="check-row">
+              <input id="settings-web-search" name="web_search_enabled" type="checkbox" />
+              联网搜索
+            </label>
+            <label class="check-row">
+              <input id="settings-computer-read" name="computer_read_enabled" type="checkbox" />
+              读取电脑文件（只读）
+            </label>
+            <label class="check-row">
+              <input id="settings-native-tools" name="native_tools" type="checkbox" />
+              原生工具调用（需端点支持）
+            </label>
+            <section class="settings-card" id="settings-tools-section">
+              <h2>Codex 可用工具</h2>
+              <div id="settings-tool-list" class="trace-list"></div>
+            </section>
+            <div class="settings-footer">
+              <div id="settings-status" class="settings-status">设置来自本地配置。</div>
+              <button class="primary-button" type="submit">保存设置</button>
+            </div>
+          </form>
+        </section>
       </main>
 
-      <aside class="details-pane">
-        <section class="detail-section">
-          <div class="section-label">Tool catalog</div>
-          <div id="tool-list" class="tool-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Activity</div>
-          <div id="activity-log" class="activity-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Workspace Risk</div>
-          <div id="workspace-risk-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Memory Review</div>
-          <div id="memory-review-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Settings Readiness</div>
-          <div id="settings-readiness-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Task Review</div>
-          <div id="task-review-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Workflow Hints</div>
-          <div id="workflow-hint-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Failure Summary</div>
-          <div id="failure-summary-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Patch Review</div>
-          <div id="patch-review-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Failure Recovery</div>
-          <div id="failure-recovery-list" class="trace-list"></div>
-        </section>
-        <section class="detail-section">
-          <div class="section-label">Log Filters</div>
-          <div class="log-filter-controls">
-            <input id="log-filter-text" type="search" placeholder="Filter action, status, summary" />
-            <select id="log-filter-terminal" aria-label="Terminal step filter">
-              <option value="all">All steps</option>
-              <option value="terminal">Terminal only</option>
-              <option value="non-terminal">Non-terminal</option>
-            </select>
+      <div id="right-resizer" class="column-resizer" role="separator" aria-label="调整右栏宽度"></div>
+
+      <aside class="assistant-column token-secondary">
+        <div class="side-tabs" role="tablist" aria-label="右侧面板">
+          <button class="side-tab active" type="button" data-side-panel="files">文件</button>
+          <button class="side-tab" type="button" data-side-panel="chat">工具</button>
+          <button class="side-tab" type="button" data-side-panel="review">审查</button>
+          <button class="side-tab" type="button" data-side-panel="terminal">终端</button>
+        </div>
+
+        <section id="side-files" class="side-panel active" data-side-panel="files" aria-label="文件">
+          <div class="secondary-title">
+            <div>
+              <span class="eyebrow">工作区</span>
+              <h2>FocusZone</h2>
+            </div>
+            <button class="icon-button" type="button" title="刷新文件" aria-label="刷新文件" onclick="window.location.reload()">↻</button>
           </div>
+          <div id="side-file-list" class="stack-list file-tree"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Run Replay</div>
-          <div id="run-replay-list" class="trace-list"></div>
-        </section>
-        <section id="approval-panel" class="detail-section approval-panel hidden">
-          <div class="section-label">Approval</div>
-          <div id="approval-action" class="tool-name">No approval pending</div>
-          <div id="approval-detail" class="trace-meta"></div>
-          <div class="approval-actions">
-            <button id="approve-button" class="approval-button" type="button">Approve</button>
-            <button id="deny-button" class="approval-button secondary" type="button">Deny</button>
+
+        <section id="side-chat" class="side-panel" data-side-panel="chat" aria-label="工具">
+          <div class="secondary-title">
+            <div>
+              <span class="eyebrow">Codex</span>
+              <h2>当前会话</h2>
+            </div>
           </div>
+          <div id="side-chat-list" class="stack-list"></div>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Trace</div>
-          <div id="tool-call-list" class="trace-list"></div>
+
+        <section id="side-review" class="side-panel" data-side-panel="review" aria-label="审查">
+          <div class="secondary-title">
+            <div>
+              <span id="session-chip" class="eyebrow">新会话</span>
+              <h2>运行审查</h2>
+            </div>
+            <button id="back-to-chat-button" class="icon-button" type="button" title="回到聊天" aria-label="回到聊天">×</button>
+          </div>
+          <div id="provider-notice" class="provider-notice" role="status">正在检查服务商...</div>
+
+          <section id="approval-panel" class="approval-panel hidden" aria-label="审批">
+            <div>
+              <div class="eyebrow">审批</div>
+              <h3 id="approval-action">暂无待审批操作</h3>
+              <p id="approval-detail"></p>
+            </div>
+            <div class="approval-actions">
+              <button id="approve-button" class="primary-button" type="button">批准</button>
+              <button id="deny-button" class="ghost-button" type="button">拒绝</button>
+            </div>
+          </section>
+
+          <section class="run-panel" aria-label="运行记录">
+            <div class="panel-header compact">
+              <div>
+                <div class="eyebrow">运行</div>
+                <h2 id="selected-run-title">未选择运行</h2>
+              </div>
+              <span id="run-state" class="state-chip">空闲</span>
+            </div>
+            <div id="run-list" class="stack-list"></div>
+          </section>
+
+          <details class="diagnostic-section" open>
+            <summary>任务审查</summary>
+            <div id="task-review-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section" open>
+            <summary>工具调用</summary>
+            <div id="tool-call-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section">
+            <summary>流程提示</summary>
+            <div id="workflow-hint-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section">
+            <summary>失败摘要</summary>
+            <div id="failure-summary-list" class="trace-list"></div>
+          </details>
+          <details class="diagnostic-section">
+            <summary>补丁审查</summary>
+            <div id="patch-review-list" class="trace-list"></div>
+          </details>
         </section>
-        <section class="detail-section">
-          <div class="section-label">Snapshots</div>
-          <div id="snapshot-list" class="trace-list"></div>
+
+        <section id="side-terminal" class="side-panel" data-side-panel="terminal" aria-label="终端">
+          <div class="secondary-title">
+            <div>
+              <span class="eyebrow">终端</span>
+              <h2>运行输出</h2>
+            </div>
+          </div>
+          <pre id="terminal-output" class="terminal-output">未选择运行。</pre>
         </section>
       </aside>
+
+      <div id="resource-detail-modal" class="resource-detail-modal hidden" role="dialog" aria-modal="true" aria-label="数据详情">
+        <article class="resource-detail-card">
+          <header>
+            <h2 id="resource-detail-title">详情</h2>
+            <button id="resource-detail-close" class="icon-button" type="button" aria-label="关闭">×</button>
+          </header>
+          <div id="resource-detail-body" class="resource-detail-body"></div>
+        </article>
+      </div>
     </div>
 
     <script src="/assets/app.js" type="module"></script>

@@ -1,7 +1,47 @@
 from pathlib import Path
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
+V03_TARGETED_TEST_COMMAND = (
+    "python -m pytest tests/core/test_actions_parse.py tests/core/test_actions_observations.py "
+    "tests/test_documents.py tests/core/test_loop_core.py tests/core/test_loop_modes.py "
+    "tests/test_cli.py tests/test_docs.py -q"
+)
+V05_TARGETED_TEST_COMMAND = "python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q"
+WORKBENCH_TARGETED_TEST_COMMAND = "python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q"
+
+
+def test_package_version_matches_v21_route() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    init_text = (ROOT / "src" / "agent" / "__init__.py").read_text(encoding="utf-8")
+
+    assert pyproject["project"]["version"] == "2.1.0"
+    assert '__version__ = "2.1.0"' in init_text
+
+
+def test_changelog_records_v21_security_hardening() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "## 2.1.0" in changelog
+    assert "安全硬化" in changelog
+
+
+def test_duplicate_interview_docx_removed() -> None:
+    assert not (ROOT / "docs" / "agent-interview-summary.docx").exists()
+
+
+def test_roadmap_progress_no_longer_has_stale_later_roadmap_table() -> None:
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+
+    assert "## Later Roadmap" not in roadmap
+
+
+def test_project_context_documents_error_recovery() -> None:
+    context = (ROOT / "PROJECT_CONTEXT.md").read_text(encoding="utf-8")
+
+    assert "max_consecutive_errors" in context
+    assert "direct helpers have been removed" in context
 
 
 def test_readme_quickstart_documents_core_cli_commands() -> None:
@@ -14,6 +54,39 @@ def test_readme_quickstart_documents_core_cli_commands() -> None:
     assert "agent config doctor" in readme
     assert "--dry-run" in readme
     assert "snapshot" in readme.lower()
+
+
+def test_readme_documents_command_allowlist_security_boundaries() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert 'allowed_commands = ["python", "pip show", "npm test"]' in readme
+    assert 'allowed_commands = ["git commit"]' in readme
+    assert "intentionally bypasses the default read-only Git restriction" in readme
+    assert "The executable token is case-insensitive" in readme
+    assert "later tokens are case-sensitive" in readme
+    assert "hard-denied shell wrappers, network commands, or dangerous commands" in readme
+    assert "still requires approval" in readme
+    assert "Approved commands run as local processes with the agent's OS permissions." in readme
+    assert "do not fully contain file, network, or subprocess access" in readme
+    assert "`allowed_commands` is capability authorization" in readme
+    assert "not an OS or container sandbox" in readme
+    assert "`pytest` and `python -m pytest` execute project code" in readme
+    assert "Built-in file and document tools enforce the configured path policy" in readme
+    assert "workspace-only by default, with explicit read-only computer access when enabled" in readme
+
+
+def test_readme_documents_auto_mode_for_coding_tasks() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert 'mode = "auto"' in readme
+    assert "default `guided` mode allows three actions" in readme
+    assert "without changing approval or sandbox rules" in readme
+
+
+def test_next_feature_handoff_marks_command_allowlist_complete() -> None:
+    handoff = (ROOT / "docs" / "next-feature-candidates.md").read_text(encoding="utf-8")
+
+    assert "命令白名单扩展（已完成）" in handoff
 
 
 def test_v01_acceptance_checklist_records_statuses_and_deferrals() -> None:
@@ -79,7 +152,7 @@ def test_readme_documents_v03_document_commands() -> None:
     assert "write_markdown_report" in readme
     assert "document dependency" in readme
     assert "python -m agent.cli doctor" in readme
-    assert "python -m pytest tests/test_actions.py tests/test_documents.py tests/test_loop.py tests/test_cli.py tests/test_docs.py -q" in readme
+    assert V03_TARGETED_TEST_COMMAND in readme
     assert "Document read tools are low-risk read-only actions" in readme
     assert "write_markdown_report is confirmation-required" in readme
     assert "v0.3 manual smoke" in readme
@@ -157,7 +230,7 @@ def test_readme_documents_v05_manual_smoke_and_success_criteria() -> None:
     assert "python -m agent.cli chat --cwd F:\\agent" in readme
     assert "python -m agent.cli chat --cwd F:\\agent --provider deepseek --model deepseek-v4-flash" in readme
     assert "python -m agent.cli runs show <run-id>" in readme
-    assert "python -m pytest tests/test_chat.py tests/test_cli.py tests/test_deepseek.py tests/test_docs.py -q" in readme
+    assert V05_TARGETED_TEST_COMMAND in readme
     assert "live chat success criteria" in readme
     assert "raw model response preview" in readme
     assert "chat_id" in readme
@@ -170,7 +243,7 @@ def test_readme_documents_v06_workbench_smoke() -> None:
 
     assert "v0.6 Visual Workbench" in readme
     assert "python -m agent.cli ui --cwd F:\\agent" in readme
-    assert "http://127.0.0.1:8765" in readme
+    assert "http://127.0.0.1:8000" in readme
     assert "browser chat turn" in readme
     assert "custom approval panel" in readme
     assert "Files panel" in readme
@@ -261,6 +334,39 @@ def test_roadmap_progress_records_overall_plan() -> None:
     assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
     assert "Core agent engine" in roadmap
     assert "Visual Workbench product" in roadmap
+
+
+def test_stdio_mcp_docs_record_config_security_scope_and_acceptance() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    direction = (ROOT / "docs" / "project-vnext-direction.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-17-stdio-mcp-dynamic-tools-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-17-stdio-mcp-dynamic-tools.md"
+    ).read_text(encoding="utf-8")
+
+    assert "~/.agent/mcp.toml" in readme
+    assert 'pass_env = ["EXAMPLE_API_KEY"]' in readme
+    assert 'cwd = "workspace"' in readme
+    assert "{workspace}" in readme
+    assert "confirmation-required" in readme
+    assert "they never send `tools/call`" in readme
+    assert "OS permissions" in readme
+    assert "agent tools list" in readme and "built-in-only inventory" in readme
+    assert "Marketplace, management UI, automatic reconnect" in readme
+    assert "本地 stdio MCP Tool" in changelog
+    assert "MCP 后端切片已完成" in direction
+    assert "尚无 MCP runtime" not in direction
+    assert "Project vNext Extension Track" in roadmap
+    assert "Full Project vNext ecosystem | In progress" in roadmap
+    assert "状态：已实施（自动门禁与真实本地验收通过）" in spec
+    assert "实施与验收证据（2026-07-18）" in spec
+    assert "不代表 Marketplace、管理 UI、远程 transport 或完整生态已经完成" in spec
+    assert "状态：** 已完成（2026-07-18）" in plan
+    assert "- [ ] Step" not in plan
 
 
 def test_v07_shell_decision_keeps_static_workbench_until_needed() -> None:
@@ -417,7 +523,7 @@ def test_v09_acceptance_records_run_risk_filters_slice() -> None:
     assert "Failure Recovery" in readme
     assert "v0.9 closeout" in readme
     assert "docs/v0.9-acceptance.md" in readme
-    assert "python -m pytest tests/test_ui.py tests/test_docs.py tests/test_cli.py -q" in readme
+    assert WORKBENCH_TARGETED_TEST_COMMAND in readme
     assert "visual agent progress" in readme
     assert "Completed slice: v0.9 run risk filters" in roadmap
     assert "Completed slice: v0.9 run replay" in roadmap

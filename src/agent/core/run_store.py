@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent.core.summary import restore_hints_by_path
+
 
 @dataclass(frozen=True)
 class RunRecord:
@@ -157,7 +159,7 @@ def _extract_snapshots(tool_calls: list[ToolCallRecord]) -> list[dict[str, str]]
 
 def _snapshot_entries_from_data(data: dict[str, Any]) -> list[dict[str, str]]:
     if isinstance(data.get("snapshots"), list):
-        hints = _restore_hints_by_path(data.get("restore_hints"))
+        hints = restore_hints_by_path(data.get("restore_hints"))
         entries = []
         for snapshot in data["snapshots"]:
             if not isinstance(snapshot, dict):
@@ -187,20 +189,6 @@ def _snapshot_entries_from_data(data: dict[str, Any]) -> list[dict[str, str]]:
             }
         ]
     return []
-
-
-def _restore_hints_by_path(raw_restore_hints: Any) -> dict[str, str]:
-    if not isinstance(raw_restore_hints, list):
-        return {}
-    result: dict[str, str] = {}
-    for item in raw_restore_hints:
-        if not isinstance(item, dict):
-            continue
-        path = item.get("path")
-        hint = item.get("hint")
-        if path and hint:
-            result[str(path)] = str(hint)
-    return result
 
 
 def _datetime_from_timestamp(timestamp: float) -> datetime:

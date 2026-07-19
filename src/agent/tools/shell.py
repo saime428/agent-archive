@@ -82,13 +82,14 @@ def execute_run_command(
     sandbox: WorkspaceSandbox,
     *,
     observation_index: int,
+    allowed_commands: tuple[str, ...] = (),
 ) -> Observation:
     argv = [str(item) for item in action.action.args["argv"]]
     timeout_seconds = _bounded_timeout(action.action.args.get("timeout_seconds"))
     cwd = context.cwd
     try:
         cwd = _resolve_cwd(action, context, sandbox)
-        denial = _policy_denial(argv)
+        denial = _policy_denial(argv, allowed_commands)
         if denial is not None:
             return make_error_observation(
                 action.action_id,
@@ -175,7 +176,10 @@ def _resolve_cwd(
     requested_cwd = action.action.args.get("cwd")
     if requested_cwd is None:
         return context.cwd
-    cwd = sandbox.resolve_read_path(str(requested_cwd))
+    cwd = sandbox.resolve_read_path(
+        str(requested_cwd),
+        allow_external=sandbox.allow_external_read,
+    )
     if not cwd.is_dir():
         raise OSError(f"Command cwd is not a directory: {cwd}")
     return cwd
@@ -186,7 +190,7 @@ def _bounded_timeout(raw_timeout: int | None) -> int:
     return min(timeout, MAX_TIMEOUT_SECONDS)
 
 
-def _policy_denial(argv: list[str]) -> str | None:
+def _policy_denial(argv: list[str], allowed_commands: tuple[str, ...] = ()) -> str | None:
     executable = _executable_name(argv[0])
     if executable in SHELL_WRAPPERS:
         return "Shell wrapper commands are not supported."
@@ -194,6 +198,8 @@ def _policy_denial(argv: list[str]) -> str | None:
         return "Network commands are disabled by policy."
     if executable in DANGEROUS_COMMANDS:
         return "Dangerous commands are denied by policy."
+    if _matches_allowed_command(argv, allowed_commands):
+        return None
     if executable in {"git", "git.exe"}:
         return _git_policy_denial(argv)
     if executable in PYTHON_COMMANDS:
@@ -201,6 +207,24 @@ def _policy_denial(argv: list[str]) -> str | None:
     if executable in {"pytest", "pytest.exe", "rg", "rg.exe"}:
         return None
     return "Command is not allowed by default."
+
+
+def _matches_allowed_command(argv: list[str], allowed_commands: tuple[str, ...]) -> bool:
+    for command in allowed_commands:
+        # ponytail: whitespace splitting cannot express one argv token containing spaces; use token arrays if needed.
+        prefix = command.split()
+        if not prefix or len(prefix) > len(argv):
+            continue
+        if (
+            _normalized_executable(argv[0]) == _normalized_executable(prefix[0])
+            and argv[1 : len(prefix)] == prefix[1:]
+        ):
+            return True
+    return False
+
+
+def _normalized_executable(executable: str) -> str:
+    return _executable_name(executable).removesuffix(".exe")
 
 
 def _validate_path_arguments(argv: list[str], sandbox: WorkspaceSandbox) -> None:
@@ -211,7 +235,7 @@ def _validate_path_arguments(argv: list[str], sandbox: WorkspaceSandbox) -> None
         if arg == "--" or arg.startswith("-"):
             continue
         if _looks_like_path_argument(arg):
-            sandbox.resolve_read_path(arg)
+            sandbox.resolve_read_path(arg, allow_external=sandbox.allow_external_read)
 
 
 def _looks_like_path_argument(arg: str) -> bool:

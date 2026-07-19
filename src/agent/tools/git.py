@@ -128,7 +128,7 @@ def _ensure_workspace_git_repo(cwd) -> None:
 
 
 def _git_relative_path(path: str, context: RunContext, sandbox: WorkspaceSandbox) -> str:
-    resolved = sandbox.resolve_read_path(path)
+    resolved = sandbox.resolve_read_path(path, allow_external=False)
     try:
         return resolved.relative_to(context.cwd).as_posix()
     except ValueError as exc:

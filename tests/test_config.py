@@ -184,3 +184,148 @@ def test_config_accepts_utf8_bom_files_written_by_windows_powershell(tmp_path) -
 
     assert config.mode == "auto"
     assert diagnostics.loaded_files == (project_config,)
+
+
+def test_max_consecutive_errors_defaults_to_three() -> None:
+    assert AgentConfig().max_consecutive_errors == 3
+
+
+def test_max_consecutive_errors_loads_from_project_config(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("max_consecutive_errors = 5\n", encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.max_consecutive_errors == 5
+    assert diagnostics.warnings == []
+
+
+def test_max_consecutive_errors_rejects_non_positive(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("max_consecutive_errors = 0\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_base_url_and_api_key_env_defaults() -> None:
+    config = AgentConfig()
+
+    assert config.base_url == ""
+    assert config.api_key_env == "OPENAI_API_KEY"
+
+
+def test_openai_compat_provider_is_valid(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\n',
+        encoding="utf-8",
+    )
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.provider == "openai-compat"
+    assert config.base_url == "http://localhost:11434/v1"
+    assert diagnostics.warnings == []
+
+
+def test_base_url_rejects_non_string(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("base_url = 3\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_api_key_env_rejects_empty_string(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text('api_key_env = " "\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_native_tools_defaults_to_false() -> None:
+    assert AgentConfig().native_tools is False
+
+
+def test_native_tools_loads_from_project_config(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("native_tools = true\n", encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.native_tools is True
+    assert diagnostics.warnings == []
+
+
+def test_native_tools_rejects_non_boolean(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text('native_tools = "yes"\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_allowed_commands_defaults_to_empty_tuple() -> None:
+    assert AgentConfig().allowed_commands == ()
+
+
+def test_allowed_commands_loads_from_project_config(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'allowed_commands = ["python", "pip show"]\n',
+        encoding="utf-8",
+    )
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.allowed_commands == ("python", "pip show")
+    assert diagnostics.warnings == []
+
+
+def test_allowed_commands_accepts_empty_project_list(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text("allowed_commands = []\n", encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.allowed_commands == ()
+    assert diagnostics.warnings == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '"python"',
+        '["python", " "]',
+        '["python", 3]',
+    ],
+)
+def test_allowed_commands_rejects_invalid_project_values(tmp_path, value: str) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(f"allowed_commands = {value}\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
+def test_allowed_commands_accepts_cli_override(tmp_path) -> None:
+    config, diagnostics = load_config(
+        tmp_path,
+        home=tmp_path / "home",
+        overrides=ConfigOverrides(allowed_commands=("npm test",)),
+    )
+
+    assert config.allowed_commands == ("npm test",)
+    assert diagnostics.warnings == []

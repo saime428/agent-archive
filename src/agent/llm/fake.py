@@ -26,12 +26,13 @@ class FakeLLMClient:
             return action
 
         task = _extract_task(messages)
+        final = _common_answer(task) or f"FakeLLM received task: {task}"
         response: dict[str, Any] = {
             "message": "Task completed by FakeLLM.",
             "action": {
                 "name": "done",
                 "args": {
-                    "final": f"FakeLLM received task: {task}",
+                    "final": final,
                     "changed_files": [],
                     "next_steps": [],
                 },
@@ -54,3 +55,16 @@ def _extract_task(messages: list[dict]) -> str:
         if message.get("role") == "user":
             return str(message.get("content", ""))
     return ""
+
+
+def _common_answer(task: str) -> str | None:
+    text = task.strip().lower()
+    if text in {"你好", "hello", "hi"}:
+        return "你好，我在。你可以直接告诉我要看哪个文件、改什么代码，或者让我检查当前项目。"
+    if "你是谁" in task:
+        return "我是这个本地 Agent Workbench 里的代码助手，负责帮你读项目、改文件、跑命令、看 diff 和整理结果。"
+    if "什么模型" in task or "哪个模型" in task:
+        return "我会按当前工作区配置调用模型；如果 provider 是 DeepSeek，就走 DeepSeek 模型，离线测试时才用 FakeLLM 占位。"
+    if "能做什么" in task or "可以做什么" in task:
+        return "我可以帮你检查项目、读写文件、搜索代码、生成 patch、查看 Git 状态和 diff、运行命令，并把过程和结果留在本地 run 记录里。"
+    return None

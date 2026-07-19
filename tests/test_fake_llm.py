@@ -29,3 +29,12 @@ def test_fake_llm_returns_injected_actions_in_order() -> None:
 
     assert client.chat([])["message"] == "first"
     assert client.chat([])["message"] == "second"
+
+
+def test_fake_llm_answers_common_chinese_questions_directly() -> None:
+    client = FakeLLMClient()
+
+    response = client.chat([{"role": "user", "content": "你能做什么？"}])
+
+    assert "读写文件" in response["action"]["args"]["final"]
+    assert "FakeLLM received task" not in response["action"]["args"]["final"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from agent.core.redaction import REDACTED, redact_record, redact_value
+from agent.core.actions import ErrorCode, make_error_observation
+from agent.core.redaction import REDACTED, redact_observation, redact_record, redact_value
 
 
 def test_redact_record_replaces_sensitive_keys() -> None:
@@ -73,3 +74,27 @@ def test_redact_record_does_not_redact_non_secret_token_budget_keys() -> None:
 
     assert result.value == {"max_tokens": 20_000, "token_budget": 1_000}
     assert result.applied is False
+
+
+def test_redact_observation_returns_a_redacted_copy_and_count() -> None:
+    secret = "sk-test-secret-123456"
+    observation = make_error_observation(
+        "act_000001",
+        "run_secret",
+        observation_index=1,
+        code=ErrorCode.TOOL_FAILED,
+        message=f"Failed with {secret}.",
+        details={"token": "plain-token-value"},
+    ).model_copy(update={"data": {"nested": f"Value: {secret}"}})
+
+    result = redact_observation(observation)
+
+    assert result.value.summary == "Failed with [REDACTED]."
+    assert result.value.error is not None
+    assert result.value.error.message == "Failed with [REDACTED]."
+    assert result.value.error.details == {"token": REDACTED}
+    assert result.value.data == {"nested": "Value: [REDACTED]"}
+    assert result.replacements == 4
+    assert result.value.run_id == observation.run_id
+    assert result.value.observation_id == observation.observation_id
+    assert secret in observation.summary
