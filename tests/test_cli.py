@@ -1,6 +1,8 @@
 import errno
 import json
+import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,10 +13,12 @@ from agent.config import AgentConfig
 from agent.core.chat import ConversationState
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.fake import FakeLLMClient
-from agent.mcp_runtime import McpRuntimeError
+from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
+
+_MCP_FIXTURE = (Path(__file__).parent / "fixtures" / "mcp_stdio_server.py").resolve()
 
 
-def _install_recording_mcp_runtime(monkeypatch, *, discovery_error=None):
+def _install_recording_mcp_runtime(monkeypatch, *, discovery_error=None, close_error=None):
     instances = []
 
     class RecordingRuntime:
@@ -32,9 +36,87 @@ def _install_recording_mcp_runtime(monkeypatch, *, discovery_error=None):
 
         def close(self) -> None:
             self.close_calls += 1
+            if close_error is not None:
+                raise close_error
 
     monkeypatch.setattr("agent.cli.McpStdioRuntime", RecordingRuntime)
     return instances
+
+
+def _install_probing_mcp_runtime(monkeypatch, *, after_discover=None):
+    instances = []
+
+    class ProbingRuntime(McpStdioRuntime):
+        def __init__(self, workspace: Path) -> None:
+            super().__init__(workspace)
+            self.close_calls = 0
+            instances.append(self)
+
+        def discover_tools(self):
+            result = super().discover_tools()
+            if after_discover is not None:
+                after_discover()
+            return result
+
+        def close(self) -> None:
+            self.close_calls += 1
+            super().close()
+
+    monkeypatch.setattr("agent.cli.McpStdioRuntime", ProbingRuntime)
+    return instances
+
+
+def _pid_exists(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_pid_exit(pid: int, *, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _pid_exists(pid):
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"process {pid} did not exit")
+
+
+def _mcp_doctor_env(tmp_path, monkeypatch) -> Path:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    return workspace
+
+
+def _set_fixture_server(runner, workspace: Path, server_id: str, *extra_args: str, pass_env: tuple[str, ...] = ()) -> None:
+    args = ["mcp", "set", server_id, "--command", str(Path(sys.executable).resolve()), f"--arg={_MCP_FIXTURE}"]
+    for value in extra_args:
+        args.append(f"--arg={value}")
+    for name in pass_env:
+        args.append(f"--pass-env={name}")
+    args.extend(["--cwd", str(workspace)])
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
 
 
 def test_doctor_reports_python_and_cwd() -> None:
@@ -1225,6 +1307,171 @@ def test_mcp_cli_refuses_to_overwrite_or_remove_manual_server(tmp_path, monkeypa
     assert removed.exit_code == 1
     assert "manual" in replaced.output.lower()
     assert manual.read_bytes() == original
+
+
+def test_mcp_doctor_reports_zero_enabled_servers_without_processes(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    started = tmp_path / "started.txt"
+    instances = _install_probing_mcp_runtime(monkeypatch)
+    runner = CliRunner()
+
+    empty_result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+    _set_fixture_server(runner, workspace, "fixture", "--start-file", str(started))
+    assert runner.invoke(app, ["mcp", "disable", "fixture", "--cwd", str(workspace)]).exit_code == 0
+    disabled_result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert empty_result.exit_code == 0
+    assert "enabled servers: 0" in empty_result.output
+    assert disabled_result.exit_code == 0
+    assert "enabled servers: 0" in disabled_result.output
+    assert "fixture\tmanaged\tdisabled\tdisabled" in disabled_result.output
+    assert instances == []
+    assert not started.exists()
+
+
+def test_mcp_doctor_probes_enabled_fixture_with_one_runtime(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    started = tmp_path / "started.txt"
+    instances = _install_probing_mcp_runtime(monkeypatch)
+    runner = CliRunner()
+    _set_fixture_server(runner, workspace, "fixture", "--start-file", str(started))
+
+    result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0, result.output
+    assert "enabled servers: 1" in result.output
+    assert "fixture\tready\t1 tools" in result.output
+    pids = [int(line) for line in started.read_text(encoding="ascii").splitlines()]
+    assert len(pids) == 1
+    _wait_for_pid_exit(pids[0])
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+
+
+def test_mcp_doctor_reports_bounded_initialize_failure_without_secrets(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    started = tmp_path / "started.txt"
+    monkeypatch.setenv("MCP_DOCTOR_SECRET", "doctor-secret-value")
+    runner = CliRunner()
+    _set_fixture_server(
+        runner,
+        workspace,
+        "fixture",
+        "--mode",
+        "crash",
+        "--start-file",
+        str(started),
+        pass_env=("MCP_DOCTOR_SECRET",),
+    )
+
+    result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "MCP" in result.output
+    assert "fixture" in result.output
+    assert "doctor-secret-value" not in result.output
+    assert "Traceback" not in result.output
+    for line in result.output.splitlines():
+        assert len(line) <= 512
+    for line in started.read_text(encoding="ascii").splitlines():
+        _wait_for_pid_exit(int(line))
+
+
+def test_mcp_doctor_fails_closed_on_config_error_before_processes(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    home = Path(os.environ["USERPROFILE"] if os.name == "nt" else os.environ["HOME"])
+    manual = home / ".agent" / "mcp.toml"
+    manual.parent.mkdir(parents=True, exist_ok=True)
+    manual.write_text('[servers.broken]\ncommand = "missing-command"\n', encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "MCP" in result.output
+    assert "broken" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_mcp_doctor_skips_disabled_bad_command_and_probes_enabled(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    home = Path(os.environ["USERPROFILE"] if os.name == "nt" else os.environ["HOME"])
+    started = tmp_path / "started.txt"
+    runner = CliRunner()
+    _set_fixture_server(runner, workspace, "fixture", "--start-file", str(started))
+    _set_fixture_server(runner, workspace, "broken")
+    assert runner.invoke(app, ["mcp", "disable", "broken", "--cwd", str(workspace)]).exit_code == 0
+    (home / ".agent" / "mcp.d" / "broken.toml").write_text('command = "missing-command"\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0, result.output
+    assert "broken\tmanaged\tdisabled\tdisabled" in result.output
+    assert "fixture\tready\t1 tools" in result.output
+    pids = [int(line) for line in started.read_text(encoding="ascii").splitlines()]
+    assert len(pids) == 1
+    _wait_for_pid_exit(pids[0])
+
+
+def test_mcp_doctor_closes_runtime_after_keyboard_interrupt(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    started = tmp_path / "started.txt"
+
+    def interrupt() -> None:
+        raise KeyboardInterrupt()
+
+    instances = _install_probing_mcp_runtime(monkeypatch, after_discover=interrupt)
+    runner = CliRunner()
+    _set_fixture_server(runner, workspace, "fixture", "--start-file", str(started))
+
+    result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code != 0
+    assert len(instances) == 1
+    assert instances[0].close_calls == 1
+    pids = [int(line) for line in started.read_text(encoding="ascii").splitlines()]
+    assert len(pids) == 1
+    _wait_for_pid_exit(pids[0])
+
+
+def test_mcp_doctor_close_failure_keeps_first_diagnostic_and_nonzero(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    runner = CliRunner()
+    _set_fixture_server(runner, workspace, "fixture")
+
+    discovery_error = McpRuntimeError(stage="discovery", server_id="fixture", message="Discovery diagnostic wins.")
+    close_error = McpRuntimeError(stage="runtime", server_id=None, message="Close cleanup failed.")
+    _install_recording_mcp_runtime(monkeypatch, discovery_error=discovery_error, close_error=close_error)
+    both_result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    _install_recording_mcp_runtime(monkeypatch, close_error=close_error)
+    close_only_result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert both_result.exit_code == 1
+    assert "Discovery diagnostic wins." in both_result.output
+    assert "Close cleanup failed." not in both_result.output
+    assert close_only_result.exit_code == 1
+    assert "Close cleanup failed." in close_only_result.output
+
+
+def test_mcp_doctor_reports_state_only_orphan_without_processes(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    home = Path(os.environ["USERPROFILE"] if os.name == "nt" else os.environ["HOME"])
+    instances = _install_probing_mcp_runtime(monkeypatch)
+    runner = CliRunner()
+    _set_fixture_server(runner, workspace, "ghost")
+    assert runner.invoke(app, ["mcp", "disable", "ghost", "--cwd", str(workspace)]).exit_code == 0
+    (home / ".agent" / "mcp.d" / "ghost.toml").unlink()
+
+    result = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+    assert runner.invoke(app, ["mcp", "remove", "ghost", "--cwd", str(workspace)]).exit_code == 0
+    cleaned = runner.invoke(app, ["mcp", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "ghost\torphan\tdisabled\torphan" in result.output
+    assert "enabled servers: 0" in result.output
+    assert cleaned.exit_code == 0
+    assert "ghost" not in cleaned.output
+    assert instances == []
 
 
 def test_skills_show_unknown_skill_returns_nonzero(tmp_path) -> None:

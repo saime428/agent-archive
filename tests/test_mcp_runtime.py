@@ -1889,3 +1889,46 @@ def test_stdio_runtime_sdk_error_redaction_and_unknown_block_are_bounded(tmp_pat
     normalized, summary = mcp_runtime_module._normalize_content_block(FutureBlock())
     assert normalized == {"type": "unknown", "omitted": True}
     assert summary is None
+
+
+def test_management_changes_do_not_alter_frozen_snapshot_until_new_runtime(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    start_file = tmp_path / "started.txt"
+    command = str(Path(sys.executable).resolve())
+    store = McpConfigStore(workspace, home=home, environ=_safe_environment())
+    store.set_server(
+        "local",
+        command=command,
+        args=(str(_STDIO_FIXTURE), "--start-file", str(start_file)),
+        pass_env=(),
+        cwd="config",
+    )
+
+    runtime = McpStdioRuntime(workspace, home=home, environ=_safe_environment())
+    try:
+        first = runtime.discover_tools()
+        assert tuple(definition.target.remote_name for definition in first) == ("echo",)
+
+        store.set_enabled("local", False)
+        store.set_server(
+            "local",
+            command=command,
+            args=(str(_STDIO_FIXTURE), "--mode", "crash"),
+            pass_env=(),
+            cwd="config",
+        )
+
+        assert runtime.discover_tools() == first
+        assert len(start_file.read_text(encoding="ascii").splitlines()) == 1
+    finally:
+        runtime.close()
+
+    fresh = McpStdioRuntime(workspace, home=home, environ=_safe_environment())
+    try:
+        assert fresh.discover_tools() == ()
+    finally:
+        fresh.close()
+    assert len(start_file.read_text(encoding="ascii").splitlines()) == 1

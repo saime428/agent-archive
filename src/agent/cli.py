@@ -675,6 +675,48 @@ def mcp_remove(
     console.print(f"removed: {server_id}")
 
 
+@mcp_app.command("doctor")
+def mcp_doctor(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory.")) -> None:
+    """Probe enabled MCP servers with one live runtime and report tool counts."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        items = _mcp_store(cwd).inventory()
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    for item in items:
+        _print_mcp_item(item)
+    enabled = [item for item in items if item.enabled]
+    console.file.write(f"enabled servers: {len(enabled)}\n")
+    if not enabled:
+        return
+
+    runtime = McpStdioRuntime(workspace)
+    failure: McpRuntimeError | None = None
+    definitions: tuple = ()
+    try:
+        definitions = runtime.discover_tools()
+    except McpRuntimeError as exc:
+        failure = exc
+    finally:
+        try:
+            runtime.close()
+        except McpRuntimeError as exc:
+            if failure is None:
+                failure = exc
+    if failure is not None:
+        _print_mcp_error(failure)
+        raise typer.Exit(code=1)
+
+    counts = {item.server_id: 0 for item in enabled}
+    for definition in definitions:
+        server_id = getattr(getattr(definition, "target", None), "server_id", None)
+        if isinstance(server_id, str) and server_id in counts:
+            counts[server_id] += 1
+    for server_id, count in counts.items():
+        console.file.write(f"{server_id}\tready\t{count} tools\n")
+
+
 @skills_app.command("list")
 def skills_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills.")) -> None:
     """List available skill metadata without loading skill bodies."""
