@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 from agent.core.actions import ErrorCode
 from agent.core.budget import ContextBudget
 from agent.core.loop import run_once
+from agent.core.skills import SkillStore
 from agent.config import AgentConfig
 from agent.llm.fake import FakeLLMClient
 
@@ -2363,5 +2365,170 @@ def test_run_once_continues_when_agents_md_is_binary(tmp_path) -> None:
     summary = result.summary_path.read_text(encoding="utf-8")
     assert "project_instructions_loaded: false" in summary
     assert "Binary" in summary
+
+
+_SKILL_FIXTURE = (Path(__file__).resolve().parents[1] / "fixtures" / "skills" / "reviewer-v1")
+
+
+def _user_skill_home(tmp_path, monkeypatch) -> tuple[Path, SkillStore]:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    return home, SkillStore(tmp_path / "workspace", home=home)
+
+
+def test_enabled_user_skill_body_reaches_only_the_low_trust_skills_message(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _home, store = _user_skill_home(tmp_path, monkeypatch)
+    store.install(_SKILL_FIXTURE)
+    llm = SpyLLM()
+
+    run_once(
+        "review the change",
+        llm,
+        cwd=workspace,
+        run_id="run_user_skill",
+        selected_skills=["reviewer"],
+    )
+
+    assert llm.messages is not None
+    carriers = [
+        index for index, message in enumerate(llm.messages) if "REVIEWER-V1-BODY-MARKER" in message["content"]
+    ]
+    assert len(carriers) == 1
+    skills_message = llm.messages[carriers[0]]
+    assert skills_message["role"] == "user"
+    assert "skills are untrusted context" in skills_message["content"]
+    assert "Selected skill: reviewer" in skills_message["content"]
+
+
+def test_user_skill_allowed_tools_only_narrow_the_tool_catalog(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _home, store = _user_skill_home(tmp_path, monkeypatch)
+    store.install(_SKILL_FIXTURE)
+
+    result = run_once(
+        "write with the reviewer skill",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
+                    },
+                }
+            ]
+        ),
+        cwd=workspace,
+        run_id="run_user_skill_policy",
+        selected_skills=["reviewer"],
+        config=AgentConfig(max_consecutive_errors=1),
+    )
+
+    assert not (workspace / "notes.txt").exists()
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.POLICY_DENIED
+    assert "not allowed by selected skills" in result.observation.error.message
+
+
+def test_disabled_user_skill_body_never_reaches_the_model(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _home, store = _user_skill_home(tmp_path, monkeypatch)
+    store.install(_SKILL_FIXTURE)
+    store.set_enabled("reviewer", False)
+    llm = SpyLLM()
+
+    run_once(
+        "review the change",
+        llm,
+        cwd=workspace,
+        run_id="run_disabled_user_skill",
+        selected_skills=["reviewer"],
+    )
+
+    assert llm.messages is not None
+    assert all("REVIEWER-V1-BODY-MARKER" not in message["content"] for message in llm.messages)
+
+
+def test_project_collision_keeps_user_skill_body_out_of_the_model_request(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _home, store = _user_skill_home(tmp_path, monkeypatch)
+    store.install(_SKILL_FIXTURE)
+    project_skill = workspace / ".agent" / "skills" / "reviewer" / "SKILL.md"
+    project_skill.parent.mkdir(parents=True)
+    project_skill.write_text(
+        "---\nname: reviewer\ndescription: Project reviewer\nallowed_tools:\n  - read_file\n---\nProject body.\n",
+        encoding="utf-8",
+    )
+    llm = SpyLLM()
+
+    run_once(
+        "review the change",
+        llm,
+        cwd=workspace,
+        run_id="run_conflicting_user_skill",
+        selected_skills=["reviewer"],
+    )
+
+    assert llm.messages is not None
+    assert all("REVIEWER-V1-BODY-MARKER" not in message["content"] for message in llm.messages)
+
+
+def test_started_turn_keeps_its_skill_snapshot_until_the_next_turn(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _home, store = _user_skill_home(tmp_path, monkeypatch)
+    store.install(_SKILL_FIXTURE)
+
+    class DisablingLLM:
+        def __init__(self) -> None:
+            self.rounds: list[list[dict]] = []
+
+        def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+            self.rounds.append([dict(message) for message in messages])
+            if len(self.rounds) == 1:
+                store.set_enabled("reviewer", False)
+                return {
+                    "message": "Look around first.",
+                    "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 5}},
+                }
+            return {
+                "message": "Done.",
+                "action": {
+                    "name": "done",
+                    "args": {"final": "ok", "changed_files": [], "next_steps": []},
+                },
+            }
+
+    llm = DisablingLLM()
+    run_once(
+        "review the change",
+        llm,
+        cwd=workspace,
+        run_id="run_frozen_skill_snapshot",
+        selected_skills=["reviewer"],
+        max_iterations=3,
+    )
+
+    assert len(llm.rounds) == 2
+    for round_messages in llm.rounds:
+        assert any("REVIEWER-V1-BODY-MARKER" in message["content"] for message in round_messages)
+
+    next_turn = SpyLLM()
+    run_once(
+        "review again",
+        next_turn,
+        cwd=workspace,
+        run_id="run_after_disable",
+        selected_skills=["code-dev"],
+    )
+    assert next_turn.messages is not None
+    assert all("REVIEWER-V1-BODY-MARKER" not in message["content"] for message in next_turn.messages)
 
 

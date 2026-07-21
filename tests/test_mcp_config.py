@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import errno
 import json
 import os
 import subprocess
@@ -11,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import agent._user_store as user_store_module
 import agent.mcp_config as mcp_config_module
 from agent.mcp_config import McpConfigStore, McpRuntimeError, McpServerConfig, load_mcp_server_configs
 
@@ -331,17 +331,8 @@ def test_atomic_state_publish_failure_keeps_previous_bytes(tmp_path, monkeypatch
     assert not list(state.parent.glob(f".{state.name}.agent-*"))
 
 
-def test_directory_sync_propagates_real_io_failures(tmp_path, monkeypatch) -> None:
-    def fail_sync(_descriptor: int) -> None:
-        raise OSError(errno.EIO, "simulated directory sync failure")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(mcp_config_module.os, "name", "posix")
-        patch.setattr(mcp_config_module.os, "open", lambda _path, _flags: 42)
-        patch.setattr(mcp_config_module.os, "fsync", fail_sync)
-        patch.setattr(mcp_config_module.os, "close", lambda _descriptor: None)
-        with pytest.raises(McpRuntimeError, match="synchronize"):
-            mcp_config_module._sync_directory(tmp_path)
+# Directory-sync failure is covered once against the shared primitive in
+# tests/test_user_store.py; MCP only adapts the error type.
 
 
 def test_managed_store_rejects_linked_fragment_directory(tmp_path) -> None:
@@ -424,7 +415,7 @@ def test_lock_timeout_and_os_release_after_holder_termination(tmp_path, monkeypa
         while not ready.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         assert ready.exists()
-        monkeypatch.setattr(mcp_config_module, "_LOCK_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr(user_store_module, "LOCK_TIMEOUT_SECONDS", 0.05)
         with pytest.raises(McpRuntimeError, match="busy"):
             store.inventory()
     finally:
@@ -636,17 +627,17 @@ def test_valid_transaction_record_without_owner_cannot_mutate_target_or_state(tm
 
 def test_owner_write_failure_cleans_current_transaction_and_allows_retry(tmp_path, monkeypatch) -> None:
     store, _, home = _make_store(tmp_path)
-    real_write_new_file = mcp_config_module._write_new_file
+    real_write_new_file = user_store_module.write_new_file
     failed = False
 
     def fail_owner_once(path: Path, data: bytes) -> None:
         nonlocal failed
         if path.name == ".owner" and not failed:
             failed = True
-            raise McpRuntimeError(stage="config", server_id=None, message="injected owner failure")
+            raise user_store_module.UserStoreError("injected owner failure")
         real_write_new_file(path, data)
 
-    monkeypatch.setattr(mcp_config_module, "_write_new_file", fail_owner_once)
+    monkeypatch.setattr(user_store_module, "write_new_file", fail_owner_once)
     with pytest.raises(McpRuntimeError, match="injected owner failure"):
         _set(store, "alpha")
 
@@ -664,11 +655,11 @@ def test_transaction_directory_uuid_collision_preserves_existing_evidence(tmp_pa
     def colliding_uuid():
         evidence.parent.mkdir()
         evidence.write_text("keep\n", encoding="utf-8")
-        return mcp_config_module.uuid.UUID(hex="c" * 32)
+        return user_store_module.uuid.UUID(hex="c" * 32)
 
-    monkeypatch.setattr(mcp_config_module.uuid, "uuid4", colliding_uuid)
+    monkeypatch.setattr(user_store_module.uuid, "uuid4", colliding_uuid)
 
-    with pytest.raises(McpRuntimeError, match="prepare"):
+    with pytest.raises(McpRuntimeError, match="transaction directory"):
         _set(store, "alpha")
 
     assert evidence.read_text(encoding="utf-8") == "keep\n"

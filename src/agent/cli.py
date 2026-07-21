@@ -16,7 +16,7 @@ from agent.core.chat import ChatSession, ConversationState
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
-from agent.core.skills import SkillError, discover_skills, load_selected_skills
+from agent.core.skills import SkillError, SkillInventoryItem, SkillStore, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
 from agent.llm.deepseek import DEFAULT_DEEPSEEK_BASE_URL, DeepSeekError, smoke_deepseek_provider
 from agent.llm.factory import make_llm as make_llm_client
@@ -717,18 +717,95 @@ def mcp_doctor(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace di
         console.file.write(f"{server_id}\tready\t{count} tools\n")
 
 
+def _skill_store(cwd: Path | None) -> SkillStore:
+    return SkillStore((cwd or Path.cwd()).resolve())
+
+
+def _print_skill_item(item: SkillInventoryItem) -> None:
+    enabled = "enabled" if item.enabled else "disabled"
+    suffix = f"\t{_bounded_mcp_text(item.message)}" if item.message else ""
+    console.file.write(f"{item.name}\t{item.source}\t{enabled}\t{item.status}{suffix}\n")
+
+
 @skills_app.command("list")
 def skills_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills.")) -> None:
-    """List available skill metadata without loading skill bodies."""
-    workspace = (cwd or Path.cwd()).resolve()
+    """List every skill source and status without loading skill bodies."""
     try:
-        catalog = discover_skills(workspace)
+        items = _skill_store(cwd).inventory()
     except SkillError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    for skill in catalog.values():
-        tools = ",".join(skill.allowed_tools)
-        console.file.write(f"{skill.name}\t{skill.source}\ttools: {tools}\t{skill.description}\n")
+    for item in items:
+        _print_skill_item(item)
+
+
+@skills_app.command("validate")
+def skills_validate(
+    source: Path,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Validate a candidate skill directory without writing files."""
+    try:
+        item = _skill_store(cwd).validate_directory(source)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    _print_skill_item(item)
+
+
+@skills_app.command("install")
+def skills_install(
+    source: Path,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Install one candidate skill directory into the user store."""
+    try:
+        item = _skill_store(cwd).install(source)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    _print_skill_item(item)
+
+
+def _set_skill_enabled(name: str, enabled: bool, cwd: Path | None) -> None:
+    try:
+        item = _skill_store(cwd).set_enabled(name, enabled)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    _print_skill_item(item)
+
+
+@skills_app.command("enable")
+def skills_enable(
+    name: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Enable one installed user skill."""
+    _set_skill_enabled(name, True, cwd)
+
+
+@skills_app.command("disable")
+def skills_disable(
+    name: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Disable one installed user skill."""
+    _set_skill_enabled(name, False, cwd)
+
+
+@skills_app.command("remove")
+def skills_remove(
+    name: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Remove one user skill or a state-only orphan."""
+    try:
+        _skill_store(cwd).remove(name)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"removed: {name}")
 
 
 @skills_app.command("show")

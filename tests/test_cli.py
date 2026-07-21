@@ -1474,6 +1474,77 @@ def test_mcp_doctor_reports_state_only_orphan_without_processes(tmp_path, monkey
     assert instances == []
 
 
+_SKILL_FIXTURE = (Path(__file__).parent / "fixtures" / "skills" / "reviewer-v1").resolve()
+
+
+def test_skills_cli_runs_the_install_disable_enable_remove_loop(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    runner = CliRunner()
+
+    validated = runner.invoke(app, ["skills", "validate", str(_SKILL_FIXTURE), "--cwd", str(workspace)])
+    installed = runner.invoke(app, ["skills", "install", str(_SKILL_FIXTURE), "--cwd", str(workspace)])
+    listed = runner.invoke(app, ["skills", "list", "--cwd", str(workspace)])
+    disabled = runner.invoke(app, ["skills", "disable", "reviewer", "--cwd", str(workspace)])
+    shown_while_disabled = runner.invoke(app, ["skills", "show", "reviewer", "--cwd", str(workspace)])
+    enabled = runner.invoke(app, ["skills", "enable", "reviewer", "--cwd", str(workspace)])
+    removed = runner.invoke(app, ["skills", "remove", "reviewer", "--cwd", str(workspace)])
+    listed_after = runner.invoke(app, ["skills", "list", "--cwd", str(workspace)])
+
+    assert [result.exit_code for result in (validated, installed, listed, disabled, enabled, removed)] == [0] * 6
+    assert "reviewer\tuser\tenabled\tvalid" in validated.output
+    assert "reviewer\tuser\tenabled\tvalid" in installed.output
+    assert "reviewer\tuser\tenabled\tvalid" in listed.output
+    assert "code-dev\tbuiltin\tenabled\tvalid" in listed.output
+    assert "reviewer\tuser\tdisabled\tdisabled" in disabled.output
+    assert shown_while_disabled.exit_code == 1
+    assert "disabled" in shown_while_disabled.output
+    assert "reviewer\tuser\tenabled\tvalid" in enabled.output
+    assert "removed: reviewer" in removed.output
+    assert "reviewer" not in listed_after.output
+
+
+def test_skills_list_never_prints_skill_bodies(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    runner = CliRunner()
+    assert runner.invoke(app, ["skills", "install", str(_SKILL_FIXTURE), "--cwd", str(workspace)]).exit_code == 0
+
+    listed = runner.invoke(app, ["skills", "list", "--cwd", str(workspace)])
+    shown = runner.invoke(app, ["skills", "show", "reviewer", "--cwd", str(workspace)])
+
+    assert "REVIEWER-V1-BODY-MARKER" not in listed.output
+    assert "REVIEWER-V1-BODY-MARKER" in shown.output
+
+
+def test_skills_cli_refuses_to_remove_builtin_or_project_skills(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    project = workspace / ".agent" / "skills" / "planner" / "SKILL.md"
+    project.parent.mkdir(parents=True)
+    project.write_text(
+        "---\nname: planner\ndescription: Project planner\nallowed_tools:\n  - read_file\n---\nPlan.\n",
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+
+    builtin = runner.invoke(app, ["skills", "remove", "code-dev", "--cwd", str(workspace)])
+    project_removal = runner.invoke(app, ["skills", "remove", "planner", "--cwd", str(workspace)])
+
+    assert builtin.exit_code == 1
+    assert project_removal.exit_code == 1
+    assert project.is_file()
+
+
+def test_skills_install_reports_unsafe_candidate_without_traceback(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+
+    result = CliRunner().invoke(app, ["skills", "install", str(candidate), "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "SKILL.md" in result.output
+    assert "Traceback" not in result.output
+
+
 def test_skills_show_unknown_skill_returns_nonzero(tmp_path) -> None:
     runner = CliRunner()
 
