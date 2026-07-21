@@ -131,14 +131,17 @@ def build_skills_message(skills: list[SkillMetadata]) -> dict[str, str] | None:
     return {"role": "user", "content": "\n\n".join(sections)}
 
 
-def _skill_paths(cwd: Path, *, home: Path | None = None) -> list[tuple[Path, str]]:
+def _packaged_skill_paths(workspace: Path) -> list[tuple[Path, str]]:
+    """Builtin and project documents, in the order that lets project win."""
     builtin_root = Path(__file__).resolve().parents[1] / "builtin_skills"
-    paths: list[tuple[Path, str]] = []
-    for path in sorted(builtin_root.glob(f"*/{_SKILL_DOCUMENT}")):
-        paths.append((path, "builtin"))
-    project_root = cwd.resolve() / ".agent" / _STORE_DIR
-    for path in sorted(project_root.glob(f"*/{_SKILL_DOCUMENT}")):
-        paths.append((path, "project"))
+    paths = [(path, "builtin") for path in sorted(builtin_root.glob(f"*/{_SKILL_DOCUMENT}"))]
+    project_root = workspace / ".agent" / _STORE_DIR
+    paths.extend((path, "project") for path in sorted(project_root.glob(f"*/{_SKILL_DOCUMENT}")))
+    return paths
+
+
+def _skill_paths(cwd: Path, *, home: Path | None = None) -> list[tuple[Path, str]]:
+    paths = _packaged_skill_paths(cwd.resolve())
     file_sources = {path.parent.name: source for path, source in paths}
     for path in _enabled_user_skill_paths(cwd, home=home):
         existing = file_sources.get(path.parent.name)
@@ -395,6 +398,7 @@ class SkillStore:
         if conflict is not None:
             raise SkillError(f"A {conflict} skill cannot be updated by this command.")
         self._require_safe_name(name)
+        disabled: set[str] = set()
         with self._candidate_directory(source) as directory:
             candidate_name, entries = self._inspect_candidate(directory)
             with self._locked() as root:
@@ -406,7 +410,7 @@ class SkillStore:
                         f"Candidate skill name {candidate_name!r} does not match the update target {name!r}."
                     )
                 assert root is not None
-                disabled = set(self._read_state(root))
+                disabled |= set(self._read_state(root))
                 self._publish_transaction(
                     root,
                     operation="update",
@@ -753,13 +757,7 @@ class SkillStore:
         return name
 
     def _file_sources(self) -> dict[str, str]:
-        builtin_root = Path(__file__).resolve().parents[1] / "builtin_skills"
-        sources: dict[str, str] = {}
-        for path in sorted(builtin_root.glob(f"*/{_SKILL_DOCUMENT}")):
-            sources[path.parent.name] = "builtin"
-        for path in sorted((self._workspace / ".agent" / _STORE_DIR).glob(f"*/{_SKILL_DOCUMENT}")):
-            sources[path.parent.name] = "project"
-        return sources
+        return {path.parent.name: source for path, source in _packaged_skill_paths(self._workspace)}
 
     def _agent_root(self, *, create: bool) -> Path | None:
         root = self._home / ".agent"

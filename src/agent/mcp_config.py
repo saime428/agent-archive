@@ -821,12 +821,12 @@ class McpConfigStore:
         entries = self._transaction_entries(tx, require_owner=not trusted_new)
         if not allow_missing_record and not any(path.name == "record.json" for path in entries):
             raise _config_error("MCP transaction record is missing.")
+        transactions = tx.parent
         try:
             for path in entries:
                 path.unlink()
             tx.rmdir()
-            transactions = tx.parent
-            if not any(transactions.iterdir()):
+            if _lexists(transactions) and not any(transactions.iterdir()):
                 transactions.rmdir()
             _sync_directory(root)
         except OSError as exc:

@@ -428,7 +428,12 @@ def remove_tree(path: Path, *, message: str) -> None:
                 try:
                     entry.unlink()
                 except OSError as exc:
-                    raise UserStoreError(message) from exc
+                    # A Windows directory junction is a link that only rmdir
+                    # removes; never descend into it either way.
+                    try:
+                        entry.rmdir()
+                    except OSError:
+                        raise UserStoreError(message) from exc
             else:
                 stack.append(entry)
     for directory in reversed(directories):
