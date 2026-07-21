@@ -895,8 +895,8 @@ def test_run_and_chat_help_explain_approval_never_is_fail_closed() -> None:
     assert run_help.exit_code == 0
     assert chat_help.exit_code == 0
     for output in (run_help.output, chat_help.output):
-        assert "never denies actions" in output
-        assert "that would require confirmation" in output
+        rendered_text = " ".join(output.replace("│", " ").split())
+        assert "never denies actions that would require confirmation" in rendered_text
 
 
 def test_run_invalid_config_returns_nonzero(tmp_path) -> None:
