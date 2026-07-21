@@ -6,7 +6,7 @@ allowed_tools:
   - search_files
 ---
 
-REVIEWER-V1-BODY-MARKER
+REVIEWER-V1-BODY-MARKER revision:v1
 
 Read the change, then report correctness and safety findings.
 Prefer the smallest correct fix over a rewrite.

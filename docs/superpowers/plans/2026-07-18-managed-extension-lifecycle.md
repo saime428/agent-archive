@@ -1,7 +1,7 @@
 # 实施计划：可管理的本地 MCP 与 Skills 生命周期
 
 - 日期：2026-07-18
-- 状态：已审查，待实施
+- 状态：已执行（Task 1-5 均已实现、验证并按 Task 提交）
 - 设计：[2026-07-18-managed-extension-lifecycle-design.md](../specs/2026-07-18-managed-extension-lifecycle-design.md)
 - Implementation base：`a8f824e4d8c09e9458bf6d57984d4c25addf3715`
 - 工作分支：`codex/mcp-server-fault-isolation`

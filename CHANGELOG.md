@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- 可管理的本地扩展生命周期：MCP 增加 managed fragment、启停状态与 `agent mcp list/validate/set/enable/disable/remove/doctor`，手写 `mcp.toml` 保持只读兼容；Skills 增加用户级 store 与 `agent skills validate/install/enable/disable/update/package/remove/doctor`，支持目录与 `.skill.zip` 两种本地来源。共享的用户存储原语（文件锁、canonical path、原子发布、事务记录）收敛到一处，崩溃后只能观察到完整旧状态或完整新状态；静态命令从不启动 Server，`doctor` 是唯一 live probe；不含 Marketplace、registry、远程来源、Workbench 写接口或自动重连。
+- Skill 文档兼容 UTF-8 BOM：Windows 编辑器保存的 `SKILL.md` 不再被误报为缺少 frontmatter，与用户 MCP 配置读取保持同一容忍度。
+- MCP Server 故障隔离：`ready` 之后单台 Server 的 request timeout、进程退出或 transport 失败只淘汰该 Server，健康 Server 与内置 Tool 继续可用；首次 discovery 仍为全有或全无，且不自动重放或重连。原生工具调用的空 `arguments` 现在等价于 `{}`，不再进入 repair 通道。
+
 - MCP 故障隔离与兼容性：Runtime ready 后单个 stdio Server 的 timeout、EOF、退出或 transport/protocol 故障只淘汰该 Server，其他 MCP 与内置 Tool 继续可用；OpenAI-compatible 空白 `arguments` 归一化为 `{}`，非空畸形 JSON 仍走 repair。
 - 本地 stdio MCP Tool：新增用户级配置、官方 SDK 生命周期与动态 Tool Catalog；CLI、Chat 和 Workbench 共用现有 schema 校验、Skill、policy、逐次审批、observation、脱敏与 trace，并在退出或失败时关闭 Server 进程。
 - Workbench 编码任务验收修复：流式模型碎片按小批次写入 SSE，设置页可切换 `mode`，`code-dev` 明确优先最简正确改动与标准库。

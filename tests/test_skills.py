@@ -635,3 +635,109 @@ def test_doctor_reports_disabled_defaults_orphans_and_collisions(tmp_path) -> No
     collision = store.doctor(default_skills=[])
     assert collision.healthy is False
     assert any("same name" in problem or "conflict" in problem for problem in collision.problems)
+
+
+_BOM_DOCUMENT = (
+    b"\xef\xbb\xbf---\nname: bom\ndescription: Saved by a Windows editor\n"
+    b"allowed_tools:\n  - read_file\n---\nBOM-BODY-MARKER\n"
+)
+
+
+def test_skill_document_with_a_utf8_bom_is_accepted(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    candidate = tmp_path / "candidates" / "bom"
+    candidate.mkdir(parents=True)
+    (candidate / "SKILL.md").write_bytes(_BOM_DOCUMENT)
+
+    assert store.validate_source(candidate).name == "bom"
+    store.install(candidate)
+
+    assert discover_skills(workspace, home=home)["bom"].source == "user"
+    loaded = load_selected_skills(workspace, ["bom"], max_chars=2_000, home=home)
+    assert "BOM-BODY-MARKER" in loaded[0].body
+    assert not loaded[0].name.startswith("﻿")
+
+
+def _break_installed_skill(home: Path, name: str) -> Path:
+    """Simulate a delete that died after unlinking the document."""
+    installed = home / ".agent" / "skills" / name
+    (installed / "SKILL.md").unlink()
+    return installed
+
+
+def test_directory_without_a_document_is_visible_removable_and_never_silently_deleted(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    installed = _break_installed_skill(home, "reviewer")
+    (installed / "user-data.txt").write_text("keep me\n", encoding="utf-8")
+
+    reported = {item.name: item for item in store.inventory()}["reviewer"]
+    assert (reported.source, reported.status, reported.enabled) == ("user", "invalid", False)
+    assert "SKILL.md" in (reported.message or "")
+
+    # A reinstall must refuse rather than replace or delete the occupied name.
+    with pytest.raises(SkillError, match="already exists"):
+        store.install(_FIXTURE_SKILL)
+    assert (installed / "user-data.txt").read_text(encoding="utf-8") == "keep me\n"
+
+    # Discovery keeps ignoring it, so a broken directory never breaks a run.
+    assert "reviewer" not in discover_skills(workspace, home=home)
+
+    store.remove("reviewer")
+    assert not installed.exists()
+    store.install(_FIXTURE_SKILL)
+    assert discover_skills(workspace, home=home)["reviewer"].source == "user"
+
+
+def test_doctor_reports_a_directory_without_a_document(tmp_path) -> None:
+    store, _, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    _break_installed_skill(home, "reviewer")
+
+    report = store.doctor(default_skills=[])
+
+    assert report.healthy is False
+    assert any("reviewer" in problem for problem in report.problems)
+
+
+def test_archive_rejects_stream_and_trailing_punctuation_member_names(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    stream = _write_archive(
+        tmp_path / "stream.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), ("note.txt:hidden", b"payload")],
+    )
+    trailing = _write_archive(
+        tmp_path / "trailing.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), ("note.txt. ", b"payload")],
+    )
+
+    with pytest.raises(SkillError, match="unsafe path component"):
+        store.validate_source(stream)
+    with pytest.raises(SkillError, match="unsafe path component"):
+        store.validate_source(trailing)
+
+
+def test_oversized_archive_is_rejected_before_it_is_parsed(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    archive = tmp_path / "huge.skill.zip"
+    archive.write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+
+    with pytest.raises(SkillError, match="8 MiB"):
+        store.validate_source(archive)
+
+
+def test_publish_failure_reports_the_failing_step(tmp_path, monkeypatch) -> None:
+    import agent.core.skills as skills_module
+
+    store, _, _ = _store(tmp_path)
+    real_replace = skills_module.os.replace
+
+    def failing_replace(source, target):
+        if Path(target).name == "reviewer":
+            raise OSError("simulated rename failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(skills_module.os, "replace", failing_replace)
+
+    with pytest.raises(SkillError, match="simulated rename failure"):
+        store.install(_FIXTURE_SKILL)

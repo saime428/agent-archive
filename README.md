@@ -109,6 +109,102 @@ Marketplace, management UI, automatic reconnect, or install/update lifecycle.
 `agent tools list` intentionally remains a built-in-only inventory and does
 not start configured MCP servers.
 
+### Managed MCP configuration
+
+Hand-written `~/.agent/mcp.toml` keeps working unchanged. Managed servers add
+`~/.agent/mcp.d/<server-id>.toml` fragments plus `~/.agent/mcp-state.json`,
+which records only the disabled server IDs:
+
+```powershell
+agent mcp list
+agent mcp validate <server-id>
+agent mcp set <server-id> --command C:\Python313\python.exe --arg D:\mcp\server.py --pass-env EXAMPLE_API_KEY
+agent mcp enable <server-id>
+agent mcp disable <server-id>
+agent mcp remove <server-id>
+agent mcp doctor
+```
+
+`list`, `validate`, `set`, `enable`, `disable`, and `remove` are static: they
+never start a server process. Only `agent mcp doctor` starts the currently
+enabled servers, and it does so through one Runtime that always closes in a
+single `finally`. Manual `mcp.toml` entries are read-only to these commands;
+`set` and `remove` refuse to touch them. A state entry whose source has
+disappeared is reported as an `orphan`, is ignored by normal runs, and can be
+cleaned with `agent mcp remove`.
+
+Configuration is still snapshotted per process. `enable`, `disable`, and `set`
+never change a Runtime that has already discovered its tools; restart the CLI
+or Workbench, or start a new run, before the new state applies.
+
+### Managed local skills
+
+Skills load from three sources: packaged builtins, project
+`.agent/skills/<name>/`, and user `~/.agent/skills/<name>/`. Project skills
+still override builtins. A user skill that collides with a builtin or project
+name fails closed with an actionable diagnostic instead of silently shadowing
+it; `~/.agent/skills-state.json` records only the disabled user skill names.
+
+```powershell
+agent skills list
+agent skills show <name>
+agent skills validate <source>
+agent skills install <source>
+agent skills enable <name>
+agent skills disable <name>
+agent skills update <name> <source>
+agent skills package <name> --output D:\out\<name>.skill.zip
+agent skills remove <name>
+agent skills doctor
+```
+
+A source is either a local directory whose root contains `SKILL.md`, or a
+`.skill.zip` archive produced by `agent skills package` whose root contains
+`SKILL.md`. URLs, Git clones, and registry IDs are not supported; fetch the
+files yourself first. The frontmatter `name` is authoritative, so a source
+directory may carry a version suffix while the installed directory always
+matches the frontmatter name.
+
+Candidates are validated before and after staging: at most 128 regular files,
+8 MiB total, 1 MiB per file, and 256 KiB for `SKILL.md`. Absolute paths, drive
+letters, UNC paths, `..`, NUL, symlinks, junctions, reparse points, and device
+files are rejected, and archives are streamed member by member instead of
+being unpacked wholesale. Scripts, templates, and other ordinary resources are
+copied but never executed by `validate`, `install`, `update`, `package`, or
+`doctor`.
+
+`install` only creates a new skill and enables it without touching
+`default_skills`; `update` requires an existing user skill and a candidate with
+the same name, keeps the disabled state, and leaves the old version in place if
+the candidate fails. `package` writes a temporary file next to the output,
+verifies the whole archive, and then publishes it with a no-clobber hard link,
+so an existing target is never overwritten. `enable`, `disable`, `update`,
+`package`, and `remove` apply to user skills only; builtin and project skills
+are managed by the package and the project.
+
+Skill content stays untrusted context. Installing or enabling a skill never
+widens the Tool catalog, bypasses policy or approval, or raises instruction
+priority; `allowed_tools` can only narrow what a run may call.
+
+### Recovering managed extensions
+
+Every user-level write takes `~/.agent/.extension.lock`, publishes single files
+through a temporary file plus `os.replace`, and routes directory or
+state changes through `~/.agent/.extension-transactions/`. A new process
+recovers its own interrupted transaction before reading, so it observes either
+the complete old state or the complete new state, never a missing target or a
+mixed pair.
+
+If a command reports a malformed record, several conflicting transactions, an
+untrusted ownership marker, or a failed recovery, it fails closed and keeps the
+evidence rather than guessing what to delete. Run `agent mcp doctor` and
+`agent skills doctor` to see what is affected, then remove only the reported
+item with `agent mcp remove` or `agent skills remove`.
+
+This slice stays local: there is no Marketplace, registry, URL or Git install,
+Workbench write interface, automatic reconnect, or Provider capability
+negotiation.
+
 ### Additional command allowlist
 
 `run_command` keeps a small safe default set. Add explicit argv prefixes only when a project needs more commands:

@@ -256,6 +256,9 @@ def write_new_file(path: Path, data: bytes) -> None:
 
 
 def sync_directory(path: Path) -> None:
+    # ponytail: no directory fsync on Windows, so ordering survives a crashed
+    # process but not a power loss; upgrade path is FlushFileBuffers on a
+    # CreateFileW directory handle if durability across power loss is needed.
     if os.name == "nt":
         return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)

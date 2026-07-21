@@ -566,7 +566,7 @@ def _mcp_store(cwd: Path | None) -> McpConfigStore:
     return McpConfigStore(cwd or Path.cwd())
 
 
-def _bounded_mcp_text(value: str) -> str:
+def _bounded_text(value: str) -> str:
     text = " ".join(value.splitlines())
     if len(text) <= MCP_CLI_TEXT_LIMIT:
         return text
@@ -574,12 +574,12 @@ def _bounded_mcp_text(value: str) -> str:
 
 
 def _print_mcp_error(exc: McpRuntimeError) -> None:
-    console.file.write(f"{_bounded_mcp_text(str(exc))}\n")
+    console.file.write(f"{_bounded_text(str(exc))}\n")
 
 
 def _print_mcp_item(item: McpInventoryItem) -> None:
     enabled = "enabled" if item.enabled else "disabled"
-    suffix = f"\t{_bounded_mcp_text(item.message)}" if item.message else ""
+    suffix = f"\t{_bounded_text(item.message)}" if item.message else ""
     console.file.write(f"{item.server_id}\t{item.source}\t{enabled}\t{item.status}{suffix}\n")
 
 
@@ -721,9 +721,15 @@ def _skill_store(cwd: Path | None) -> SkillStore:
     return SkillStore((cwd or Path.cwd()).resolve())
 
 
+def _print_skill_error(exc: SkillError) -> None:
+    # Skill diagnostics quote untrusted document content, so they bypass Rich
+    # markup exactly like MCP errors do.
+    console.file.write(f"{_bounded_text(str(exc))}\n")
+
+
 def _print_skill_item(item: SkillInventoryItem) -> None:
     enabled = "enabled" if item.enabled else "disabled"
-    suffix = f"\t{_bounded_mcp_text(item.message)}" if item.message else ""
+    suffix = f"\t{_bounded_text(item.message)}" if item.message else ""
     console.file.write(f"{item.name}\t{item.source}\t{enabled}\t{item.status}{suffix}\n")
 
 
@@ -733,7 +739,7 @@ def skills_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
     try:
         items = _skill_store(cwd).inventory()
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     for item in items:
         _print_skill_item(item)
@@ -748,7 +754,7 @@ def skills_validate(
     try:
         item = _skill_store(cwd).validate_source(source)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     _print_skill_item(item)
 
@@ -762,7 +768,7 @@ def skills_install(
     try:
         item = _skill_store(cwd).install(source)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     _print_skill_item(item)
 
@@ -771,7 +777,7 @@ def _set_skill_enabled(name: str, enabled: bool, cwd: Path | None) -> None:
     try:
         item = _skill_store(cwd).set_enabled(name, enabled)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     _print_skill_item(item)
 
@@ -804,7 +810,7 @@ def skills_update(
     try:
         item = _skill_store(cwd).update(name, source)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     _print_skill_item(item)
 
@@ -819,7 +825,7 @@ def skills_package(
     try:
         target = _skill_store(cwd).package(name, output)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     console.print(f"packaged: {target}")
 
@@ -833,7 +839,7 @@ def skills_remove(
     try:
         _skill_store(cwd).remove(name)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     console.print(f"removed: {name}")
 
@@ -850,13 +856,13 @@ def skills_doctor(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace
     try:
         report = _skill_store(cwd).doctor(default_skills=config.default_skills)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
     for item in report.items:
         _print_skill_item(item)
     console.file.write(f"default skills: {','.join(config.default_skills)}\n")
     for problem in report.problems:
-        console.file.write(f"problem: {_bounded_mcp_text(problem)}\n")
+        console.file.write(f"problem: {_bounded_text(problem)}\n")
     console.file.write(f"skills healthy: {str(report.healthy).lower()}\n")
     if not report.healthy:
         raise typer.Exit(code=1)
@@ -872,17 +878,18 @@ def skills_show(
     try:
         skills = load_selected_skills(workspace, [name], max_chars=20_000)
     except SkillError as exc:
-        console.print(str(exc))
+        _print_skill_error(exc)
         raise typer.Exit(code=1) from exc
+    # Everything below quotes untrusted skill content, so it bypasses markup.
     skill = skills[0]
-    console.print(f"name: {skill.name}")
-    console.print(f"description: {skill.description}")
-    console.print(f"source: {skill.source}")
-    console.print("allowed_tools:")
+    console.file.write(f"name: {skill.name}\n")
+    console.file.write(f"description: {skill.description}\n")
+    console.file.write(f"source: {skill.source}\n")
+    console.file.write("allowed_tools:\n")
     for tool_name in skill.allowed_tools:
-        console.print(f"- {tool_name}")
-    console.print("")
-    console.print(skill.body or "")
+        console.file.write(f"- {tool_name}\n")
+    console.file.write("\n")
+    console.file.write(f"{skill.body or ''}\n")
 
 
 @memory_app.command("review")

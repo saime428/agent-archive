@@ -21,14 +21,6 @@ _SERVER_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+\Z", re.ASCII)
 _ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z", re.ASCII)
 _SERVER_FIELDS = {"command", "args", "pass_env", "cwd"}
 _WINDOWS_NATIVE_EXTENSIONS = {".COM", ".EXE"}
-_WINDOWS_RESERVED_NAMES = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{index}" for index in range(1, 10)),
-    *(f"LPT{index}" for index in range(1, 10)),
-}
 _STARTUP_PATH = os.environ.get("PATH", "")
 _STARTUP_PATHEXT = os.environ.get("PATHEXT")
 _STATE_FIELDS = {"version", "disabled"}
@@ -47,7 +39,6 @@ _TRANSACTION_OPERATIONS = frozenset({"set", "remove"})
 _TRANSACTION_PREFIX = "mcp"
 _TRANSACTION_OWNER = b"agent:mcp-transaction:v1\n"
 _TRANSACTION_ENTRY_NAMES = frozenset({"candidate.toml", "backup.toml"})
-_TRANSACTION_OWNER_NAME = _user_store.OWNER_MARKER_NAME
 
 McpConfigSource = Literal["manual", "managed", "orphan"]
 
@@ -357,7 +348,12 @@ class McpConfigStore:
     def _is_legacy_manual_only(self, root: Path) -> bool:
         return _lexists(root / "mcp.toml") and not any(
             _lexists(root / name)
-            for name in ("mcp.d", "mcp-state.json", ".extension.lock", ".extension-transactions")
+            for name in (
+                "mcp.d",
+                "mcp-state.json",
+                _user_store.LOCK_FILE_NAME,
+                _user_store.TRANSACTIONS_DIR_NAME,
+            )
         )
 
     def _read_snapshot(self, root: Path | None) -> _StoreSnapshot:
@@ -571,16 +567,10 @@ class McpConfigStore:
 
     def _recover(self, root: Path) -> None:
         self._clean_owned_temps(root)
-        transactions = root / ".extension-transactions"
-        if not _lexists(transactions):
-            return
-        _require_real_directory(transactions, message="Extension transaction storage must be a real directory.")
         try:
-            owned = tuple(
-                path for path in transactions.iterdir() if path.name.startswith("mcp-")
-            )
-        except OSError as exc:
-            raise _config_error("Could not enumerate MCP transactions.") from exc
+            owned = _user_store.owned_transactions(root, prefix=_TRANSACTION_PREFIX)
+        except UserStoreError as exc:
+            raise _config_error(exc.message) from exc
         if len(owned) > 1:
             raise _config_error("Multiple MCP transactions require manual recovery.")
         if owned:
@@ -939,7 +929,7 @@ def _validate_managed_id(value: Any, *, state: bool = False) -> str:
         not isinstance(value, str)
         or not 1 <= len(value) <= 64
         or _SERVER_ID_PATTERN.fullmatch(value) is None
-        or value.upper() in _WINDOWS_RESERVED_NAMES
+        or not _user_store.is_safe_store_name(value, max_length=64, pattern=_SERVER_ID_PATTERN)
     ):
         label = "MCP state Server ID" if state else "Managed MCP Server ID"
         raise _config_error(f"{label} is not a safe 1-64 character identifier.")

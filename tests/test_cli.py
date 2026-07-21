@@ -1776,3 +1776,31 @@ def test_skills_doctor_reports_healthy_and_unhealthy_stores(tmp_path, monkeypatc
     assert "skills healthy: false" in unhealthy.output
     assert "problem:" in unhealthy.output
     assert "missing-skill" in unhealthy.output
+
+
+def test_skills_cli_never_renders_untrusted_content_as_markup(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    hostile = tmp_path / "hostile"
+    hostile.mkdir()
+    (hostile / "SKILL.md").write_text(
+        "---\nname: hostile\ndescription: probe\nevil[/]tag: x\n---\nBody.\n", encoding="utf-8"
+    )
+    runner = CliRunner()
+
+    rejected = runner.invoke(app, ["skills", "validate", str(hostile), "--cwd", str(workspace)])
+
+    assert rejected.exit_code == 1
+    assert rejected.exception is None or isinstance(rejected.exception, SystemExit)
+    assert "[/]" in rejected.output
+    assert "MarkupError" not in rejected.output
+
+    body = tmp_path / "body"
+    body.mkdir()
+    (body / "SKILL.md").write_text(
+        "---\nname: body\ndescription: probe\n---\nRAW [bold]not-markup[/bold] TAIL\n", encoding="utf-8"
+    )
+    assert runner.invoke(app, ["skills", "install", str(body), "--cwd", str(workspace)]).exit_code == 0
+    shown = runner.invoke(app, ["skills", "show", "body", "--cwd", str(workspace)])
+
+    assert shown.exit_code == 0
+    assert "[bold]not-markup[/bold]" in shown.output

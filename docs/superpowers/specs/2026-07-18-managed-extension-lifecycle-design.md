@@ -1,7 +1,7 @@
 # 设计：可管理的本地 MCP 与 Skills 生命周期
 
 - 日期：2026-07-18
-- 状态：已确认，实施计划已审查
+- 状态：已实施（自动门禁通过；默认 Windows 路径验收另记）
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)
 - 实施计划：[可管理的本地 MCP 与 Skills 生命周期](../plans/2026-07-18-managed-extension-lifecycle.md)
 - 前置实现：[stdio MCP 动态工具集成](2026-07-17-stdio-mcp-dynamic-tools-design.md)
@@ -461,3 +461,36 @@ finally {
 5. 文档、全量回归、真实路径验收和完成状态回写。
 
 每一项都先写失败测试；前一项未通过安全与清理门禁，不进入下一项。
+
+## 实施与验收证据（2026-07-18）
+
+| 门禁 / 路径 | 结果 | 清理与负向检查 |
+| --- | --- | --- |
+| Task 1 聚焦门禁（`test_mcp_config.py`、`test_cli.py`） | 通过；managed fragment/state 合并、静态 CLI 与崩溃恢复全绿 | 临时 home 与 basetemp 全在 `D:\CodexScratch`，验收后删除 |
+| Task 2 聚焦门禁（`test_cli.py`、`test_mcp_runtime.py`） | 149 passed；`mcp doctor` 只构造一套 Runtime 并在唯一 `finally` 关闭 | 真实 fixture PID 启动后确认退出；disabled 与静态命令的 start-file 行数不变 |
+| Task 3 聚焦门禁（user store / mcp config / skills / cli / loop） | 311 passed；install→disable/enable→remove 闭环与 project-over-builtin 回归不变 | install 的 prepared/target/state/committed 四点子进程崩溃后无半目录、无状态错配 |
+| Task 4 聚焦门禁（user store / skills / cli / loop） | 241 passed；update、package、zip round-trip 与 doctor 全绿 | update 的 candidate/prepared/backup/target/state/committed/cleanup 七点崩溃后只剩完整 v1 或完整 v2 |
+| Task 5 自动门禁（唯一 gate root，`USERPROFILE`/`HOME`/`TEMP`/`TMP`/`PIP_CACHE_DIR` 全部改指该目录） | focused 482 passed、full 939 passed、`agent doctor` 与 `git diff --check` 通过 | `finally` 恢复全部环境变量、删除唯一 gate root 并复查残留；gate root 内匹配 fixture 进程负向检查为空 |
+| 真实 CLI 闭环：当前 checkout 的全新 D 盘 venv | `python -m venv`、`pip install -e "<workspace>[dev]"`、`pip check` 全部通过；后续 CLI 一律走该 venv 的 `agent.exe`，不使用 PATH 中可能存在的旧版本 | venv 与 pip cache 全在唯一 run root 内，`finally` 统一删除 |
+| 真实 CLI 闭环（MCP） | 空 doctor 退出 0 且不建进程；`set/list/validate` 后 start-file 仍不存在；live doctor 报 `fixture ready 1 tools`；disable 后 doctor 退出 0 且 start-file 行数不变；remove 后 `list` 不再可见 | 记录的 fixture PID 轮询确认退出；run root 内匹配 fixture 的进程树负向检查为空 |
+| 真实 CLI 闭环（Skills） | validate v1→install→`show` 含 `revision:v1`→disable→`show` 退出 1→enable→update v2→`show` 含 `revision:v2`→用 `reviewer-invalid` update 退出 1 且 `show` 仍为 `revision:v2`→doctor→package→remove→从 `.skill.zip` 重装→`show` 仍为 `revision:v2`→remove→doctor | 用户 Skill 目录已删除；`.extension-transactions` 为空；`skills-state.json` 不含 `reviewer` |
+| 真实 CLI 闭环收尾 | venv 内 `agent doctor` 与 `python -m pytest -q` 939 passed | `finally` 恢复全部环境变量并删除唯一 run root，复查目录与 fixture 进程均不存在 |
+| 默认 Windows 路径（`C:\Users\admin\.agent`，经用户授权） | 通过：`Path.home()` 解析到默认路径后，MCP set→validate→live doctor(`codex-acceptance ready 1 tools`)→remove 与 Skills install→show(`revision:v1`)→package→remove→从 zip 重装→doctor 全部符合预期 | 验收前确认 `.agent` 不存在且无同名目标，故结束后删除整棵 `.agent` 精确还原；复查该目录不存在，fixture PID 已退出 |
+| 默认路径的 symlink/junction 拒绝 | **未演练**：本机未启用 Developer Mode 且无创建符号链接权限，脚本按预期跳过该分支 | 拒绝逻辑本身由 `D:\CodexScratch` 上的 junction 用例覆盖；默认路径下的该语义仍无直接证据 |
+
+除最后两行外，全部功能性证据来自 `D:\CodexScratch` 隔离路径。
+
+### 最终双轴审查修复（均已复现后再修，并补回归测试）
+
+| 级别 | 问题 | 处理 |
+| --- | --- | --- |
+| HIGH | 缺少 `SKILL.md` 的残留目录对 inventory/doctor/remove 不可见；同名 install 失败回滚时会把这个并非本事务发布的目录连同用户文件一并删除，还报出不相干的 "Could not write user skill state." | 目录只要存在即视为占用（inventory 报 `invalid` 并给出修复命令、`remove` 可清理、`install` 明确报已存在）；回滚仅在 candidate 已消失（即确实发布过）时才删除目标 |
+| HIGH | `agent skills` 的错误与 `show` 正文经 Rich markup 渲染，恶意 `SKILL.md` 可触发未捕获 `MarkupError` 或隐藏部分诊断 | 与 MCP 侧一致改走免 markup 的有界写出 |
+| MEDIUM | `_write_archive` 的 `finally` 用清理失败覆盖真实异常；`_rollback_after_error` 把所有 I/O 失败压成同一句话 | 清理改为 `missing_ok` 且不再抛出；回滚消息带上失败步骤 |
+| MEDIUM | `.skill.zip` 在解析中央目录前无大小上限；成员名允许 `:`（NTFS ADS）与尾随点/空格 | 打开前先按 8 MiB 卡大小；成员路径新增字符校验 |
+| MEDIUM | 运行路径每次取两次全局锁；`mcp_config` 硬编码事务/锁目录名与重复的保留名表 | 仅在有未解析 Skill 名时才二次读取；改用共享常量与共享名称校验，删除死代码 |
+| MEDIUM | Windows 上目录 fsync 是静默 no-op，与文档的原子性表述不符 | 加 `ponytail:` 注释写明该上限与升级路径（`FlushFileBuffers`） |
+
+默认路径验收还暴露并修复了一个真实缺陷：Windows 编辑器保存的 `SKILL.md` 带 UTF-8 BOM 时会被误报为缺少 frontmatter，现按用户 MCP 配置读取器的既有先例改用 `utf-8-sig`。
+
+本表只证明本地可管理扩展生命周期切片，不代表 Marketplace、registry、远程来源、Workbench 写接口、自动重连或 Provider 能力声明已经完成。

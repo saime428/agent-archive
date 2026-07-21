@@ -25,7 +25,7 @@
 | Agent runtime | 结构化 action、多轮 loop、native/JSON tool calling、流式事件、错误反馈与预算控制 | 取消、恢复、长任务与并发语义仍需逐步收口 |
 | Providers | Fake、DeepSeek、OpenAI-compatible 与注册表 | 统一能力声明、连接诊断、模型选择与更多协议 Adapter |
 | Tools 与安全 | Filesystem、Shell、Git、Web、Documents 与 stdio MCP；统一 catalog、schema 校验、sandbox、approval、redaction、snapshot、durable logs | 后续扩展仍必须无例外地接入同一安全链与 trace |
-| 扩展底座 | stdio MCP 动态 Tool、Skills 发现/加载/allowed_tools、Memory、Hooks、Tool catalog | MCP 尚缺配置管理、启停、健康诊断与重连；Skills 还缺完整安装、校验、更新和打包生命周期 |
+| 扩展底座 | stdio MCP 动态 Tool 与 managed 配置/启停/live doctor、Skills 三来源与用户级 install/update/package/remove、共享用户存储事务层、Memory、Hooks、Tool catalog | 仍缺自动重连、远程来源、registry 与 Workbench 写接口 |
 | 产品入口 | CLI、Python stdlib Workbench、HTTP JSON/SSE、会话与运行记录 | 前端 vNext、真正的编辑/终端工作区、统一生态管理入口 |
 | 质量与运维 | pytest、doctor、release doctor、真实 Provider/Workbench 验收经验 | 稳定 eval 集、跨 Interface 契约门禁、CI 发布与安装包闭环 |
 | 分发与远程 | 本地源码/包运行、`agent start` | 尚无签名安装包、自动更新、Gateway、远程身份与社区 registry |
@@ -63,7 +63,7 @@
 | Provider Interface | 已有三个 Adapter，是真实 seam | Provider 声明 streaming、native tools、reasoning、auth 等能力；runtime 不写 provider 特判 |
 | Tool Interface | 内置 Tool 与 stdio MCP Tool 已共用 catalog、参数校验、policy、approval、redaction、observation 与 trace | 后续 transport 与 Tool 来源继续复用该 Interface，不建立第二条执行链 |
 | Run Event Interface | CLI 与 Workbench 已经是两个消费者 | 固定事件顺序、错误、游标、重连、取消和终态，未来 Remote 复用 |
-| Extension Lifecycle Interface | Skills 有读取路径，stdio MCP 有用户级配置与进程生命周期，但都没有完整管理闭环 | 统一 install/validate/enable/disable/diagnose/update/remove 的语义 |
+| Extension Lifecycle Interface | MCP 与 Skills 已有本地 validate/enable/disable/diagnose/remove 闭环，Skills 另有 install/update/package，二者共用同一套锁、原子发布与事务恢复原语 | 远程来源、registry、签名与 Workbench 写接口仍未开始 |
 | Experience HTTP/SSE seam | Workbench 正在使用 | React 前端通过单一数据 Adapter 接入，详见前端子方向 |
 
 当前只有文件型 store，不为了“以后也许换数据库”先建通用 repository 层；等本地与远程/同步出现两个真实 Adapter 时再建立持久化 seam。
@@ -132,7 +132,7 @@
 | --- | --- | --- | --- |
 | 0. 契约基线 | 记录 Provider、Tool、Run Event、配置与安全不变量 | 前端视觉方向、HTTP/SSE 清单 | 当前行为有契约和真实验收基线 |
 | 1. 开放扩展内核 | stdio MCP、动态 Tool 注册、policy/approval/trace 接线（MCP 后端切片已完成） | Frontend vNext App Shell + Chat 纵切 | MCP Tool 与内置 Tool 同安全、同 trace；新前端能跑真实 turn |
-| 2. 可管理生态 | MCP 管理/诊断；Skills 完整本地生命周期；Provider 能力声明 | 前端达到当前 Workbench 功能等价并加入真实生态入口 | 安装到卸载闭环可测，旧前端才允许退役 |
+| 2. 可管理生态 | MCP 管理/诊断与 Skills 本地生命周期（已完成）；Provider 能力声明（未开始） | 前端达到当前 Workbench 功能等价并加入真实生态入口 | 安装到卸载闭环可测，旧前端才允许退役 |
 | 3. 持久生产力 | Memory 生命周期、Automation、取消/恢复、稳定 eval | Monaco、Git/diff、Terminal、任务复盘 | 长任务可控、知识可修订、自动化可审计 |
 | 4. 分发闭环 | CI、可重复构建、安装包、签名、升级与回滚 | Onboarding、迁移与发布状态 UI | 新机器可安装、诊断、升级和回退 |
 | 5. 远程与社区 | Gateway、设备身份、远程事件/审批、registry | Remote WebUI 与生态发现 | 安全模型、断线恢复、撤销和供应链验证通过 |
@@ -142,7 +142,7 @@
 ## 下一次正式开工的默认顺序
 
 1. [stdio MCP + 动态 Tool 注册 + 现有安全链](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md) 已完成；不再把它列为待实现项。
-2. 下一份后端 spec 聚焦 MCP 配置管理、启停、健康诊断与 Skills 本地 install → remove 生命周期，不提前做 Marketplace。
+2. [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md) 已完成；下一份后端 spec 聚焦 Provider 能力声明，仍不提前做 Marketplace、registry 或远程来源。
 3. 前端可并行完成阶段 0：视觉方向选稿、HTTP/SSE Interface 清单和功能等价表，并且只接入后端已存在的能力。
 
 如果当期目标明确是先获得可见的产品提升，可以先做 Frontend Chat 纵切；但不因此跳过 MCP、安全或契约主线。

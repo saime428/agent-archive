@@ -94,7 +94,9 @@ def load_selected_skills(
     home: Path | None = None,
 ) -> list[SkillMetadata]:
     catalog = discover_skills(cwd, home=home)
-    disabled = _disabled_user_names(cwd, home=home)
+    missing = [name for name in names if name not in catalog]
+    # Only pay for a second store read when something is actually unresolved.
+    disabled = _disabled_user_names(cwd, home=home) if missing else frozenset()
     loaded: list[SkillMetadata] = []
     for name in names:
         if name not in catalog:
@@ -166,7 +168,9 @@ def _disabled_user_names(cwd: Path, *, home: Path | None) -> frozenset[str]:
 
 def _read_skill(path: Path, *, source: str, include_body: bool, max_chars: int | None) -> SkillMetadata:
     try:
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig so a SKILL.md saved by a Windows editor keeps working, the
+        # same tolerance the user MCP configuration reader already applies.
+        text = path.read_text(encoding="utf-8-sig")
     except OSError as exc:
         raise SkillError(f"Could not read skill {path}: {exc}") from exc
     metadata, body = _parse_skill(text, path)
@@ -290,8 +294,23 @@ class SkillStore:
         ]
         with self._locked() as root:
             disabled = self._read_state(root) if root is not None else frozenset()
+            occupied = {directory.name for directory in self._occupied_directories(root)}
             installed = {directory.name for directory in self._installed_directories(root)}
-        for name in sorted(installed | set(disabled)):
+        for name in sorted(occupied | set(disabled)):
+            if name in occupied and name not in installed:
+                items.append(
+                    SkillInventoryItem(
+                        name=name,
+                        source="user",
+                        enabled=False,
+                        status="invalid",
+                        message=(
+                            f"Directory has no {_SKILL_DOCUMENT}; "
+                            f"run 'agent skills remove {name}' to clear it."
+                        ),
+                    )
+                )
+                continue
             if name not in installed:
                 items.append(
                     SkillInventoryItem(
@@ -340,10 +359,10 @@ class SkillStore:
             with self._locked(create=True) as root:
                 assert root is not None
                 disabled = set(self._read_state(root))
-                installed = {value.name for value in self._installed_directories(root)}
-                if name in installed:
+                occupied = {value.name for value in self._occupied_directories(root)}
+                if name in occupied:
                     raise SkillError(f"Skill {name!r} already exists; use update to replace it.")
-                if name.casefold() in {value.casefold() for value in installed}:
+                if name.casefold() in {value.casefold() for value in occupied}:
                     raise SkillError(f"Skill {name!r} conflicts with an existing skill after case folding.")
                 self._publish_transaction(
                     root,
@@ -441,8 +460,8 @@ class SkillStore:
             if root is None:
                 return
             disabled = set(self._read_state(root))
-            installed = {directory.name for directory in self._installed_directories(root)}
-            if name not in installed:
+            occupied = {directory.name for directory in self._occupied_directories(root)}
+            if name not in occupied:
                 if name in disabled:
                     self._write_state(root, disabled - {name})
                 return
@@ -464,6 +483,14 @@ class SkillStore:
                 f"Skill source must be a directory or a {_ARCHIVE_SUFFIX} archive."
             )
         _require_plain_file(path, message="Skill archive must be a regular file.")
+        # Bound the file before zipfile parses its central directory, so a
+        # crafted archive cannot cost memory proportional to a huge member list.
+        try:
+            archive_size = path.stat().st_size
+        except OSError as exc:
+            raise SkillError("Could not measure the skill archive.") from exc
+        if archive_size > _MAX_CANDIDATE_BYTES:
+            raise SkillError("Skill archive exceeds the 8 MiB size limit.")
         with tempfile.TemporaryDirectory(prefix="agent-skill-") as staging:
             yield self._extract_archive(path, Path(staging))
 
@@ -529,6 +556,11 @@ class SkillStore:
         parts = posix.parts
         if any(part in {"..", "."} for part in parts):
             raise SkillError(f"Skill archive member {name!r} escapes the archive root.")
+        for part in parts:
+            # ':' would create an NTFS alternate data stream, and a trailing dot
+            # or space silently resolves to a different name on Windows.
+            if ":" in part or part != part.rstrip(". "):
+                raise SkillError(f"Skill archive member {name!r} uses an unsafe path component.")
         return Path(*parts)
 
     def _copy_archive_member(
@@ -593,11 +625,11 @@ class SkillStore:
         except OSError as exc:
             raise SkillError("Could not publish the skill package with a hard link.") from exc
         finally:
+            # Never mask an in-flight failure with a cleanup failure.
             try:
-                temp_path.unlink()
+                temp_path.unlink(missing_ok=True)
             except OSError:
-                if not published:
-                    raise SkillError("Could not clean the skill package temporary file.") from None
+                pass
 
     def _verify_archive(
         self,
@@ -747,7 +779,13 @@ class SkillStore:
                 raise SkillError(exc.message) from exc
         return path
 
-    def _installed_directories(self, root: Path | None) -> tuple[Path, ...]:
+    def _occupied_directories(self, root: Path | None) -> tuple[Path, ...]:
+        """Every directory that owns a name in the store, documented or not.
+
+        A directory without ``SKILL.md`` is still occupied: an interrupted
+        delete can leave one behind, and treating it as absent would let a
+        later install collide with it and discard its contents.
+        """
         if root is None:
             return ()
         skills = root / _STORE_DIR
@@ -766,9 +804,15 @@ class SkillStore:
                 continue
             if not _is_safe_skill_name(child.name):
                 raise SkillError(f"User skill directory {child.name!r} is not a safe identifier.")
-            if _user_store.lexists(child / _SKILL_DOCUMENT):
-                directories.append(child)
+            directories.append(child)
         return tuple(directories)
+
+    def _installed_directories(self, root: Path | None) -> tuple[Path, ...]:
+        return tuple(
+            directory
+            for directory in self._occupied_directories(root)
+            if _user_store.lexists(directory / _SKILL_DOCUMENT)
+        )
 
     def _read_state(self, root: Path | None) -> frozenset[str]:
         if root is None:
@@ -976,7 +1020,7 @@ class SkillStore:
             raise recovery_error from exc
         if isinstance(exc, (SkillError, KeyboardInterrupt, SystemExit)):
             raise exc
-        raise SkillError("Could not write user skill state.") from exc
+        raise SkillError(f"Could not publish the user skill change: {exc}") from exc
 
     def _recover(self, root: Path) -> None:
         try:
@@ -1005,6 +1049,7 @@ class SkillStore:
         name = record["name"]
         target = self._skills_dir(root, create=False) / name
         backup = tx / "backup"
+        candidate = tx / "candidate"
         if record["phase"] == "prepared":
             if record["old_directory"] and _user_store.lexists(backup):
                 if _user_store.lexists(target):
@@ -1015,6 +1060,13 @@ class SkillStore:
             elif record["old_directory"] and not _user_store.lexists(target):
                 raise SkillError(f"Skill transaction backup for {name!r} is missing.")
             elif not record["old_directory"] and _user_store.lexists(target):
+                # A surviving candidate proves this transaction never published,
+                # so the target belongs to someone else and must not be deleted.
+                if _user_store.lexists(candidate):
+                    raise SkillError(
+                        f"Skill {name!r} already occupies its directory; "
+                        f"run 'agent skills remove {name}' before installing it again."
+                    )
                 _remove_tree(target, message="Could not remove the interrupted skill target.")
             disabled = set(self._read_state(root))
             if record["old_disabled"]:

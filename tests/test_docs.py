@@ -718,3 +718,67 @@ def test_post_v10_polish_closeout_records_freeze() -> None:
     assert "Completed slice: post-v1.0 closeout" in roadmap
     assert "Completed slice: post-v1.0 local secret flow" in roadmap
     assert "Next slice: optional trigger-based work only if explicitly needed" in roadmap
+
+
+def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    direction = (ROOT / "docs" / "project-vnext-direction.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-18-managed-extension-lifecycle-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-18-managed-extension-lifecycle.md"
+    ).read_text(encoding="utf-8")
+
+    for command in (
+        "agent mcp list",
+        "agent mcp validate",
+        "agent mcp set",
+        "agent mcp enable",
+        "agent mcp disable",
+        "agent mcp remove",
+        "agent mcp doctor",
+        "agent skills validate",
+        "agent skills install",
+        "agent skills enable",
+        "agent skills disable",
+        "agent skills update",
+        "agent skills package",
+        "agent skills remove",
+        "agent skills doctor",
+    ):
+        assert command in readme
+
+    assert "~/.agent/mcp.d/<server-id>.toml" in readme
+    assert "~/.agent/mcp-state.json" in readme
+    assert "~/.agent/skills/<name>/" in readme
+    assert "~/.agent/skills-state.json" in readme
+    assert "never start a server process" in readme
+    assert "restart the CLI" in readme
+    assert ".skill.zip" in readme
+    assert "URLs, Git clones, and registry IDs are not supported" in readme
+    assert "never executed by" in readme
+    assert "no-clobber hard link" in readme
+    assert "~/.agent/.extension.lock" in readme
+    assert "complete old state or the complete new state" in readme
+    assert "fails closed and keeps the" in readme
+    assert "there is no Marketplace, registry, URL or Git install" in readme
+
+    assert "可管理的本地扩展生命周期" in changelog
+    assert "MCP Server 故障隔离" in changelog
+
+    assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
+    assert "Full Project vNext ecosystem | In progress" in roadmap
+    assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle." in roadmap
+    assert "Next Project vNext slice: Provider capability declaration" in roadmap
+
+    assert "Provider 能力声明（未开始）" in direction
+    assert "2026-07-18-managed-extension-lifecycle-design.md" in direction
+    assert "仍缺自动重连、远程来源、registry 与 Workbench 写接口" in direction
+
+    assert "状态：已实施" in spec
+    assert "实施与验收证据" in spec
+    assert "状态：已执行" in plan
+    assert "- [ ] Step" not in plan
