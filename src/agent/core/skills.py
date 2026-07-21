@@ -294,8 +294,22 @@ class SkillStore:
         ]
         with self._locked() as root:
             disabled = self._read_state(root) if root is not None else frozenset()
-            occupied = {directory.name for directory in self._occupied_directories(root)}
+            directories, unrecognized = self._store_entries(root)
+            occupied = {directory.name for directory in directories}
             installed = {directory.name for directory in self._installed_directories(root)}
+        for name in unrecognized:
+            items.append(
+                SkillInventoryItem(
+                    name=name,
+                    source="user",
+                    enabled=False,
+                    status="invalid",
+                    message=(
+                        "Entry is not a usable skill directory and is ignored; "
+                        "delete it manually if it is unwanted."
+                    ),
+                )
+            )
         for name in sorted(occupied | set(disabled)):
             if name in occupied and name not in installed:
                 items.append(
@@ -779,33 +793,43 @@ class SkillStore:
                 raise SkillError(exc.message) from exc
         return path
 
-    def _occupied_directories(self, root: Path | None) -> tuple[Path, ...]:
-        """Every directory that owns a name in the store, documented or not.
+    def _store_entries(self, root: Path | None) -> tuple[tuple[Path, ...], tuple[str, ...]]:
+        """Split the store into usable directories and unrecognized entries.
 
         A directory without ``SKILL.md`` is still occupied: an interrupted
         delete can leave one behind, and treating it as absent would let a
         later install collide with it and discard its contents.
+
+        An unsafely named directory or a link is never usable, but it is also
+        not Agent-owned state, so it is reported rather than raised: a folder
+        the user happened to create must not break every run and chat turn.
         """
         if root is None:
-            return ()
+            return (), ()
         skills = root / _STORE_DIR
         if not _user_store.lexists(skills):
-            return ()
+            return (), ()
         _require_real_directory(skills, message="User skill storage must be a real directory.")
         try:
             children = sorted(skills.iterdir())
         except OSError as exc:
             raise SkillError("Could not enumerate user skills.") from exc
-        directories = []
+        directories: list[Path] = []
+        unrecognized: list[str] = []
         for child in children:
             if _user_store.is_link_or_reparse(child):
-                raise SkillError(f"User skill {child.name!r} is a link or reparse point.")
+                unrecognized.append(child.name)
+                continue
             if not child.is_dir():
                 continue
             if not _is_safe_skill_name(child.name):
-                raise SkillError(f"User skill directory {child.name!r} is not a safe identifier.")
+                unrecognized.append(child.name)
+                continue
             directories.append(child)
-        return tuple(directories)
+        return tuple(directories), tuple(unrecognized)
+
+    def _occupied_directories(self, root: Path | None) -> tuple[Path, ...]:
+        return self._store_entries(root)[0]
 
     def _installed_directories(self, root: Path | None) -> tuple[Path, ...]:
         return tuple(

@@ -470,11 +470,11 @@ finally {
 | Task 2 聚焦门禁（`test_cli.py`、`test_mcp_runtime.py`） | 149 passed；`mcp doctor` 只构造一套 Runtime 并在唯一 `finally` 关闭 | 真实 fixture PID 启动后确认退出；disabled 与静态命令的 start-file 行数不变 |
 | Task 3 聚焦门禁（user store / mcp config / skills / cli / loop） | 311 passed；install→disable/enable→remove 闭环与 project-over-builtin 回归不变 | install 的 prepared/target/state/committed 四点子进程崩溃后无半目录、无状态错配 |
 | Task 4 聚焦门禁（user store / skills / cli / loop） | 241 passed；update、package、zip round-trip 与 doctor 全绿 | update 的 candidate/prepared/backup/target/state/committed/cleanup 七点崩溃后只剩完整 v1 或完整 v2 |
-| Task 5 自动门禁（唯一 gate root，`USERPROFILE`/`HOME`/`TEMP`/`TMP`/`PIP_CACHE_DIR` 全部改指该目录） | focused 482 passed、full 939 passed、`agent doctor` 与 `git diff --check` 通过 | `finally` 恢复全部环境变量、删除唯一 gate root 并复查残留；gate root 内匹配 fixture 进程负向检查为空 |
+| Task 5 自动门禁（唯一 gate root，`USERPROFILE`/`HOME`/`TEMP`/`TMP`/`PIP_CACHE_DIR` 全部改指该目录） | focused 486 passed、full 943 passed、`agent doctor` 与 `git diff --check` 通过 | `finally` 恢复全部环境变量、删除唯一 gate root 并复查残留；gate root 内匹配 fixture 进程负向检查为空 |
 | 真实 CLI 闭环：当前 checkout 的全新 D 盘 venv | `python -m venv`、`pip install -e "<workspace>[dev]"`、`pip check` 全部通过；后续 CLI 一律走该 venv 的 `agent.exe`，不使用 PATH 中可能存在的旧版本 | venv 与 pip cache 全在唯一 run root 内，`finally` 统一删除 |
 | 真实 CLI 闭环（MCP） | 空 doctor 退出 0 且不建进程；`set/list/validate` 后 start-file 仍不存在；live doctor 报 `fixture ready 1 tools`；disable 后 doctor 退出 0 且 start-file 行数不变；remove 后 `list` 不再可见 | 记录的 fixture PID 轮询确认退出；run root 内匹配 fixture 的进程树负向检查为空 |
 | 真实 CLI 闭环（Skills） | validate v1→install→`show` 含 `revision:v1`→disable→`show` 退出 1→enable→update v2→`show` 含 `revision:v2`→用 `reviewer-invalid` update 退出 1 且 `show` 仍为 `revision:v2`→doctor→package→remove→从 `.skill.zip` 重装→`show` 仍为 `revision:v2`→remove→doctor | 用户 Skill 目录已删除；`.extension-transactions` 为空；`skills-state.json` 不含 `reviewer` |
-| 真实 CLI 闭环收尾 | venv 内 `agent doctor` 与 `python -m pytest -q` 939 passed | `finally` 恢复全部环境变量并删除唯一 run root，复查目录与 fixture 进程均不存在 |
+| 真实 CLI 闭环收尾 | venv 内 `agent doctor` 与 `python -m pytest -q` 943 passed | `finally` 恢复全部环境变量并删除唯一 run root，复查目录与 fixture 进程均不存在 |
 | 默认 Windows 路径（`C:\Users\admin\.agent`，经用户授权） | 通过：`Path.home()` 解析到默认路径后，MCP set→validate→live doctor(`codex-acceptance ready 1 tools`)→remove 与 Skills install→show(`revision:v1`)→package→remove→从 zip 重装→doctor 全部符合预期 | 验收前确认 `.agent` 不存在且无同名目标，故结束后删除整棵 `.agent` 精确还原；复查该目录不存在，fixture PID 已退出 |
 | 默认路径的 symlink/junction 拒绝 | **未演练**：本机未启用 Developer Mode 且无创建符号链接权限，脚本按预期跳过该分支 | 拒绝逻辑本身由 `D:\CodexScratch` 上的 junction 用例覆盖；默认路径下的该语义仍无直接证据 |
 
@@ -489,6 +489,8 @@ finally {
 | MEDIUM | `_write_archive` 的 `finally` 用清理失败覆盖真实异常；`_rollback_after_error` 把所有 I/O 失败压成同一句话 | 清理改为 `missing_ok` 且不再抛出；回滚消息带上失败步骤 |
 | MEDIUM | `.skill.zip` 在解析中央目录前无大小上限；成员名允许 `:`（NTFS ADS）与尾随点/空格 | 打开前先按 8 MiB 卡大小；成员路径新增字符校验 |
 | MEDIUM | 运行路径每次取两次全局锁；`mcp_config` 硬编码事务/锁目录名与重复的保留名表 | 仅在有未解析 Skill 名时才二次读取；改用共享常量与共享名称校验，删除死代码 |
+| HIGH | 用户在 `~/.agent/skills/` 下手建的普通文件夹（名字不合规或是链接）会让 `discover_skills` 抛错，而它在每次 run/chat turn 都被调用，等于整个 agent 停摆 | 非 Agent 自有状态的条目改为跳过并在 inventory/doctor 报告，绝不加载；Agent 自有状态损坏仍 fail closed |
+| MEDIUM | 测试套件未隔离 `Path.home()`，会读到开发者真实的 `~/.agent` | 新增 `tests/conftest.py` 的 autouse fixture，把每个测试的 home 指向临时目录 |
 | MEDIUM | Windows 上目录 fsync 是静默 no-op，与文档的原子性表述不符 | 加 `ponytail:` 注释写明该上限与升级路径（`FlushFileBuffers`） |
 
 默认路径验收还暴露并修复了一个真实缺陷：Windows 编辑器保存的 `SKILL.md` 带 UTF-8 BOM 时会被误报为缺少 frontmatter，现按用户 MCP 配置读取器的既有先例改用 `utf-8-sig`。

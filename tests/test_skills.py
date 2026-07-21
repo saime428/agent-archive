@@ -741,3 +741,68 @@ def test_publish_failure_reports_the_failing_step(tmp_path, monkeypatch) -> None
 
     with pytest.raises(SkillError, match="simulated rename failure"):
         store.install(_FIXTURE_SKILL)
+
+
+def test_unrecognized_store_entries_are_reported_but_never_break_discovery(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    stray = home / ".agent" / "skills" / "not a skill"
+    stray.mkdir()
+    (stray / "notes.txt").write_text("user data\n", encoding="utf-8")
+
+    # A folder the user happened to create must not brick every run.
+    catalog = discover_skills(workspace, home=home)
+    assert catalog["reviewer"].source == "user"
+    assert load_selected_skills(workspace, ["reviewer"], max_chars=2_000, home=home)[0].name == "reviewer"
+
+    reported = {item.name: item for item in store.inventory()}["not a skill"]
+    assert (reported.source, reported.status, reported.enabled) == ("user", "invalid", False)
+    assert "delete it manually" in (reported.message or "")
+    assert store.doctor(default_skills=[]).healthy is False
+    assert (stray / "notes.txt").is_file()
+
+
+def test_install_never_changes_default_skills(tmp_path) -> None:
+    store, workspace, _ = _store(tmp_path)
+    config = workspace / ".agent" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text('default_skills = ["code-dev"]\n', encoding="utf-8")
+    before = config.read_bytes()
+
+    store.install(_FIXTURE_SKILL)
+
+    assert config.read_bytes() == before
+
+
+def test_package_refuses_a_symlinked_output(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    real = tmp_path / "real.zip"
+    real.write_bytes(b"keep\n")
+    link = tmp_path / "linked.skill.zip"
+    try:
+        link.symlink_to(real)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+
+    with pytest.raises(SkillError, match="exists"):
+        store.package("reviewer", link)
+
+    assert real.read_bytes() == b"keep\n"
+
+
+def test_an_empty_user_store_keeps_builtin_and_project_behaviour_identical(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    empty_home = tmp_path / "empty-home"
+    empty_home.mkdir()
+    _project_skill(workspace, "planner")
+
+    catalog = discover_skills(workspace, home=empty_home)
+
+    assert catalog["planner"].source == "project"
+    assert catalog["code-dev"].source == "builtin"
+    assert not (empty_home / ".agent").exists()
+    loaded = load_selected_skills(workspace, ["code-dev"], max_chars=200, home=empty_home)
+    assert loaded[0].name == "code-dev"
+    assert not (empty_home / ".agent").exists()
