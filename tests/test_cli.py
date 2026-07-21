@@ -1692,3 +1692,87 @@ def test_runs_show_missing_run_returns_nonzero(tmp_path) -> None:
 
     assert result.exit_code != 0
     assert "Run not found" in result.output
+
+
+_SKILL_FIXTURE_V2 = (Path(__file__).parent / "fixtures" / "skills" / "reviewer-v2").resolve()
+
+
+def test_skills_cli_completes_the_update_and_package_round_trip(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    runner = CliRunner()
+    archive = tmp_path / "reviewer.skill.zip"
+    assert runner.invoke(app, ["skills", "install", str(_SKILL_FIXTURE), "--cwd", str(workspace)]).exit_code == 0
+
+    updated = runner.invoke(
+        app, ["skills", "update", "reviewer", str(_SKILL_FIXTURE_V2), "--cwd", str(workspace)]
+    )
+    shown = runner.invoke(app, ["skills", "show", "reviewer", "--cwd", str(workspace)])
+    packaged = runner.invoke(
+        app, ["skills", "package", "reviewer", "--output", str(archive), "--cwd", str(workspace)]
+    )
+    removed = runner.invoke(app, ["skills", "remove", "reviewer", "--cwd", str(workspace)])
+    reinstalled = runner.invoke(app, ["skills", "install", str(archive), "--cwd", str(workspace)])
+    shown_again = runner.invoke(app, ["skills", "show", "reviewer", "--cwd", str(workspace)])
+
+    assert [result.exit_code for result in (updated, shown, packaged, removed, reinstalled, shown_again)] == [0] * 6
+    assert "reviewer\tuser\tenabled\tvalid" in updated.output
+    assert "revision:v2" in shown.output
+    assert "packaged:" in packaged.output
+    assert archive.is_file()
+    assert "revision:v2" in shown_again.output
+
+
+def test_skills_package_refuses_an_existing_output(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    runner = CliRunner()
+    assert runner.invoke(app, ["skills", "install", str(_SKILL_FIXTURE), "--cwd", str(workspace)]).exit_code == 0
+    existing = tmp_path / "taken.skill.zip"
+    existing.write_bytes(b"keep\n")
+
+    result = runner.invoke(
+        app, ["skills", "package", "reviewer", "--output", str(existing), "--cwd", str(workspace)]
+    )
+
+    assert result.exit_code == 1
+    assert "exists" in result.output
+    assert "Traceback" not in result.output
+    assert existing.read_bytes() == b"keep\n"
+
+
+def test_skills_update_rejects_a_mismatched_candidate_without_touching_the_target(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    home = Path(os.environ["USERPROFILE"] if os.name == "nt" else os.environ["HOME"])
+    runner = CliRunner()
+    assert runner.invoke(app, ["skills", "install", str(_SKILL_FIXTURE), "--cwd", str(workspace)]).exit_code == 0
+    installed = home / ".agent" / "skills" / "reviewer" / "SKILL.md"
+    before = installed.read_bytes()
+    invalid = Path(__file__).parent / "fixtures" / "skills" / "reviewer-invalid"
+
+    result = runner.invoke(app, ["skills", "update", "reviewer", str(invalid), "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert installed.read_bytes() == before
+
+
+def test_skills_doctor_reports_healthy_and_unhealthy_stores(tmp_path, monkeypatch) -> None:
+    workspace = _mcp_doctor_env(tmp_path, monkeypatch)
+    runner = CliRunner()
+    assert runner.invoke(app, ["skills", "install", str(_SKILL_FIXTURE), "--cwd", str(workspace)]).exit_code == 0
+
+    healthy = runner.invoke(app, ["skills", "doctor", "--cwd", str(workspace)])
+
+    assert healthy.exit_code == 0
+    assert "skills healthy: true" in healthy.output
+    assert "default skills: code-dev" in healthy.output
+    assert "REVIEWER-V1-BODY-MARKER" not in healthy.output
+
+    config = workspace / ".agent" / "config.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text('default_skills = ["missing-skill"]\n', encoding="utf-8")
+    unhealthy = runner.invoke(app, ["skills", "doctor", "--cwd", str(workspace)])
+
+    assert unhealthy.exit_code == 1
+    assert "skills healthy: false" in unhealthy.output
+    assert "problem:" in unhealthy.output
+    assert "missing-skill" in unhealthy.output

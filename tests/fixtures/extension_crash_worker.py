@@ -16,6 +16,32 @@ _CRASH_EXIT = 91
 
 
 def _install_skill_crash(crash_at: str) -> None:
+    if crash_at == "candidate":
+        real_copy = SkillStore._copy_candidate
+
+        def copy_candidate(self, source, candidate, entries) -> None:
+            real_copy(self, source, candidate, entries)
+            os._exit(_CRASH_EXIT)
+
+        SkillStore._copy_candidate = copy_candidate
+        return
+
+    if crash_at == "cleanup":
+        real_cleanup = SkillStore._cleanup_transaction
+
+        def cleanup(self, root, tx, *, allow_missing_record=False, trusted_new=False) -> None:
+            real_cleanup(
+                self,
+                root,
+                tx,
+                allow_missing_record=allow_missing_record,
+                trusted_new=trusted_new,
+            )
+            os._exit(_CRASH_EXIT)
+
+        SkillStore._cleanup_transaction = cleanup
+        return
+
     if crash_at == "prepared":
         real_write_record = SkillStore._write_record
 
@@ -132,7 +158,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "mode",
-        choices=("hold-lock", "crash-set", "crash-remove", "crash-skill-install", "crash-skill-remove"),
+        choices=(
+            "hold-lock",
+            "crash-set",
+            "crash-remove",
+            "crash-skill-install",
+            "crash-skill-remove",
+            "crash-skill-update",
+        ),
     )
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--home", type=Path, required=True)
@@ -145,17 +178,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.mode in {"crash-skill-install", "crash-skill-remove"}:
+    if args.mode in {"crash-skill-install", "crash-skill-remove", "crash-skill-update"}:
         if args.crash_at is None:
             parser.error("--crash-at is required for skill crash modes")
         _install_skill_crash(args.crash_at)
         skill_store = SkillStore(args.workspace, home=args.home)
-        if args.mode == "crash-skill-install":
-            if args.source is None:
-                parser.error("--source is required for crash-skill-install")
-            skill_store.install(args.source)
-        else:
+        if args.mode == "crash-skill-remove":
             skill_store.remove(args.skill)
+        else:
+            if args.source is None:
+                parser.error("--source is required for skill install and update crash modes")
+            if args.mode == "crash-skill-install":
+                skill_store.install(args.source)
+            else:
+                skill_store.update(args.skill, args.source)
         raise AssertionError("crash injection did not terminate the process")
 
     environment = {"PATH": str(Path(sys.executable).resolve().parent), "PATHEXT": ".EXE;.COM"}

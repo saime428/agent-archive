@@ -744,9 +744,9 @@ def skills_validate(
     source: Path,
     cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
 ) -> None:
-    """Validate a candidate skill directory without writing files."""
+    """Validate a candidate skill directory or .skill.zip without writing files."""
     try:
-        item = _skill_store(cwd).validate_directory(source)
+        item = _skill_store(cwd).validate_source(source)
     except SkillError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
@@ -794,6 +794,36 @@ def skills_disable(
     _set_skill_enabled(name, False, cwd)
 
 
+@skills_app.command("update")
+def skills_update(
+    name: str,
+    source: Path,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Replace one installed user skill with a same-named candidate."""
+    try:
+        item = _skill_store(cwd).update(name, source)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    _print_skill_item(item)
+
+
+@skills_app.command("package")
+def skills_package(
+    name: str,
+    output: Path = typer.Option(..., "--output", help="Archive path ending with .skill.zip."),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills."),
+) -> None:
+    """Package one user skill into a portable .skill.zip archive."""
+    try:
+        target = _skill_store(cwd).package(name, output)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"packaged: {target}")
+
+
 @skills_app.command("remove")
 def skills_remove(
     name: str,
@@ -806,6 +836,30 @@ def skills_remove(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     console.print(f"removed: {name}")
+
+
+@skills_app.command("doctor")
+def skills_doctor(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project skills.")) -> None:
+    """Check every skill source, user state, and the effective default skills."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        config, _diagnostics = load_config(workspace)
+    except ConfigError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    try:
+        report = _skill_store(cwd).doctor(default_skills=config.default_skills)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for item in report.items:
+        _print_skill_item(item)
+    console.file.write(f"default skills: {','.join(config.default_skills)}\n")
+    for problem in report.problems:
+        console.file.write(f"problem: {_bounded_mcp_text(problem)}\n")
+    console.file.write(f"skills healthy: {str(report.healthy).lower()}\n")
+    if not report.healthy:
+        raise typer.Exit(code=1)
 
 
 @skills_app.command("show")

@@ -215,7 +215,7 @@ def test_remove_only_targets_user_skills(tmp_path) -> None:
 def test_validate_directory_reports_without_writing(tmp_path) -> None:
     store, _, home = _store(tmp_path)
 
-    item = store.validate_directory(_FIXTURE_SKILL)
+    item = store.validate_source(_FIXTURE_SKILL)
 
     assert (item.name, item.status) == ("reviewer", "valid")
     assert not (home / ".agent" / "skills").exists()
@@ -258,7 +258,7 @@ def test_unsafe_candidate_names_are_rejected(tmp_path, name) -> None:
     )
 
     with pytest.raises(SkillError):
-        store.validate_directory(directory)
+        store.validate_source(directory)
 
 
 def test_candidate_rejects_case_folded_collision_with_existing_user_skill(tmp_path) -> None:
@@ -277,7 +277,7 @@ def test_candidate_enforces_file_count_limit(tmp_path) -> None:
         (candidate / f"file{index}.txt").write_text("x", encoding="utf-8")
 
     with pytest.raises(SkillError, match="files|limit"):
-        store.validate_directory(candidate)
+        store.validate_source(candidate)
 
 
 def test_candidate_enforces_single_file_and_skill_size_limits(tmp_path) -> None:
@@ -285,11 +285,11 @@ def test_candidate_enforces_single_file_and_skill_size_limits(tmp_path) -> None:
     big_file = _write_candidate(tmp_path / "big", "big")
     (big_file / "asset.bin").write_bytes(b"x" * (1024 * 1024 + 1))
     with pytest.raises(SkillError, match="size|limit|large"):
-        store.validate_directory(big_file)
+        store.validate_source(big_file)
 
     big_skill = _write_candidate(tmp_path / "bigskill", "bigskill", body="y" * (256 * 1024 + 1))
     with pytest.raises(SkillError, match="size|limit|large"):
-        store.validate_directory(big_skill)
+        store.validate_source(big_skill)
 
 
 def test_candidate_rejects_links_and_non_regular_entries(tmp_path) -> None:
@@ -303,7 +303,7 @@ def test_candidate_rejects_links_and_non_regular_entries(tmp_path) -> None:
         pytest.skip(f"symlink creation is unavailable: {exc}")
 
     with pytest.raises(SkillError, match="link|reparse|regular"):
-        store.validate_directory(candidate)
+        store.validate_source(candidate)
 
 
 def test_user_store_inside_workspace_is_rejected(tmp_path) -> None:
@@ -324,7 +324,7 @@ def test_install_and_validate_never_execute_candidate_files(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    store.validate_directory(candidate)
+    store.validate_source(candidate)
     store.install(candidate)
 
     assert not marker.exists()
@@ -363,3 +363,275 @@ def test_install_is_atomic_and_leaves_no_partial_target(tmp_path, monkeypatch) -
     names = {item.name for item in store.inventory()}
     assert "second" not in names
     assert discover_skills(workspace, home=home)["reviewer"].source == "user"
+
+
+_FIXTURE_V2 = (Path(__file__).parent / "fixtures" / "skills" / "reviewer-v2").resolve()
+_FIXTURE_INVALID = (Path(__file__).parent / "fixtures" / "skills" / "reviewer-invalid").resolve()
+_VALID_DOCUMENT = (
+    b"---\nname: packaged\ndescription: Packaged skill\nallowed_tools:\n  - read_file\n---\nBody.\n"
+)
+
+
+def _write_archive(path: Path, members: list[tuple[str, bytes]]) -> Path:
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data in members:
+            archive.writestr(name, data)
+    return path
+
+
+def test_install_copies_ordinary_resources_alongside_the_document(tmp_path) -> None:
+    store, _, home = _store(tmp_path)
+
+    store.install(_FIXTURE_SKILL)
+
+    reference = home / ".agent" / "skills" / "reviewer" / "reference.md"
+    assert "RESOURCE-V1-MARKER" in reference.read_text(encoding="utf-8")
+
+
+def test_update_replaces_body_and_resources_and_keeps_disabled_state(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    store.set_enabled("reviewer", False)
+
+    item = store.update("reviewer", _FIXTURE_V2)
+
+    assert (item.name, item.enabled, item.status) == ("reviewer", False, "disabled")
+    installed = home / ".agent" / "skills" / "reviewer"
+    document = (installed / "SKILL.md").read_text(encoding="utf-8")
+    assert "REVIEWER-V2-BODY-MARKER" in document
+    assert "REVIEWER-V1-BODY-MARKER" not in document
+    assert "RESOURCE-V2-MARKER" in (installed / "reference.md").read_text(encoding="utf-8")
+
+    store.set_enabled("reviewer", True)
+    loaded = load_selected_skills(workspace, ["reviewer"], max_chars=4_000, home=home)
+    assert "revision:v2" in loaded[0].body
+
+
+def test_update_rejects_mismatched_name_invalid_candidate_and_non_user_targets(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    _project_skill(workspace, "planner")
+    store.install(_FIXTURE_SKILL)
+    installed = home / ".agent" / "skills" / "reviewer" / "SKILL.md"
+    before = installed.read_bytes()
+    other = _write_candidate(tmp_path / "candidates", "other")
+
+    with pytest.raises(SkillError, match="name"):
+        store.update("reviewer", other)
+    with pytest.raises(SkillError, match="frontmatter"):
+        store.update("reviewer", _FIXTURE_INVALID)
+    with pytest.raises(SkillError, match="builtin|cannot"):
+        store.update("code-dev", _FIXTURE_V2)
+    with pytest.raises(SkillError, match="project|cannot"):
+        store.update("planner", _FIXTURE_V2)
+    with pytest.raises(SkillError, match="does not exist|not found"):
+        store.update("missing", _FIXTURE_V2)
+
+    assert installed.read_bytes() == before
+
+
+def test_package_round_trip_preserves_document_and_resources(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    store.install(_FIXTURE_V2)
+    output = tmp_path / "reviewer.skill.zip"
+
+    store.package("reviewer", output)
+
+    assert output.is_file()
+    store.remove("reviewer")
+    assert store.validate_source(output).name == "reviewer"
+    store.install(output)
+
+    installed = home / ".agent" / "skills" / "reviewer"
+    assert (installed / "SKILL.md").read_bytes() == (_FIXTURE_V2 / "SKILL.md").read_bytes()
+    assert (installed / "reference.md").read_bytes() == (_FIXTURE_V2 / "reference.md").read_bytes()
+    assert discover_skills(workspace, home=home)["reviewer"].source == "user"
+
+
+def test_repeated_package_produces_identical_archive_bytes(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    store.install(_FIXTURE_V2)
+    first = tmp_path / "first.skill.zip"
+    second = tmp_path / "second.skill.zip"
+
+    store.package("reviewer", first)
+    store.package("reviewer", second)
+
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_package_never_includes_internal_state_files(tmp_path) -> None:
+    import zipfile
+
+    store, _, _ = _store(tmp_path)
+    store.install(_FIXTURE_V2)
+    store.set_enabled("reviewer", False)
+    output = tmp_path / "reviewer.skill.zip"
+
+    store.package("reviewer", output)
+
+    with zipfile.ZipFile(output) as archive:
+        names = sorted(archive.namelist())
+    assert names == ["SKILL.md", "reference.md"]
+
+
+def test_package_refuses_unsafe_or_existing_outputs(tmp_path) -> None:
+    store, _, home = _store(tmp_path)
+    store.install(_FIXTURE_V2)
+    existing = tmp_path / "taken.skill.zip"
+    existing.write_bytes(b"keep\n")
+
+    with pytest.raises(SkillError, match="exists"):
+        store.package("reviewer", existing)
+    with pytest.raises(SkillError, match="skill.zip"):
+        store.package("reviewer", tmp_path / "wrong-suffix.zip")
+    with pytest.raises(SkillError, match="parent|directory"):
+        store.package("reviewer", tmp_path / "missing-dir" / "out.skill.zip")
+    with pytest.raises(SkillError, match="store|user"):
+        store.package("reviewer", home / ".agent" / "out.skill.zip")
+    with pytest.raises(SkillError, match="builtin|cannot|user"):
+        store.package("code-dev", tmp_path / "builtin.skill.zip")
+
+    assert existing.read_bytes() == b"keep\n"
+
+
+def test_package_leaves_no_target_or_temp_file_when_publishing_fails(tmp_path, monkeypatch) -> None:
+    import agent.core.skills as skills_module
+
+    store, _, _ = _store(tmp_path)
+    store.install(_FIXTURE_V2)
+    output = tmp_path / "reviewer.skill.zip"
+
+    def failing_link(source, target):
+        raise OSError("simulated hard link failure")
+
+    monkeypatch.setattr(skills_module.os, "link", failing_link)
+
+    with pytest.raises(SkillError, match="link|publish"):
+        store.package("reviewer", output)
+
+    assert not output.exists()
+    assert [path.name for path in tmp_path.iterdir() if path.name.endswith(".tmp")] == []
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "../escape.txt",
+        "/absolute.txt",
+        "C:/drive.txt",
+        "nested/../../escape.txt",
+    ],
+)
+def test_archive_rejects_path_traversal_members(tmp_path, member) -> None:
+    store, _, _ = _store(tmp_path)
+    archive = _write_archive(
+        tmp_path / "bad.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), (member, b"payload")],
+    )
+
+    with pytest.raises(SkillError):
+        store.validate_source(archive)
+
+
+@pytest.mark.filterwarnings("ignore:Duplicate name:UserWarning")
+def test_archive_rejects_duplicate_and_case_folded_members(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    duplicate = _write_archive(
+        tmp_path / "dup.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), ("note.txt", b"a"), ("note.txt", b"b")],
+    )
+    folded = _write_archive(
+        tmp_path / "folded.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), ("Note.txt", b"a"), ("note.txt", b"b")],
+    )
+
+    with pytest.raises(SkillError, match="duplicate|case"):
+        store.validate_source(duplicate)
+    with pytest.raises(SkillError, match="duplicate|case"):
+        store.validate_source(folded)
+
+
+def test_archive_rejects_symlink_members(tmp_path) -> None:
+    import stat
+    import zipfile
+
+    store, _, _ = _store(tmp_path)
+    path = tmp_path / "link.skill.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("SKILL.md", _VALID_DOCUMENT)
+        info = zipfile.ZipInfo("link.txt")
+        info.external_attr = (stat.S_IFLNK | 0o777) << 16
+        archive.writestr(info, "/etc/passwd")
+
+    with pytest.raises(SkillError, match="link|regular"):
+        store.validate_source(path)
+
+
+def test_archive_rejects_oversized_and_over_counted_members(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    oversized = _write_archive(
+        tmp_path / "big.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), ("asset.bin", b"x" * (1024 * 1024 + 1))],
+    )
+    too_many = _write_archive(
+        tmp_path / "many.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT)] + [(f"file{index}.txt", b"x") for index in range(128)],
+    )
+
+    with pytest.raises(SkillError, match="size|limit|large"):
+        store.validate_source(oversized)
+    with pytest.raises(SkillError, match="files|limit|members"):
+        store.validate_source(too_many)
+
+
+def test_archive_without_root_document_is_rejected(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    nested = _write_archive(tmp_path / "nested.skill.zip", [("reviewer/SKILL.md", _VALID_DOCUMENT)])
+
+    with pytest.raises(SkillError, match="SKILL.md"):
+        store.validate_source(nested)
+
+
+def test_rejected_archive_never_writes_the_store_or_escapes(tmp_path) -> None:
+    store, _, home = _store(tmp_path)
+    archive = _write_archive(
+        tmp_path / "bad.skill.zip",
+        [("SKILL.md", _VALID_DOCUMENT), ("../escape.txt", b"payload")],
+    )
+
+    with pytest.raises(SkillError):
+        store.install(archive)
+
+    assert not (home / ".agent" / "skills" / "packaged").exists()
+    assert not (tmp_path / "escape.txt").exists()
+
+
+def test_doctor_reports_a_healthy_store(tmp_path) -> None:
+    store, _, _ = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+
+    report = store.doctor(default_skills=["code-dev", "reviewer"])
+
+    assert report.healthy is True
+    assert report.problems == ()
+    assert all("REVIEWER-V1-BODY-MARKER" not in item for item in report.problems)
+
+
+def test_doctor_reports_disabled_defaults_orphans_and_collisions(tmp_path) -> None:
+    store, workspace, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    store.set_enabled("reviewer", False)
+
+    report = store.doctor(default_skills=["reviewer", "missing"])
+
+    assert report.healthy is False
+    assert any("missing" in problem for problem in report.problems)
+    assert any("reviewer" in problem for problem in report.problems)
+
+    store.set_enabled("reviewer", True)
+    _project_skill(workspace, "reviewer")
+    collision = store.doctor(default_skills=[])
+    assert collision.healthy is False
+    assert any("same name" in problem or "conflict" in problem for problem in collision.problems)

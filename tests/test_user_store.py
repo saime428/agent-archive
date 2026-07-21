@@ -347,3 +347,105 @@ def test_skill_install_crash_leaves_only_old_or_new_state(tmp_path, crash_at) ->
     else:
         assert not installed.exists()
     assert not list((home / ".agent" / user_store.TRANSACTIONS_DIR_NAME).glob("skill-*")) or store.inventory()
+
+
+_FIXTURE_V2 = (Path(__file__).parent / "fixtures" / "skills" / "reviewer-v2").resolve()
+
+
+@pytest.mark.parametrize(
+    "crash_at",
+    ["candidate", "prepared", "backup", "target", "state", "committed", "cleanup"],
+)
+def test_skill_update_crash_leaves_only_complete_v1_or_v2(tmp_path, crash_at) -> None:
+    from agent.core.skills import SkillStore, discover_skills
+
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    SkillStore(workspace, home=home).install(_SKILL_FIXTURE)
+    installed = home / ".agent" / "skills" / "reviewer"
+    v1_document = (installed / "SKILL.md").read_bytes()
+    v2_document = (_FIXTURE_V2 / "SKILL.md").read_bytes()
+
+    assert _crash_worker(
+        "crash-skill-update",
+        workspace=workspace,
+        home=home,
+        crash_at=crash_at,
+        extra=["--source", str(_FIXTURE_V2), "--skill", "reviewer"],
+    ) == 91
+
+    store = SkillStore(workspace, home=home)
+    items = {item.name: item for item in store.inventory()}
+    assert items["reviewer"].source == "user"
+    assert installed.is_dir()
+    document = (installed / "SKILL.md").read_bytes()
+    assert document in {v1_document, v2_document}
+    if document == v2_document:
+        assert "RESOURCE-V2-MARKER" in (installed / "reference.md").read_text(encoding="utf-8")
+    else:
+        assert "RESOURCE-V1-MARKER" in (installed / "reference.md").read_text(encoding="utf-8")
+    assert discover_skills(workspace, home=home)["reviewer"].source == "user"
+    assert store.doctor(default_skills=["reviewer"]).healthy is True
+
+
+def test_skill_transaction_with_a_foreign_owner_marker_fails_closed(tmp_path) -> None:
+    from agent.core.skills import SkillError, SkillStore
+
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    store = SkillStore(workspace, home=home)
+    store.install(_SKILL_FIXTURE)
+    transactions = home / ".agent" / user_store.TRANSACTIONS_DIR_NAME
+    tx = transactions / f"skill-{'d' * 32}"
+    tx.mkdir(parents=True)
+    (tx / user_store.OWNER_MARKER_NAME).write_bytes(b"someone-else\n")
+    (tx / "record.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "module": "skill",
+                "operation": "update",
+                "name": "reviewer",
+                "old_disabled": False,
+                "old_directory": True,
+                "phase": "prepared",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SkillError, match="ownership marker"):
+        store.inventory()
+
+    assert (tx / "record.json").is_file()
+    assert (home / ".agent" / "skills" / "reviewer" / "SKILL.md").is_file()
+
+
+def test_malformed_and_multiple_skill_transactions_fail_closed(tmp_path) -> None:
+    from agent.core.skills import SkillError, SkillStore
+
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    store = SkillStore(workspace, home=home)
+    store.install(_SKILL_FIXTURE)
+    transactions = home / ".agent" / user_store.TRANSACTIONS_DIR_NAME
+    first = transactions / f"skill-{'1' * 32}"
+    first.mkdir(parents=True)
+    (first / user_store.OWNER_MARKER_NAME).write_bytes(b"agent:skill-transaction:v1\n")
+    (first / "record.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SkillError, match="unknown or missing fields"):
+        store.inventory()
+    assert (first / "record.json").exists()
+
+    second = transactions / f"skill-{'2' * 32}"
+    second.mkdir()
+    with pytest.raises(SkillError, match="Multiple skill transactions"):
+        store.inventory()
+    assert first.exists() and second.exists()

@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import os
 import re
+import stat
+import tempfile
+import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 from agent import _user_store
@@ -30,7 +35,11 @@ _TRANSACTION_ENTRY_NAMES = frozenset({"candidate", "backup"})
 _TRANSACTION_FIELDS = frozenset(
     {"version", "module", "operation", "name", "old_disabled", "old_directory", "phase"}
 )
-_TRANSACTION_OPERATIONS = frozenset({"install", "remove"})
+_TRANSACTION_OPERATIONS = frozenset({"install", "remove", "update"})
+_ARCHIVE_SUFFIX = ".skill.zip"
+# Fixed archive metadata keeps repeated packaging byte-identical.
+_ARCHIVE_DATE_TIME = (1980, 1, 1, 0, 0, 0)
+_ARCHIVE_FILE_ATTRIBUTES = (stat.S_IFREG | 0o644) << 16
 
 
 class SkillError(ValueError):
@@ -55,6 +64,13 @@ class SkillInventoryItem:
     enabled: bool
     status: SkillStatus
     message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SkillDoctorReport:
+    healthy: bool
+    items: tuple[SkillInventoryItem, ...]
+    problems: tuple[str, ...]
 
 
 def discover_skills(cwd: Path, *, home: Path | None = None) -> dict[str, SkillMetadata]:
@@ -310,32 +326,89 @@ class SkillStore:
             )
         return tuple(sorted(items, key=lambda item: (item.name.casefold(), item.name)))
 
-    def validate_directory(self, source: Path) -> SkillInventoryItem:
-        name, _entries = self._inspect_candidate(source)
+    def validate_source(self, source: Path) -> SkillInventoryItem:
+        with self._candidate_directory(source) as directory:
+            name, _entries = self._inspect_candidate(directory)
         return SkillInventoryItem(name=name, source="user", enabled=True, status="valid")
 
     def install(self, source: Path) -> SkillInventoryItem:
-        name, entries = self._inspect_candidate(source)
+        with self._candidate_directory(source) as directory:
+            name, entries = self._inspect_candidate(directory)
+            conflict = self._file_sources().get(name)
+            if conflict is not None:
+                raise SkillError(f"Skill {name!r} conflicts with an existing {conflict} skill.")
+            with self._locked(create=True) as root:
+                assert root is not None
+                disabled = set(self._read_state(root))
+                installed = {value.name for value in self._installed_directories(root)}
+                if name in installed:
+                    raise SkillError(f"Skill {name!r} already exists; use update to replace it.")
+                if name.casefold() in {value.casefold() for value in installed}:
+                    raise SkillError(f"Skill {name!r} conflicts with an existing skill after case folding.")
+                self._publish_transaction(
+                    root,
+                    operation="install",
+                    name=name,
+                    source=directory,
+                    entries=entries,
+                    old_directory=False,
+                    old_disabled=name in disabled,
+                    new_disabled=disabled - {name},
+                )
+        return SkillInventoryItem(name=name, source="user", enabled=True, status="valid")
+
+    def update(self, name: str, source: Path) -> SkillInventoryItem:
         conflict = self._file_sources().get(name)
         if conflict is not None:
-            raise SkillError(f"Skill {name!r} conflicts with an existing {conflict} skill.")
-        with self._locked(create=True) as root:
-            assert root is not None
-            disabled = set(self._read_state(root))
-            installed = {directory.name for directory in self._installed_directories(root)}
-            if name in installed:
-                raise SkillError(f"Skill {name!r} already exists; use update to replace it.")
-            if name.casefold() in {value.casefold() for value in installed}:
-                raise SkillError(f"Skill {name!r} conflicts with an existing skill after case folding.")
-            self._install_transaction(
-                root,
-                name=name,
-                source=Path(source),
-                entries=entries,
-                old_disabled=name in disabled,
-                new_disabled=disabled - {name},
-            )
-        return SkillInventoryItem(name=name, source="user", enabled=True, status="valid")
+            raise SkillError(f"A {conflict} skill cannot be updated by this command.")
+        self._require_safe_name(name)
+        with self._candidate_directory(source) as directory:
+            candidate_name, entries = self._inspect_candidate(directory)
+            with self._locked() as root:
+                installed = {value.name for value in self._installed_directories(root)}
+                if name not in installed:
+                    raise SkillError(f"User skill {name!r} does not exist.")
+                if candidate_name != name:
+                    raise SkillError(
+                        f"Candidate skill name {candidate_name!r} does not match the update target {name!r}."
+                    )
+                assert root is not None
+                disabled = set(self._read_state(root))
+                self._publish_transaction(
+                    root,
+                    operation="update",
+                    name=name,
+                    source=directory,
+                    entries=entries,
+                    old_directory=True,
+                    old_disabled=name in disabled,
+                    new_disabled=disabled,
+                )
+        enabled = name not in disabled
+        return SkillInventoryItem(
+            name=name,
+            source="user",
+            enabled=enabled,
+            status="valid" if enabled else "disabled",
+        )
+
+    def package(self, name: str, output: Path) -> Path:
+        conflict = self._file_sources().get(name)
+        if conflict is not None:
+            raise SkillError(f"A {conflict} skill cannot be packaged by this command.")
+        self._require_safe_name(name)
+        target = self._require_package_output(output)
+        with self._locked() as root:
+            installed = {value.name: value for value in self._installed_directories(root)}
+            if name not in installed:
+                raise SkillError(f"User skill {name!r} does not exist.")
+            source = installed[name]
+            if _user_store.is_within(target.parent, source):
+                raise SkillError("Package output must not be written inside the source skill.")
+            entries = self._walk_candidate(source)
+            self._require_candidate_sizes(entries)
+            self._write_archive(source, entries, target)
+        return target
 
     def set_enabled(self, name: str, enabled: bool) -> SkillInventoryItem:
         self._require_safe_name(name)
@@ -379,6 +452,193 @@ class SkillStore:
                 old_disabled=name in disabled,
                 new_disabled=disabled - {name},
             )
+
+    @contextmanager
+    def _candidate_directory(self, source: Path) -> Iterator[Path]:
+        path = Path(source)
+        if path.is_dir() and not _user_store.is_link_or_reparse(path):
+            yield path
+            return
+        if not path.name.endswith(_ARCHIVE_SUFFIX):
+            raise SkillError(
+                f"Skill source must be a directory or a {_ARCHIVE_SUFFIX} archive."
+            )
+        _require_plain_file(path, message="Skill archive must be a regular file.")
+        with tempfile.TemporaryDirectory(prefix="agent-skill-") as staging:
+            yield self._extract_archive(path, Path(staging))
+
+    def _extract_archive(self, archive_path: Path, staging: Path) -> Path:
+        """Stream a validated archive into staging; never uses extractall()."""
+        root = staging / "candidate"
+        root.mkdir(mode=0o700)
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                infos = archive.infolist()
+                if len(infos) > _MAX_CANDIDATE_FILES:
+                    raise SkillError(f"Skill archive exceeds the {_MAX_CANDIDATE_FILES} member limit.")
+                members = self._checked_archive_members(infos)
+                total = sum(info.file_size for _relative, info in members)
+                if total > _MAX_CANDIDATE_BYTES:
+                    raise SkillError("Skill archive exceeds the 8 MiB total size limit.")
+                for relative, info in members:
+                    destination = root / relative
+                    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    self._copy_archive_member(archive, info, destination)
+        except zipfile.BadZipFile as exc:
+            raise SkillError("Skill archive is not a readable zip file.") from exc
+        except OSError as exc:
+            raise SkillError("Could not read the skill archive.") from exc
+        return root
+
+    def _checked_archive_members(
+        self,
+        infos: list[zipfile.ZipInfo],
+    ) -> tuple[tuple[Path, zipfile.ZipInfo], ...]:
+        members: list[tuple[Path, zipfile.ZipInfo]] = []
+        seen: set[str] = set()
+        for info in infos:
+            name = info.filename
+            if info.is_dir():
+                continue
+            # Archives written by zipfile.writestr() carry permission bits only,
+            # so reject a member solely when it declares a non-regular file type.
+            file_type = (info.external_attr >> 16) & 0o170000
+            if file_type and file_type != stat.S_IFREG:
+                raise SkillError(f"Skill archive member {name!r} is a link or not a regular file.")
+            relative = self._checked_member_path(name)
+            document_limit = relative.as_posix() == _SKILL_DOCUMENT
+            limit = _MAX_SKILL_DOCUMENT_BYTES if document_limit else _MAX_CANDIDATE_FILE_BYTES
+            if info.file_size > limit:
+                raise SkillError(f"Skill archive member {name!r} exceeds its size limit.")
+            key = relative.as_posix().casefold()
+            if key in seen:
+                raise SkillError(f"Skill archive has a duplicate or case-folded member: {name!r}.")
+            seen.add(key)
+            members.append((relative, info))
+            if len(members) > _MAX_CANDIDATE_FILES:
+                raise SkillError(f"Skill archive exceeds the {_MAX_CANDIDATE_FILES} member limit.")
+        return tuple(members)
+
+    def _checked_member_path(self, name: str) -> Path:
+        if not name or "\x00" in name:
+            raise SkillError("Skill archive member name is empty or contains NUL.")
+        windows = PureWindowsPath(name)
+        if windows.drive or windows.root or name.startswith(("/", "\\")):
+            raise SkillError(f"Skill archive member {name!r} uses an absolute or UNC path.")
+        posix = PurePosixPath(name.replace("\\", "/"))
+        parts = posix.parts
+        if any(part in {"..", "."} for part in parts):
+            raise SkillError(f"Skill archive member {name!r} escapes the archive root.")
+        return Path(*parts)
+
+    def _copy_archive_member(
+        self,
+        archive: zipfile.ZipFile,
+        info: zipfile.ZipInfo,
+        destination: Path,
+    ) -> None:
+        limit = info.file_size + 1
+        with archive.open(info) as source, destination.open("xb") as handle:
+            written = 0
+            while True:
+                chunk = source.read(64 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > limit:
+                    raise SkillError(f"Skill archive member {info.filename!r} is larger than declared.")
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def _require_package_output(self, output: Path) -> Path:
+        target = Path(output)
+        if not target.name.endswith(_ARCHIVE_SUFFIX) or target.name == _ARCHIVE_SUFFIX:
+            raise SkillError(f"Package output must end with {_ARCHIVE_SUFFIX}.")
+        parent = target.parent
+        if not parent.is_dir() or _user_store.is_link_or_reparse(parent):
+            raise SkillError("Package output parent directory must already exist.")
+        try:
+            resolved_parent = parent.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise SkillError("Package output parent directory could not be resolved.") from exc
+        if _user_store.lexists(target):
+            raise SkillError("Package output already exists.")
+        agent_root = self._home / ".agent"
+        if _user_store.lexists(agent_root) and _user_store.is_within(resolved_parent, agent_root):
+            raise SkillError("Package output must not be written inside the user store.")
+        return resolved_parent / target.name
+
+    def _write_archive(
+        self,
+        source: Path,
+        entries: tuple[tuple[Path, Path], ...],
+        target: Path,
+    ) -> None:
+        temp_path = target.parent / f".{target.name}.agent-{os.urandom(16).hex()}.tmp"
+        published = False
+        try:
+            with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for relative, path in sorted(entries, key=lambda item: item[0].as_posix()):
+                    info = zipfile.ZipInfo(relative.as_posix(), date_time=_ARCHIVE_DATE_TIME)
+                    info.external_attr = _ARCHIVE_FILE_ATTRIBUTES
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.create_system = 3
+                    archive.writestr(info, path.read_bytes())
+            self._verify_archive(temp_path, source, entries)
+            os.link(temp_path, target)
+            published = True
+        except SkillError:
+            raise
+        except OSError as exc:
+            raise SkillError("Could not publish the skill package with a hard link.") from exc
+        finally:
+            try:
+                temp_path.unlink()
+            except OSError:
+                if not published:
+                    raise SkillError("Could not clean the skill package temporary file.") from None
+
+    def _verify_archive(
+        self,
+        temp_path: Path,
+        source: Path,
+        entries: tuple[tuple[Path, Path], ...],
+    ) -> None:
+        expected = {relative.as_posix(): path.read_bytes() for relative, path in entries}
+        with zipfile.ZipFile(temp_path) as archive:
+            if archive.testzip() is not None:
+                raise SkillError("Packaged skill archive failed its integrity check.")
+            names = archive.namelist()
+            if sorted(names) != sorted(expected):
+                raise SkillError("Packaged skill archive does not match its source files.")
+            for name in names:
+                if archive.read(name) != expected[name]:
+                    raise SkillError("Packaged skill archive content does not match its source.")
+
+    def doctor(self, *, default_skills: list[str] | tuple[str, ...] = ()) -> SkillDoctorReport:
+        problems: list[str] = []
+        try:
+            items = self.inventory()
+        except SkillError as exc:
+            return SkillDoctorReport(healthy=False, items=(), problems=(str(exc),))
+        for item in items:
+            if item.status == "orphan":
+                problems.append(
+                    f"{item.name}: state entry has no installed directory; run 'agent skills remove {item.name}'."
+                )
+            elif item.status == "conflict":
+                problems.append(
+                    f"{item.name}: a builtin or project skill uses the same name; "
+                    f"rename, disable, or remove the user skill."
+                )
+            elif item.status == "invalid":
+                problems.append(f"{item.name}: {item.message or 'skill is invalid'}")
+        available = {item.name for item in items if item.enabled and item.status == "valid"}
+        for name in default_skills:
+            if name not in available:
+                problems.append(f"{name}: default skill is not loadable from any enabled source.")
+        return SkillDoctorReport(healthy=not problems, items=items, problems=tuple(problems))
 
     def _inspect_candidate(self, source: Path) -> tuple[str, tuple[tuple[Path, Path], ...]]:
         try:
@@ -549,28 +809,34 @@ class SkillStore:
     def _locked(self, *, create: bool = False) -> _SkillStoreLock:
         return _SkillStoreLock(self, create=create)
 
-    def _install_transaction(
+    def _publish_transaction(
         self,
         root: Path,
         *,
+        operation: str,
         name: str,
         source: Path,
         entries: tuple[tuple[Path, Path], ...],
+        old_directory: bool,
         old_disabled: bool,
         new_disabled: set[str],
     ) -> None:
         tx = self._prepare_transaction(
             root,
-            operation="install",
+            operation=operation,
             name=name,
             old_disabled=old_disabled,
-            old_directory=False,
+            old_directory=old_directory,
         )
         candidate = tx / "candidate"
+        backup = tx / "backup"
         try:
             self._copy_candidate(source, candidate, entries)
             self._verify_staged_candidate(candidate, name)
             target = self._skills_dir(root, create=True) / name
+            if old_directory:
+                _require_real_directory(target, message="User skill must be a real directory.")
+                os.replace(target, backup)
             os.replace(candidate, target)
             _sync_directory(target.parent)
             self._write_state(root, new_disabled)
@@ -746,6 +1012,8 @@ class SkillStore:
                 self._skills_dir(root, create=True)
                 os.replace(backup, target)
                 _sync_directory(target.parent)
+            elif record["old_directory"] and not _user_store.lexists(target):
+                raise SkillError(f"Skill transaction backup for {name!r} is missing.")
             elif not record["old_directory"] and _user_store.lexists(target):
                 _remove_tree(target, message="Could not remove the interrupted skill target.")
             disabled = set(self._read_state(root))
@@ -756,11 +1024,12 @@ class SkillStore:
             self._write_state(root, disabled)
         else:
             disabled = self._read_state(root)
-            if record["operation"] == "install":
+            if record["operation"] in {"install", "update"}:
                 if not _user_store.lexists(target):
                     raise SkillError(f"Committed skill {name!r} is missing.")
                 _require_real_directory(target, message="Committed skill must be a real directory.")
-                if name in disabled:
+                expected_disabled = record["old_disabled"] if record["operation"] == "update" else False
+                if (name in disabled) != expected_disabled:
                     raise SkillError(f"Committed skill state for {name!r} does not match its directory.")
             elif _user_store.lexists(target) or name in disabled:
                 raise SkillError(f"Committed skill removal for {name!r} is incomplete.")
@@ -845,6 +1114,7 @@ def _load_json(text: str) -> Any:
 
 
 __all__ = [
+    "SkillDoctorReport",
     "SkillError",
     "SkillInventoryItem",
     "SkillMetadata",
