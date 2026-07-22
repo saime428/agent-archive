@@ -462,7 +462,7 @@ finally {
 
 每一项都先写失败测试；前一项未通过安全与清理门禁，不进入下一项。
 
-## 实施与验收证据（2026-07-18）
+## 实施与验收证据（2026-07-18；2026-07-22 补验默认路径链接）
 
 | 门禁 / 路径 | 结果 | 清理与负向检查 |
 | --- | --- | --- |
@@ -476,7 +476,7 @@ finally {
 | 真实 CLI 闭环（Skills） | validate v1→install→`show` 含 `revision:v1`→disable→`show` 退出 1→enable→update v2→`show` 含 `revision:v2`→用 `reviewer-invalid` update 退出 1 且 `show` 仍为 `revision:v2`→doctor→package→remove→从 `.skill.zip` 重装→`show` 仍为 `revision:v2`→remove→doctor | 用户 Skill 目录已删除；`.extension-transactions` 为空；`skills-state.json` 不含 `reviewer` |
 | 真实 CLI 闭环收尾 | venv 内 `agent doctor` 与 `python -m pytest -q` 943 passed | `finally` 恢复全部环境变量并删除唯一 run root，复查目录与 fixture 进程均不存在 |
 | 默认 Windows 路径（`C:\Users\admin\.agent`，经用户授权） | 通过：`Path.home()` 解析到默认路径后，MCP set→validate→live doctor(`codex-acceptance ready 1 tools`)→remove 与 Skills install→show(`revision:v1`)→package→remove→从 zip 重装→doctor 全部符合预期 | 验收前确认 `.agent` 不存在且无同名目标，故结束后删除整棵 `.agent` 精确还原；复查该目录不存在，fixture PID 已退出 |
-| 默认路径的 symlink/junction 拒绝 | **未演练**：本机未启用 Developer Mode 且无创建符号链接权限，脚本按预期跳过该分支 | 拒绝逻辑本身由 `D:\CodexScratch` 上的 junction 用例覆盖；默认路径下的该语义仍无直接证据 |
+| 默认路径的 symlink/junction 拒绝（`C:\Users\admin\.agent`，经用户授权） | 通过：确认 `Path.home()` 为 `C:\Users\admin` 后，在默认 `.agent` 位置依次创建 directory symlink 与 junction；`mcp list`、`skills list` 共四条真实 CLI 路径均退出 1 并给出 link/reparse 或非真实目录诊断 | 链接目标均位于 `D:\CodexScratch`；四次拒绝后目标 marker 与目录内容不变，`finally` 删除 C 盘 reparse point 与 D 盘唯一 run root，复查两处均无残留 |
 
 除最后两行外，全部功能性证据来自 `D:\CodexScratch` 隔离路径。
 
