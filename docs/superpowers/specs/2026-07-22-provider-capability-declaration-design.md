@@ -73,7 +73,7 @@ frozen dataclass，三个布尔字段：
 | `capabilities` | `ProviderCapabilities` | 直接引用对应类的声明，单一事实源 |
 | `api_key_env` | `Callable[[AgentConfig], str] \| None` | deepseek 读 `config.deepseek_api_key_env`；openai-compat 读 `config.api_key_env`；fake 为 None。是否需要 API key 由 `api_key_env is not None` 推出，不设冗余布尔 |
 | `requires_base_url` | `bool` | 仅 openai-compat 为 True |
-| `smoke` | `Callable \| None` | 现有两段 smoke 调用收敛为 factory.py 内两个闭包，统一签名 `smoke(config, model, native) -> SmokeResult`；fake 为 None |
+| `smoke` | `Callable \| None` | 现有两段 smoke 调用收敛为 factory.py 内两个闭包，统一签名 `smoke(config, native) -> SmokeResult`（CLI 已用 `ConfigOverrides(model=...)` 把 `--model` 并入 config，闭包读 `config.model`，不设第二个可能不一致的 model 参数）；fake 为 None |
 
 `make_llm(config)` 改走 `spec.factory`，签名与返回类型不变，所有调用方无感知。
 
@@ -102,7 +102,7 @@ def resolve_capabilities(llm) -> ProviderCapabilities:
 `stream_chat_tools` 的替身必须仍被判为支持流式，否则 native 流式路径出现回归。
 这是能力**判定**的唯一探测点，服务测试替身与外部注入 client。
 
-`run_agent_loop` 开始处解析一次：
+`run_once` 开始处解析一次：
 
 - `use_native = effective_config.native_tools and caps.native_tools`（替换现有
   getattr 探测）。
@@ -125,6 +125,11 @@ run 开始时检测两种不匹配，各发一次 `capability_warning` run event
 `_chat_event_handler`（`run` 与 `chat` 共用）新增一个 elif 打印该事件；Workbench
 的 event 消费方本轮不动。
 
+**边界**：消除静默降级只对显式声明能力的注册 provider 成立。探测派生走宽推断
+（任一流式方法存在即判 streaming），仅 `stream_chat_tools` 的替身在 JSON 协议
+下仍会经结构性兜底静默回退非流式且不发警告——这是行为兼容的**有意保留**，
+实施时不要把该兜底改成警告或报错。
+
 ## CLI/doctor 接线
 
 | 位置 | 现状 | 改为 |
@@ -132,7 +137,7 @@ run 开始时检测两种不匹配，各发一次 `capability_warning` run event
 | `_print_doctor`、`config show` | `if provider == "openai-compat"` 才显示 base_url/key | 按 `ProviderSpec` 驱动：`requires_base_url` 决定显示 `base_url`，`api_key_env` 决定显示哪个 env 与 present 状态；新增 `provider capabilities: ...` 一行；`native_tools=true` 但能力缺失时输出警告行（纯注册表查询，不实例化） |
 | chat 开流判断 | `provider in {"deepseek", "openai-compat"}` | `PROVIDER_REGISTRY[config.provider].capabilities.streaming` |
 | `provider smoke` | 名字集合准入 + 两个名字分支 | `spec.smoke is None` 时拒绝并提示；否则调用 `spec.smoke(config, model, native)` |
-| `release doctor` | 无条件打印 deepseek key 状态 | 按当前 provider 的 spec 打印 auth 状态 |
+| `release doctor` | 无条件打印 deepseek key 状态 | 按当前 provider 的 spec 打印 auth 状态；`api_key_env` 为 None（fake）时**省略**相关行，不打印占位值——doctor 与 `config show` 同规则 |
 
 doctor 中原有 `deepseek api key env/present` 两行改由 spec 驱动后，仅在当前
 provider 需要该 key 时显示；这是有意的输出契约变化，相关 CLI 测试同步更新。
@@ -154,8 +159,10 @@ provider 需要该 key 时显示；这是有意的输出契约变化，相关 CL
   仍判为支持流式，现有 native 流式测试不降级。
 - 验收标准：`cli.py` 中除注册表查询外不再出现 provider 名字字面量分支；
   `loop.py` 的能力**判定**（`use_native`、警告）只读 capabilities，散点探测仅存
-  于 `resolve_capabilities` 与 `_model_response` 的结构性方法获取；全量 pytest
-  绿；`git diff --check` 干净。
+  于 `resolve_capabilities` 与 `_model_response` 的结构性方法获取；smoke 收敛后
+  `cli.py` 不再 import `DEFAULT_DEEPSEEK_BASE_URL` 与 `smoke_deepseek_provider`
+  （`DeepSeekError` 因 run/chat 异常处理仍在使用，保留）；全量 pytest 绿；
+  `git diff --check` 干净。
 
 ## 非目标
 
