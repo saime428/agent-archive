@@ -106,29 +106,30 @@ def resolve_capabilities(llm) -> ProviderCapabilities:
 
 - `use_native = effective_config.native_tools and caps.native_tools`（替换现有
   getattr 探测）。
-- `_model_response` 增加 `capabilities` 参数：`caps.streaming` 为假或无
-  `stream_handler` 时直接走非流式；为真时取对应流式方法，并**保留现有两处
-  结构性兜底**——`stream_chat_tools` 为 None 回退 `chat_tools`、`stream_chat`
-  为 None 回退 `chat`。宽派生或撒谎的声明缺某个具体方法时，行为与现在的
-  静默回退完全一致，绝不抛错。
+- `_model_response` **保持不动**：它的两处 getattr 是结构性兜底而非能力判定
+  （`stream_chat_tools` 为 None 回退 `chat_tools`、`stream_chat` 为 None 回退
+  `chat`），对声明、派生与部分实现的替身行为天然一致。能力判定只发生在
+  `run_once` 开头（`use_native` 与警告）。
 
 ## 能力不匹配警告
 
-run 开始时检测两种不匹配，各发一次 `capability_warning` run event（复用现有
-`_emit_event` 通道），行为仍按现状降级：
+run 开始时只检测一种不匹配：`config.native_tools=true` 且
+`caps.native_tools=false` 时发一次 `capability_warning` run event（复用现有
+`_emit_event` 通道），payload 为 `{"run_id", "requested": "native_tools",
+"fallback": "json-protocol"}`，行为仍按现状降级为 JSON 动作协议。
 
-| 条件 | fallback | payload 要点 |
-| --- | --- | --- |
-| `config.native_tools=true` 且 `caps.native_tools=false` | JSON 动作协议 | `{"run_id", "requested": "native_tools", "fallback": "json-protocol"}` |
-| 传入 `stream_handler` 且 `caps.streaming=false` | 非流式响应 | `{"run_id", "requested": "streaming", "fallback": "non-streaming"}` |
+**不对 streaming 做 run 内警告**：streaming 没有 config 意图开关，
+`stream_handler` 是调用方机会式传入的——`web/chat_runtime.py` 对包括 fake 在内
+的所有 provider 恒传 no-op handler，若按 handler 存在性告警，fake 的每次
+Workbench run 都会产生固定噪声。streaming 能力只在 doctor / `config show`
+静态展示；CLI chat 用注册表能力决定是否开流。
 
 `_chat_event_handler`（`run` 与 `chat` 共用）新增一个 elif 打印该事件；Workbench
 的 event 消费方本轮不动。
 
-**边界**：消除静默降级只对显式声明能力的注册 provider 成立。探测派生走宽推断
-（任一流式方法存在即判 streaming），仅 `stream_chat_tools` 的替身在 JSON 协议
-下仍会经结构性兜底静默回退非流式且不发警告——这是行为兼容的**有意保留**，
-实施时不要把该兜底改成警告或报错。
+**边界**：消除静默降级只对显式声明能力的注册 provider 成立；探测派生是宽推断，
+`_model_response` 的结构性兜底继续对任何部分实现静默回退——这是行为兼容的
+**有意保留**，实施时不要把兜底改成警告或报错。
 
 ## CLI/doctor 接线
 
@@ -151,8 +152,7 @@ provider 需要该 key 时显示；这是有意的输出契约变化，相关 CL
 - 注册表键集合 == `config.py` 的 `Provider` 集合。
 - `resolve_capabilities`：声明优先、探测派生两条路径各一例。
 - loop：`native_tools=true` + 无 native 能力的 llm → JSON 降级且收到
-  `capability_warning`；传 `stream_handler` + 无流式能力 → 非流式且收到警告；
-  正常匹配时无该事件。
+  `capability_warning`；能力匹配时无该事件。
 - 现有 native/streaming/MCP loop 测试与 CLI 测试全部保持通过；doctor/config show
   输出行变化处同步更新断言。
 - 探测派生宽推断回归防线：`StreamingNativeLLM`（仅 `stream_chat_tools`）经派生
