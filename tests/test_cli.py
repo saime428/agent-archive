@@ -140,6 +140,7 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "config approval:" in result.output
     assert "config web_search_enabled:" in result.output
     assert "document dependency pypdf:" in result.output
+    assert "document dependency defusedxml:" in result.output
     assert "document dependency python-docx:" in result.output
     assert "document dependency openpyxl:" in result.output
     assert "document dependency python-pptx:" in result.output
@@ -166,6 +167,7 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "config approval:" in result.output
     assert "config web_search_enabled:" in result.output
     assert "document dependency pypdf:" in result.output
+    assert "document dependency defusedxml:" in result.output
     assert "document dependency python-docx:" in result.output
     assert "document dependency openpyxl:" in result.output
     assert "document dependency python-pptx:" in result.output
@@ -460,6 +462,25 @@ def test_start_command_defaults_to_safe_workbench_port(monkeypatch, tmp_path) ->
 
     assert result.exit_code == 0
     assert calls[0]["port"] == 8000
+
+
+def test_start_command_reports_non_loopback_host_without_retrying(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def fake_serve_workbench(**kwargs):
+        calls.append(kwargs)
+        raise ValueError("Agent Workbench host must be a loopback address.")
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fake_serve_workbench)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--host", "0.0.0.0"])
+
+    assert result.exit_code == 1
+    assert "Agent Workbench host must be a loopback address." in result.output
+    assert len(calls) == 1
 
 
 def test_start_command_tries_next_port_when_requested_port_is_busy(monkeypatch, tmp_path) -> None:

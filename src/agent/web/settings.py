@@ -9,26 +9,26 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from agent.config import ConfigError, load_config
+from agent import _user_store
+from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, VALID_VALUES, load_config
 from agent.core.budget import truncate_text
 from agent.core.memory import MemoryCandidate, MemoryEntry, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.tool_catalog import list_tool_infos
+from agent.llm.factory import PROVIDER_REGISTRY, ProviderSpec
 from agent.secrets import load_workspace_secrets
 from agent.web.runs import build_failure_summary
 
 
 def build_health_payload(workspace: Path) -> dict[str, Any]:
     load_workspace_secrets(workspace)
-    config_payload = build_config_payload(workspace)
+    loaded_config, config_payload = _load_config_payload(workspace)
     config = config_payload["config"]
-    api_key_env = str(config["deepseek_api_key_env"])
-    api_key_present = bool(os.environ.get(api_key_env))
-    notice_api_key_env = api_key_env
-    notice_api_key_present = api_key_present
-    if str(config["provider"]) == "openai-compat":
-        notice_api_key_env = str(config["api_key_env"])
-        notice_api_key_present = bool(os.environ.get(notice_api_key_env))
+    spec = PROVIDER_REGISTRY[loaded_config.provider]
+    api_key_env = spec.api_key_env(loaded_config) if spec.api_key_env is not None else None
+    api_key_present = bool(api_key_env and os.environ.get(api_key_env))
+    deepseek_api_key_env = loaded_config.deepseek_api_key_env
+    deepseek_api_key_present = bool(os.environ.get(deepseek_api_key_env))
     return {
         "status": "ok",
         "app": "agent-workbench",
@@ -36,43 +36,45 @@ def build_health_payload(workspace: Path) -> dict[str, Any]:
         "provider": config["provider"],
         "model": config["model"],
         "mode": config["mode"],
-        "deepseek_api_key_env": api_key_env,
-        "deepseek_api_key_present": api_key_present,
+        "deepseek_api_key_env": deepseek_api_key_env,
+        "deepseek_api_key_present": deepseek_api_key_present,
         "base_url": str(config["base_url"]),
-        "api_key_env": str(config["api_key_env"]),
+        "api_key_env": api_key_env,
+        "api_key_present": api_key_present,
+        "api_key_required": spec.api_key_required,
         "native_tools": bool(config["native_tools"]),
-        "provider_notice": _provider_notice(
-            str(config["provider"]), notice_api_key_env, notice_api_key_present, str(config["base_url"])
-        ),
-        "settings_readiness": _build_settings_readiness(config_payload, api_key_present),
+        "provider_notice": _provider_notice(spec, api_key_env, api_key_present, str(config["base_url"])),
+        "settings_readiness": _build_settings_readiness(config_payload, spec, api_key_env, api_key_present),
         "workspace_risk": _build_workspace_risk(workspace.resolve()),
         "memory_review": _build_memory_review(workspace.resolve()),
     }
 
 
-def _provider_notice(provider: str, api_key_env: str, api_key_present: bool, base_url: str = "") -> str:
-    if provider == "openai-compat":
-        if not base_url:
-            return "已选择 OpenAI 兼容 Provider，但缺少 base_url。请在 .agent/config.toml 设置 base_url。"
-        if not api_key_present:
-            return f"已选择 OpenAI 兼容 Provider，但缺少 {api_key_env}。"
-        return "已选择 OpenAI 兼容 Provider。"
-    if provider != "deepseek":
-        return '当前使用 FakeLLM。要使用 DeepSeek，请在 .agent/config.toml 设置 provider = "deepseek"。'
-    if not api_key_present:
-        return f"已选择 DeepSeek，但缺少 {api_key_env}。"
-    return "已选择 DeepSeek。"
+def _provider_notice(spec: ProviderSpec, api_key_env: str | None, api_key_present: bool, base_url: str) -> str:
+    if spec.requires_base_url and not base_url.strip():
+        return f"已选择 {spec.display_name}，但缺少 base_url。请在 .agent/config.toml 设置 base_url。"
+    if spec.api_key_required and api_key_env and not api_key_present:
+        return f"已选择 {spec.display_name}，但缺少 {api_key_env}。"
+    return f"已选择 {spec.display_name}。"
 
 
-def _build_settings_readiness(config_payload: dict[str, Any], api_key_present: bool) -> dict[str, Any]:
+def _build_settings_readiness(
+    config_payload: dict[str, Any],
+    spec: ProviderSpec,
+    api_key_env: str | None,
+    api_key_present: bool,
+) -> dict[str, Any]:
     config = config_payload["config"]
     diagnostics = config_payload["diagnostics"]
     provider = str(config["provider"])
     warnings = list(diagnostics.get("warnings", []))
     checks: list[str] = []
-    if provider == "deepseek" and not api_key_present:
+    if spec.requires_base_url and not str(config["base_url"]).strip():
+        status = "needs-base-url"
+        checks.append(f"Set base_url before live {provider} runs.")
+    elif spec.api_key_required and not api_key_present:
         status = "needs-api-key"
-        checks.append("Set DEEPSEEK_API_KEY before live DeepSeek runs.")
+        checks.append(f"Set {api_key_env} before live {spec.display_name} runs.")
     elif warnings:
         status = "warnings"
         checks.append("Review config warnings before relying on live settings.")
@@ -85,9 +87,11 @@ def _build_settings_readiness(config_payload: dict[str, Any], api_key_present: b
         "provider": provider,
         "model": str(config["model"]),
         "deepseek_api_key_env": str(config["deepseek_api_key_env"]),
-        "deepseek_api_key_present": api_key_present,
+        "deepseek_api_key_present": bool(os.environ.get(str(config["deepseek_api_key_env"]))),
         "base_url": str(config["base_url"]),
-        "api_key_env": str(config["api_key_env"]),
+        "api_key_env": api_key_env,
+        "api_key_present": api_key_present,
+        "api_key_required": spec.api_key_required,
         "native_tools": bool(config["native_tools"]),
         "loaded_files": list(diagnostics.get("loaded_files", [])),
         "warnings": warnings,
@@ -218,12 +222,21 @@ def _memory_entry_payload(entry: MemoryEntry) -> dict[str, str | None]:
 
 
 def build_config_payload(workspace: Path) -> dict[str, Any]:
-    config, diagnostics = load_config(workspace.resolve())
+    return _load_config_payload(workspace)[1]
+
+
+def _load_config_payload(workspace: Path) -> tuple[AgentConfig, dict[str, Any]]:
+    root = workspace.resolve()
+    config, diagnostics = load_config(root)
+    return config, _config_payload(root, config, diagnostics)
+
+
+def _config_payload(workspace: Path, config: AgentConfig, diagnostics: ConfigDiagnostics) -> dict[str, Any]:
     config_record = asdict(config)
     for key in ("default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"):
         config_record[key] = list(config_record[key])
     return {
-        "workspace": str(workspace.resolve()),
+        "workspace": str(workspace),
         "config": config_record,
         "diagnostics": {
             "global_config_path": str(diagnostics.global_config_path),
@@ -241,7 +254,14 @@ def build_save_config_payload(workspace: Path, request: dict[str, Any]) -> dict[
     updates = _validated_config_updates(request)
     existing.update(updates)
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(_dump_toml(existing), encoding="utf-8")
+    try:
+        _user_store.atomic_replace_bytes(
+            config_path.parent,
+            config_path,
+            _dump_toml(existing).encode("utf-8"),
+        )
+    except _user_store.UserStoreError as exc:
+        raise OSError(f"Could not save project config {config_path}.") from exc
     payload = build_config_payload(root)
     payload["status"] = "ok"
     return payload
@@ -277,7 +297,7 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
         if key not in allowed:
             continue
         if key == "provider":
-            if value not in {"fake", "deepseek", "openai-compat"}:
+            if value not in PROVIDER_REGISTRY:
                 raise ValueError("provider must be fake, deepseek, or openai-compat.")
             updates[key] = value
         elif key == "model":
@@ -285,7 +305,7 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("model must be a non-empty string.")
             updates[key] = value.strip()
         elif key == "mode":
-            if not isinstance(value, str) or value not in {"step", "guided", "auto", "plan-first"}:
+            if not isinstance(value, str) or value not in VALID_VALUES["mode"]:
                 raise ValueError("mode must be step, guided, auto, or plan-first.")
             updates[key] = value
         elif key == "sandbox":

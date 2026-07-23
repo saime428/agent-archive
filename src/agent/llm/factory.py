@@ -83,6 +83,7 @@ def _smoke_openai_compat(config: AgentConfig, native: bool) -> SmokeResult:
 
 @dataclass(frozen=True)
 class ProviderSpec:
+    display_name: str
     factory: Callable[[AgentConfig], LLMClient]
     capabilities: ProviderCapabilities
     api_key_env: Callable[[AgentConfig], str] | None
@@ -93,6 +94,7 @@ class ProviderSpec:
 
 PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
     "fake": ProviderSpec(
+        display_name="FakeLLM",
         factory=lambda _config: FakeLLMClient(),
         capabilities=FakeLLMClient.capabilities,
         api_key_env=None,
@@ -101,6 +103,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         smoke=None,
     ),
     "deepseek": ProviderSpec(
+        display_name="DeepSeek",
         factory=_make_deepseek,
         capabilities=DeepSeekClient.capabilities,
         api_key_env=lambda config: config.deepseek_api_key_env,
@@ -109,6 +112,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         smoke=_smoke_deepseek,
     ),
     "openai-compat": ProviderSpec(
+        display_name="OpenAI 兼容 Provider",
         factory=_make_openai_compat,
         capabilities=OpenAICompatClient.capabilities,
         api_key_env=lambda config: config.api_key_env,

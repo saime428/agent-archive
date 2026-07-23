@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from agent import _user_store
 from agent.config import AgentConfig
 from agent.core.budget import ContextBudget, truncate_text
 from agent.core.loop import ApprovalHandler, RunResult, run_once
@@ -183,7 +184,14 @@ class ConversationState:
         payload = redacted.value
         if redacted.applied:
             payload["redaction"] = {"applied": True, "replacements": redacted.replacements}
-        session_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+        try:
+            _user_store.atomic_replace_bytes(
+                self.cwd / ".agent",
+                session_path,
+                (json.dumps(payload, ensure_ascii=True, indent=2) + "\n").encode("utf-8"),
+            )
+        except _user_store.UserStoreError as exc:
+            raise OSError(f"Could not save chat session {session_path}.") from exc
         return session_path
 
 

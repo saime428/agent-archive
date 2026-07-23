@@ -626,7 +626,6 @@ class SkillStore:
         target: Path,
     ) -> None:
         temp_path = target.parent / f".{target.name}.agent-{os.urandom(16).hex()}.tmp"
-        published = False
         try:
             with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 for relative, path in sorted(entries, key=lambda item: item[0].as_posix()):
@@ -637,7 +636,6 @@ class SkillStore:
                     archive.writestr(info, path.read_bytes())
             self._verify_archive(temp_path, source, entries)
             os.link(temp_path, target)
-            published = True
         except SkillError:
             raise
         except OSError as exc:

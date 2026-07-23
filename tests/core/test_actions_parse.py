@@ -9,8 +9,6 @@ from jsonschema import Draft202012Validator
 from agent.core.actions import (
     ActionParseError,
     ErrorCode,
-    make_error_observation,
-    make_observation,
     parse_model_action,
 )
 from agent.core.tool_catalog import build_tool_catalog

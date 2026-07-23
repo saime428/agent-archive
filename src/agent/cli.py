@@ -49,6 +49,7 @@ MCP_CLI_TEXT_LIMIT = 512
 console = Console(highlight=False)
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
+    "defusedxml": "defusedxml",
     "python-docx": "docx",
     "openpyxl": "openpyxl",
     "python-pptx": "pptx",
@@ -130,7 +131,7 @@ def release_doctor(
     try:
         config, diagnostics = load_config(workspace)
     except ConfigError as exc:
-        console.print(f"config readable: false")
+        console.print("config readable: false")
         console.print(f"config error: {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -249,7 +250,7 @@ def ui(
     port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
     open_browser: bool = typer.Option(False, "--open-browser/--no-open-browser", help="Open the selected workbench URL."),
 ) -> None:
-    """Start the local read-only web workbench."""
+    """Start the local web workbench."""
     workspace = (cwd or Path.cwd()).resolve()
     _start_workbench(workspace, host, port, open_browser=open_browser)
 
@@ -281,6 +282,9 @@ def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: boo
             serve_workbench(workspace=workspace, host=host, port=candidate, open_browser=open_browser)
             return
         except McpRuntimeError as exc:
+            console.print(str(exc))
+            raise typer.Exit(code=1) from exc
+        except ValueError as exc:
             console.print(str(exc))
             raise typer.Exit(code=1) from exc
         except OSError as exc:

@@ -270,6 +270,24 @@ def test_conversation_state_save_redacts_secrets_and_resume_loads_turns(tmp_path
     assert loaded.turns[0].final == "token [REDACTED]"
 
 
+def test_conversation_state_save_keeps_previous_file_when_atomic_publish_fails(monkeypatch, tmp_path) -> None:
+    state = ConversationState.create(tmp_path, session_id="chat_atomic")
+    path = state.save(AgentConfig())
+    original = path.read_text(encoding="utf-8")
+    state.title = "updated"
+
+    def fail_replace(_source: Path, _target: Path) -> None:
+        raise OSError("publish failed")
+
+    monkeypatch.setattr("agent._user_store.os.replace", fail_replace)
+
+    with pytest.raises(OSError, match="Could not save chat session"):
+        state.save(AgentConfig())
+
+    assert path.read_text(encoding="utf-8") == original
+    assert list(path.parent.glob(".session.json.agent-*.tmp")) == []
+
+
 def test_conversation_state_rejects_unsafe_session_ids(tmp_path) -> None:
     with pytest.raises(ValueError, match="chat session id"):
         ConversationState.load(tmp_path, "../runs")

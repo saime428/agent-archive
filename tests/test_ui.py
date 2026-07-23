@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
@@ -234,6 +236,27 @@ def test_build_save_config_payload_rejects_disabling_approvals(tmp_path: Path) -
         raise AssertionError("browser config must not disable approvals")
 
 
+def test_build_save_config_payload_keeps_previous_file_when_atomic_publish_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    original = "dry_run = false\n"
+    config_path.write_text(original, encoding="utf-8")
+
+    def fail_replace(_source: Path, _target: Path) -> None:
+        raise OSError("publish failed")
+
+    monkeypatch.setattr("agent._user_store.os.replace", fail_replace)
+
+    with pytest.raises(OSError, match="Could not save project config"):
+        build_save_config_payload(workspace, {"dry_run": True})
+
+    assert config_path.read_text(encoding="utf-8") == original
+    assert list(config_path.parent.glob(".config.toml.agent-*.tmp")) == []
+
+
 def test_build_health_payload_reports_deepseek_key_presence_without_leaking_value(monkeypatch, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -277,9 +300,7 @@ def test_build_health_payload_warns_when_workbench_uses_fake_provider(tmp_path: 
     payload = build_health_payload(workspace)
 
     assert payload["provider"] == "fake"
-    assert payload["provider_notice"] == (
-        '当前使用 FakeLLM。要使用 DeepSeek，请在 .agent/config.toml 设置 provider = "deepseek"。'
-    )
+    assert payload["provider_notice"] == "已选择 FakeLLM。"
 
 
 def test_build_health_payload_reports_deepseek_provider_status(monkeypatch, tmp_path: Path) -> None:
@@ -293,6 +314,41 @@ def test_build_health_payload_reports_deepseek_provider_status(monkeypatch, tmp_
 
     assert payload["provider"] == "deepseek"
     assert payload["provider_notice"] == "已选择 DeepSeek，但缺少 DEEPSEEK_API_KEY。"
+
+
+def test_build_health_payload_treats_openai_compat_key_as_optional(monkeypatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    payload = build_health_payload(workspace)
+
+    assert payload["provider_notice"] == "已选择 OpenAI 兼容 Provider。"
+    assert payload["api_key_env"] == "OPENAI_API_KEY"
+    assert payload["api_key_present"] is False
+    assert payload["api_key_required"] is False
+    assert payload["settings_readiness"]["status"] == "ready"
+    assert payload["settings_readiness"]["api_key_required"] is False
+
+
+def test_build_health_payload_reports_required_openai_compat_base_url(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    config_path = workspace / ".agent" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text('provider = "openai-compat"\n', encoding="utf-8")
+
+    payload = build_health_payload(workspace)
+
+    assert payload["provider_notice"] == (
+        "已选择 OpenAI 兼容 Provider，但缺少 base_url。请在 .agent/config.toml 设置 base_url。"
+    )
+    assert payload["settings_readiness"]["status"] == "needs-base-url"
+    assert "Set base_url before live openai-compat runs." in payload["settings_readiness"]["checks"]
 
 
 def test_build_health_payload_includes_read_only_settings_readiness(monkeypatch, tmp_path: Path) -> None:
@@ -1365,7 +1421,8 @@ def test_static_workbench_assets_exist_and_reference_api() -> None:
     assert 'id="tool-call-list"' in index
     assert "const warning = call.data?.trace?.warning;" in diagnostics_script
     assert "warning ? `${warning}\\n${summary}` : summary" in diagnostics_script
-    assert "DeepSeek key" in script
+    assert "Provider API key" in script
+    assert 'status.api_key_required ? "缺失" : "未配置（可选）"' in script
     assert "web_search_enabled" in script
     assert "display_status" in script
     assert "repair_count" in script

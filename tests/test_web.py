@@ -56,9 +56,11 @@ def _http_request(
     body: object = _NO_BODY,
     *,
     mcp_runtime=None,
+    request_headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
     payload = None if body is _NO_BODY else body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
     headers = {} if body is _NO_BODY else {"Content-Type": "application/json"}
+    headers.update(request_headers or {})
     with _running_workbench(workspace, mcp_runtime=mcp_runtime) as (host, port):
         connection = HTTPConnection(host, port, timeout=2.0)
         try:
@@ -68,6 +70,69 @@ def _http_request(
             return response.status, response_headers, response.read()
         finally:
             connection.close()
+
+
+def test_workbench_rejects_untrusted_host_header(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    status, _headers, response = _http_request(
+        workspace,
+        "GET",
+        "/api/health",
+        request_headers={"Host": "attacker.example"},
+    )
+
+    assert status == 403
+    assert json.loads(response) == {"error": "Workbench only accepts loopback requests."}
+
+
+def test_workbench_rejects_cross_origin_write(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    status, _headers, response = _http_request(
+        workspace,
+        "POST",
+        "/api/config",
+        {"dry_run": True},
+        request_headers={"Origin": "https://attacker.example"},
+    )
+
+    assert status == 403
+    assert json.loads(response) == {"error": "Cross-origin Workbench writes are not allowed."}
+    assert not (workspace / ".agent" / "config.toml").exists()
+
+
+def test_workbench_rejects_simple_form_write_without_json_content_type(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    status, _headers, response = _http_request(
+        workspace,
+        "POST",
+        "/api/config",
+        b'{"dry_run": true}',
+        request_headers={"Content-Type": "text/plain"},
+    )
+
+    assert status == 400
+    assert json.loads(response) == {"error": "Content-Type must be application/json."}
+    assert not (workspace / ".agent" / "config.toml").exists()
+
+
+def test_workbench_applies_security_headers_to_success_and_error_responses(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    _status, headers, _response = _http_request(workspace, "GET", "/api/health")
+    _missing_status, missing_headers, _missing_response = _http_request(workspace, "GET", "/missing")
+
+    for response_headers in (headers, missing_headers):
+        assert response_headers["x-content-type-options"] == "nosniff"
+        assert response_headers["x-frame-options"] == "DENY"
+        assert response_headers["referrer-policy"] == "no-referrer"
+        assert "default-src 'self'" in response_headers["content-security-policy"]
 
 
 def _done_response(final: str = "ok") -> dict[str, object]:
@@ -197,6 +262,10 @@ def test_workbench_routes_dispatch_to_expected_builder(
         def decide(self, *, job_id: str, approve: bool) -> dict[str, str]:
             return sentinel(job_id=job_id, approve=approve)
 
+        @contextmanager
+        def _reserve_session(self, _session_id: object):
+            yield
+
     monkeypatch.setattr(server, "ChatRuntime", FakeRuntime)
     if not target.startswith("runtime."):
         monkeypatch.setattr(server, target, sentinel)
@@ -226,6 +295,10 @@ def test_workbench_sync_and_async_chat_paths_borrow_the_injected_mcp_runtime(
 
         def start(self, *, message: str, session_id: str | None) -> dict[str, object]:
             return {"status": "running", "job_id": "job_1", "session_id": session_id}
+
+        @contextmanager
+        def _reserve_session(self, _session_id: object):
+            yield
 
     def fake_turn(_root: Path, _request: dict[str, object], *, mcp_runtime) -> dict[str, str]:
         seen.append(("sync", mcp_runtime))
@@ -426,6 +499,44 @@ def test_serve_workbench_closes_owned_mcp_runtime_on_every_exit_path(
     if "server_close" in events:
         assert events.index("server_close") < events.index("runtime_close")
     assert events[-1] == "runtime_close"
+
+
+def test_serve_workbench_rejects_non_loopback_bind_before_runtime_start(monkeypatch, tmp_path) -> None:
+    def fail_runtime(_root: Path):
+        raise AssertionError("runtime must not start for a non-loopback bind")
+
+    monkeypatch.setattr(server, "McpStdioRuntime", fail_runtime)
+
+    with pytest.raises(ValueError, match="loopback"):
+        server.serve_workbench(workspace=tmp_path, host="0.0.0.0")
+
+
+def test_serve_workbench_uses_daemon_request_threads(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    class Runtime:
+        def close(self) -> None:
+            pass
+
+    class FakeServer:
+        daemon_threads = False
+
+        def __init__(self, _address, _handler) -> None:
+            captured["server"] = self
+
+        def serve_forever(self) -> None:
+            pass
+
+        def server_close(self) -> None:
+            pass
+
+    monkeypatch.setattr(server, "McpStdioRuntime", lambda _root: Runtime())
+    monkeypatch.setattr(server, "create_workbench_handler", lambda _root, *, mcp_runtime: object())
+    monkeypatch.setattr(server, "ThreadingHTTPServer", FakeServer)
+
+    server.serve_workbench(workspace=tmp_path)
+
+    assert captured["server"].daemon_threads is True
 
 
 def test_workbench_sse_route_reuses_preflight_and_closes_after_done_batch(monkeypatch, tmp_path) -> None:
@@ -652,6 +763,93 @@ def test_chat_runtime_does_not_prune_active_job_and_negative_timeout_is_nonblock
     assert elapsed < 0.1
     release.set()
     _wait_for_runtime_done(runtime, started["job_id"])
+
+
+def test_chat_runtime_rejects_a_second_active_turn_for_the_same_session(tmp_path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingLLM:
+        def chat(self, _messages, *, temperature=None):
+            entered.set()
+            assert release.wait(2.0)
+            return _done_response()
+
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: BlockingLLM())
+    started = runtime.start(message="first", session_id="chat_shared")
+    assert entered.wait(1.0)
+
+    with pytest.raises(ValueError, match="already has an active turn"):
+        runtime.start(message="second", session_id="chat_shared")
+    with pytest.raises(ValueError, match="already has an active turn"):
+        with runtime._reserve_session("chat_shared"):
+            pass
+
+    release.set()
+    _wait_for_runtime_done(runtime, started["job_id"])
+    with runtime._reserve_session("chat_shared"):
+        pass
+
+
+def test_chat_runtime_claims_existing_session_before_loading_state(monkeypatch, tmp_path) -> None:
+    original_load = chat_runtime.chats.load_or_create_chat_state
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+
+    def load_while_claimed(root: Path, session_id: str | None):
+        with pytest.raises(ValueError, match="already has an active turn"):
+            with runtime._reserve_session(session_id):
+                pass
+        return original_load(root, session_id)
+
+    monkeypatch.setattr(chat_runtime.chats, "load_or_create_chat_state", load_while_claimed)
+
+    started = runtime.start(message="first", session_id="chat_claimed")
+
+    _wait_for_runtime_done(runtime, started["job_id"])
+
+
+def test_chat_runtime_does_not_release_another_job_on_generated_session_collision(monkeypatch, tmp_path) -> None:
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    monkeypatch.setattr(
+        chat_runtime.chats,
+        "load_or_create_chat_state",
+        lambda _root, _session_id: SimpleNamespace(session_id="chat_busy"),
+    )
+
+    with runtime._reserve_session("chat_busy"):
+        with pytest.raises(ValueError, match="already has an active turn"):
+            runtime.start(message="collision", session_id=None)
+        with pytest.raises(ValueError, match="already has an active turn"):
+            with runtime._reserve_session("chat_busy"):
+                pass
+
+
+@pytest.mark.parametrize("path", ["/api/chat/turn", "/api/chat/rename", "/api/chat/delete"])
+def test_workbench_blocks_chat_mutation_while_session_is_active(monkeypatch, tmp_path, path: str) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class ActiveRuntime:
+        def __init__(self, _workspace: Path) -> None:
+            pass
+
+        @contextmanager
+        def _reserve_session(self, session_id: object):
+            assert session_id == "chat_busy"
+            raise ValueError("Chat session chat_busy already has an active turn.")
+            yield
+
+    monkeypatch.setattr(server, "ChatRuntime", ActiveRuntime)
+    body = {"session_id": "chat_busy"}
+    if path.endswith("turn"):
+        body["message"] = "next"
+    elif path.endswith("rename"):
+        body["title"] = "new"
+
+    status, _headers, response = _http_request(workspace, "POST", path, body)
+
+    assert status == 400
+    assert "already has an active turn" in json.loads(response)["error"]
 
 
 def test_chat_runtime_registry_is_instance_local(tmp_path) -> None:

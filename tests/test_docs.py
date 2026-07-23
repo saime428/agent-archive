@@ -20,6 +20,17 @@ def test_package_version_matches_v21_route() -> None:
     assert '__version__ = "2.1.0"' in init_text
 
 
+def test_document_reader_extra_declares_optional_parsers_and_xml_hardening() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    documents = pyproject["project"]["optional-dependencies"]["documents"]
+
+    assert any(item.startswith("python-docx") for item in documents)
+    assert any(item.startswith("openpyxl") for item in documents)
+    assert any(item.startswith("python-pptx") for item in documents)
+    assert any(item.startswith("defusedxml") for item in documents)
+
+
 def test_changelog_records_v21_security_hardening() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
@@ -258,11 +269,11 @@ def test_readme_documents_v06_workbench_smoke() -> None:
     assert "Auto-refresh" in readme
     assert "Status Bar" in readme
     assert "Refresh button" in readme
-    assert "DeepSeek key presence" in readme
+    assert "active-provider API-key status" in readme
     assert "Task Review panel" in readme
     assert "Runs Dashboard" in readme
     assert "workbench success criteria" in readme
-    assert "Status Bar shows workspace, provider, model, session, DeepSeek key presence, and last refresh" in readme
+    assert "Status Bar shows workspace, provider, model, session, active-provider API-key status, and last refresh" in readme
     assert "Refresh does not overwrite an open file editor or pending approval" in readme
     assert "Snapshots panel shows restore hints" in readme
 

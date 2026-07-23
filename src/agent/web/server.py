@@ -6,6 +6,7 @@ import threading
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -54,13 +55,17 @@ def static_file_path(relative_path: str) -> Path:
 
 
 def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
+    if not _is_loopback_host(host):
+        raise ValueError("Agent Workbench host must be a loopback address.")
     root = workspace.resolve()
     mcp_runtime = McpStdioRuntime(root)
     server: ThreadingHTTPServer | None = None
     try:
         handler = create_workbench_handler(root, mcp_runtime=mcp_runtime)
         server = ThreadingHTTPServer((host, port), handler)
-        url = f"http://{host}:{port}"
+        server.daemon_threads = True
+        url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+        url = f"http://{url_host}:{port}"
         print(f"Agent Workbench: {url}", flush=True)
         print(f"workspace: {root}", flush=True)
         if open_browser:
@@ -93,6 +98,8 @@ def create_workbench_handler(
         server_version = "AgentWorkbench/0.1"
 
         def do_GET(self) -> None:  # noqa: N802
+            if not self._authorize_request(state_change=False):
+                return
             parsed = urlparse(self.path)
             path = unquote(parsed.path)
             try:
@@ -148,18 +155,21 @@ def create_workbench_handler(
                 self._send_json({"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
         def do_POST(self) -> None:  # noqa: N802
+            if not self._authorize_request(state_change=True):
+                return
             parsed = urlparse(self.path)
             path = unquote(parsed.path)
             try:
                 if path == "/api/chat/turn":
                     request = self._read_json_body()
-                    self._send_json(
-                        _build_chat_turn_payload(root, request)
-                        if mcp_runtime is None
-                        else _build_chat_turn_payload(
-                            root, request, mcp_runtime=mcp_runtime
+                    with runtime._reserve_session(request.get("session_id")):
+                        self._send_json(
+                            _build_chat_turn_payload(root, request)
+                            if mcp_runtime is None
+                            else _build_chat_turn_payload(
+                                root, request, mcp_runtime=mcp_runtime
+                            )
                         )
-                    )
                     return
                 if path == "/api/chat/start":
                     request = self._read_json_body()
@@ -182,10 +192,14 @@ def create_workbench_handler(
                     self._send_json(runtime.decide(job_id=job_id, approve=approve))
                     return
                 if path == "/api/chat/rename":
-                    self._send_json(_build_chat_rename_payload(root, self._read_json_body()))
+                    request = self._read_json_body()
+                    with runtime._reserve_session(request.get("session_id")):
+                        self._send_json(_build_chat_rename_payload(root, request))
                     return
                 if path == "/api/chat/delete":
-                    self._send_json(_build_chat_delete_payload(root, self._read_json_body()))
+                    request = self._read_json_body()
+                    with runtime._reserve_session(request.get("session_id")):
+                        self._send_json(_build_chat_delete_payload(root, request))
                     return
                 if path == "/api/config":
                     self._send_json(build_save_config_payload(root, self._read_json_body()))
@@ -212,12 +226,40 @@ def create_workbench_handler(
         def log_message(self, format: str, *args: object) -> None:
             return
 
+        def end_headers(self) -> None:
+            self._send_security_headers()
+            super().end_headers()
+
+        def _authorize_request(self, *, state_change: bool) -> bool:
+            host = self.headers.get("Host")
+            host_parts = _host_header_parts(host)
+            if host_parts is None or not _is_loopback_host(host_parts[0]):
+                self._send_json(
+                    {"error": "Workbench only accepts loopback requests."},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return False
+            if not state_change:
+                return True
+            fetch_site = self.headers.get("Sec-Fetch-Site", "").casefold()
+            origin = self.headers.get("Origin")
+            if fetch_site == "cross-site" or (origin is not None and not _origin_matches_host(origin, host_parts, self.server.server_port)):
+                self._send_json(
+                    {"error": "Cross-origin Workbench writes are not allowed."},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return False
+            return True
+
         def _read_json_body(self) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
                 raise ValueError("JSON body is required.")
             if length > 64_000:
                 raise ValueError("JSON body is too large.")
+            content_type = self.headers.get("Content-Type", "").partition(";")[0].strip().casefold()
+            if content_type != "application/json":
+                raise ValueError("Content-Type must be application/json.")
             raw = self.rfile.read(length).decode("utf-8")
             payload = json.loads(raw)
             if not isinstance(payload, dict):
@@ -275,6 +317,17 @@ def create_workbench_handler(
             except OSError:
                 return
 
+        def _send_security_headers(self) -> None:
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; img-src 'self' data:; connect-src 'self'; "
+                "script-src 'self'; style-src 'self'; frame-ancestors 'none'; "
+                "base-uri 'none'; form-action 'self'",
+            )
+
     return WorkbenchHandler
 
 
@@ -286,3 +339,39 @@ def _query_value(query: str, key: str) -> str | None:
         if unquote(name) == key:
             return unquote(value)
     return None
+
+
+def _is_loopback_host(host: str) -> bool:
+    candidate = host.strip().strip("[]")
+    if candidate.casefold() == "localhost":
+        return True
+    try:
+        return ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
+def _host_header_parts(value: str | None) -> tuple[str, int | None] | None:
+    if not value or "@" in value:
+        return None
+    try:
+        parsed = urlparse(f"//{value}")
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return None
+    if not hostname:
+        return None
+    return hostname, port
+
+
+def _origin_matches_host(origin: str, host: tuple[str, int | None], server_port: int) -> bool:
+    try:
+        parsed = urlparse(origin)
+        origin_port = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme != "http" or not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        return False
+    host_name, host_port = host
+    return parsed.hostname.casefold() == host_name.casefold() and (origin_port or 80) == (host_port or server_port)

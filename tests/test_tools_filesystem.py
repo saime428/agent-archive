@@ -1,4 +1,4 @@
-from agent.core.actions import ErrorCode, make_error_observation, parse_model_action
+from agent.core.actions import ErrorCode, parse_model_action
 from agent.core.budget import ContextBudget
 from agent.core.context import RunContext
 from agent.policy.sandbox import WorkspaceSandbox

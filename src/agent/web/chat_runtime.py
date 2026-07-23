@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -50,31 +52,63 @@ class ChatRuntime:
         self._approval_timeout = approval_timeout
         self._job_ttl = job_ttl
         self._jobs: dict[str, _ChatJob] = {}
+        self._active_sessions: set[str] = set()
         self._jobs_lock = threading.Lock()
 
     def start(self, *, message: str, session_id: str | None) -> dict[str, Any]:
         self._prune()
         load_workspace_secrets(self._workspace)
         config, diagnostics = load_config(self._workspace)
-        state = chats.load_or_create_chat_state(self._workspace, session_id)
-        job = _ChatJob(job_id=f"job_{uuid.uuid4().hex[:12]}", started_at=self._clock())
-        with self._jobs_lock:
-            self._jobs[job.job_id] = job
-        self._append_event(job, {"event": "chat_started", "session_id": state.session_id})
-        thread = threading.Thread(
-            target=self._run_job,
-            args=(job, state, config, diagnostics, message),
-            daemon=True,
-            name=f"chat-job-{job.job_id}",
-        )
+        reserved_session_id = session_id if isinstance(session_id, str) and session_id else None
+        if reserved_session_id is not None:
+            self._claim_session(reserved_session_id)
+        job: _ChatJob | None = None
         try:
+            state = chats.load_or_create_chat_state(self._workspace, session_id)
+            if reserved_session_id is None:
+                self._claim_session(state.session_id)
+                reserved_session_id = state.session_id
+            job = _ChatJob(job_id=f"job_{uuid.uuid4().hex[:12]}", started_at=self._clock())
+            with self._jobs_lock:
+                self._jobs[job.job_id] = job
+            self._append_event(job, {"event": "chat_started", "session_id": state.session_id})
+            thread = threading.Thread(
+                target=self._run_job,
+                args=(job, state, config, diagnostics, message),
+                daemon=True,
+                name=f"chat-job-{job.job_id}",
+            )
             thread.start()
         except Exception:
             with self._jobs_lock:
-                if self._jobs.get(job.job_id) is job:
+                if job is not None and self._jobs.get(job.job_id) is job:
                     del self._jobs[job.job_id]
+            if reserved_session_id is not None:
+                self._release_session(reserved_session_id)
             raise
+        assert job is not None
         return {"status": "running", "job_id": job.job_id, "session_id": state.session_id}
+
+    @contextmanager
+    def _reserve_session(self, session_id: object) -> Iterator[None]:
+        if not isinstance(session_id, str) or not session_id:
+            yield
+            return
+        self._claim_session(session_id)
+        try:
+            yield
+        finally:
+            self._release_session(session_id)
+
+    def _claim_session(self, session_id: str) -> None:
+        with self._jobs_lock:
+            if session_id in self._active_sessions:
+                raise ValueError(f"Chat session {session_id} already has an active turn.")
+            self._active_sessions.add(session_id)
+
+    def _release_session(self, session_id: str) -> None:
+        with self._jobs_lock:
+            self._active_sessions.discard(session_id)
 
     def poll(self, job_id: str, *, after: int = 0, timeout: float = 0.0) -> dict[str, Any]:
         self._prune()
@@ -216,3 +250,4 @@ class ChatRuntime:
                 job.done = True
                 job.completed_at = self._clock()
                 job.condition.notify_all()
+            self._release_session(state.session_id)

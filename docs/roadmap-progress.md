@@ -34,7 +34,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | --- | --- | --- |
 | Phase 1: stdio MCP dynamic Tools | Complete | User-only config, SDK lifecycle, unified catalog/safety chain, and real CLI/Chat/Workbench acceptance |
 | Phase 2 slice 1: managed MCP and Skills lifecycle | Complete | Managed MCP fragments/state with a live `mcp doctor`, user Skill install/update/package/remove, one shared user-store transaction layer, and crash-recovery evidence |
-| Full Project vNext ecosystem | In progress | Next: Provider capability declaration and the remaining Phase 2 management surface; later phases still cover productivity, distribution, remote, and community loops |
+| Full Project vNext ecosystem | In progress | Provider capability declaration is complete; next is the remaining Phase 2 management surface, while later phases still cover productivity, distribution, remote, and community loops |
 
 ## Completed Milestones
 

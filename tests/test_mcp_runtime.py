@@ -1483,7 +1483,10 @@ def test_stdio_runtime_cleanup_timeout_does_not_leave_discovery_waiters_blocked(
     monkeypatch.setattr(runtime, "_close_transport", fail_cleanup)
     if phase == "initial":
         runtime._state = "starting"
-        fail = lambda: runtime._fail_initial(discovery_error)
+
+        def fail():
+            return runtime._fail_initial(discovery_error)
+
     else:
         runtime._state = "ready"
         runtime._refreshing = True
@@ -1493,7 +1496,9 @@ def test_stdio_runtime_cleanup_timeout_does_not_leave_discovery_waiters_blocked(
             raise discovery_error
 
         monkeypatch.setattr(runtime, "_dispatch_discovery", fail_dispatch)
-        fail = lambda: runtime._refresh_discovery({"local": 1})
+
+        def fail():
+            return runtime._refresh_discovery({"local": 1})
 
     with pytest.raises(McpRuntimeError) as exc_info:
         fail()

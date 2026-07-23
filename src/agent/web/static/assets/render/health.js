@@ -11,12 +11,13 @@ export function renderHealth() {
   const webEnabled = Boolean(state.config?.config?.web_search_enabled);
   renderChipToggles();
   els.providerNotice.textContent = health.provider_notice || "";
-  els.providerNotice.className = `provider-notice ${health.deepseek_api_key_present ? "ok" : "warning"}`;
+  const readinessStatus = health.settings_readiness?.status || "ready";
+  els.providerNotice.className = `provider-notice ${readinessStatus === "ready" ? "ok" : "warning"}`;
   if (els.editorWorkspacePath) {
     els.editorWorkspacePath.textContent = health.workspace || "workspace";
   }
   if (els.settingsKeyStatus) {
-    els.settingsKeyStatus.textContent = `DeepSeek key: ${health.deepseek_api_key_present ? "已配置" : "缺失"} (${health.deepseek_api_key_env || "DEEPSEEK_API_KEY"})`;
+    els.settingsKeyStatus.textContent = `Provider API key: ${providerKeyStatus(health)}`;
   }
   renderRows(els.workspaceRiskList, [
     ["风险", health.workspace_risk?.risk_level || "low"],
@@ -26,7 +27,6 @@ export function renderHealth() {
     ["状态", health.settings_readiness?.status || "ready"],
     ["服务商", health.settings_readiness?.provider || health.provider || "unknown"],
     ["模型", health.settings_readiness?.model || health.model || "unknown"],
-    ["DeepSeek key", health.deepseek_api_key_present ? "已配置" : "缺失"],
     ["联网搜索", webEnabled ? "开" : "关"],
     ["读取电脑文件", state.config?.config?.computer_read_enabled ? "开（只读）" : "关"],
   ]);
@@ -61,7 +61,6 @@ export function renderSettings() {
     ["状态", readiness.status || "ready"],
     ["服务商", readiness.provider || config.provider || "unknown"],
     ["模型", readiness.model || config.model || "unknown"],
-    ["DeepSeek key", readiness.deepseek_api_key_present ? "已配置" : "缺失"],
     ["运行模式", config.mode || "guided"],
     ["联网搜索", config.web_search_enabled ? "开" : "关"],
     ["读取电脑文件", config.computer_read_enabled ? "开（只读）" : "关"],
@@ -110,6 +109,13 @@ export async function saveSettingsValues(successText, refreshWorkbench) {
   } catch (error) {
     els.settingsStatus.textContent = error instanceof Error ? error.message : String(error);
   }
+}
+
+function providerKeyStatus(status) {
+  const environment = status.api_key_env;
+  if (!environment) return "不适用";
+  if (status.api_key_present) return `已配置 (${environment})`;
+  return `${status.api_key_required ? "缺失" : "未配置（可选）"} (${environment})`;
 }
 
 const CHIP_TOGGLE_LABELS = {

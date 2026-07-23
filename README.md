@@ -202,8 +202,8 @@ evidence rather than guessing what to delete. Run `agent mcp doctor` and
 item with `agent mcp remove` or `agent skills remove`.
 
 This slice stays local: there is no Marketplace, registry, URL or Git install,
-Workbench write interface, automatic reconnect, or Provider capability
-negotiation.
+Workbench lifecycle UI for MCP/Skills, automatic reconnect, or Provider
+capability negotiation.
 
 ### Additional command allowlist
 
@@ -241,14 +241,16 @@ agent start --cwd F:\agent
 python -m agent.cli start --cwd F:\agent
 ```
 
-Settings Readiness is a read-only Workbench panel backed by `/api/health`. It
-shows provider, model, DeepSeek key presence, loaded config files, warnings, and
-checks before any browser-side settings writes exist.
+Settings Readiness is backed by `/api/health`. It shows the active provider,
+model, provider-specific API-key requirement/presence, base URL readiness,
+loaded config files, and warnings. The current Settings page can save a narrow
+set of non-secret project options through `/api/config`; API keys stay in the
+environment or `.agent/secrets.env`, and config publication is atomic.
 
-v1.0 Settings Page Decision is recorded in
-`docs/v1.0-settings-page-decision.md`: browser settings stay read-only for v1.0,
-and configuration changes continue through `agent config show`, `agent config
-doctor`, and explicit config-file edits.
+The historical v1.0 Settings Page Decision is recorded in
+`docs/v1.0-settings-page-decision.md`. It kept browser settings read-only for
+that release; later Workbench slices superseded that restriction for the
+bounded non-secret fields described above.
 
 Check release readiness without running tests or network calls:
 
@@ -323,9 +325,9 @@ The Workbench also includes a read-only Failure Summary panel. It reads failed
 observations from the selected run, shows `latest_failure`, and suggests next
 checks. It does not retry tools, edit files, or infer a fix on its own.
 
-The Provider Notice banner shows whether the Workbench is using FakeLLM or
-DeepSeek. It reports `provider_notice` from `/api/health`; it does not write
-config files or store API keys.
+The Provider Notice banner is derived from the same Provider registry as the
+CLI. It reports FakeLLM, DeepSeek, or OpenAI-compatible base URL/auth readiness
+without storing or exposing API-key values.
 
 The Patch Review Helper completes the read-only coding workflow. It combines
 Task Review, Workflow Hints, Failure Summary, and snapshots into one checklist
@@ -427,7 +429,7 @@ file. The Restore button uses the same approval panel before restoring or
 deleting the changed file from snapshot metadata. The Activity panel shows
 status-level live events for browser turns, approval waits, saves, restores,
 completion, and failures. The Status Bar shows workspace, provider, model,
-session, DeepSeek key presence, and last refresh time. Auto-refresh updates
+session, active-provider API-key status, and last refresh time. Auto-refresh updates
 health and runs every 10 seconds without replacing an open file editor or
 pending approval, and the Refresh button performs the same safe refresh on
 demand. The Task Review panel summarizes the selected run's latest action, last
@@ -451,7 +453,7 @@ git diff --check
 workbench success criteria:
 
 - Runs Dashboard loads recent runs and selecting a run shows summary, trace, and snapshots.
-- Status Bar shows workspace, provider, model, session, DeepSeek key presence, and last refresh.
+- Status Bar shows workspace, provider, model, session, active-provider API-key status, and last refresh.
 - Browser chat turn creates a durable run and shows status/final output.
 - Approval panel handles confirmation-required chat retries, file saves, and snapshot restores.
 - Files panel opens text files in the file editor; Save button writes through `/api/file/save` with a snapshot.
@@ -542,6 +544,8 @@ live chat success criteria:
   approval and fail fast in the non-interactive v0.1 CLI.
 - `--dry-run` skips write tools and commands without side effects.
 - Durable logs are redacted before they are written.
+- Workbench binds only to loopback addresses, rejects non-loopback Host headers
+  and cross-origin writes, and does not claim to be a production HTTP server.
 - `AGENTS.md`, command output, git diffs, and document contents are untrusted
   context and cannot override policy or tool schemas.
 - Recoverable tool errors are fed back to the model with a consecutive-error budget (`max_consecutive_errors`, default 3). Approval denials and hook blocks always terminate the run immediately.
@@ -711,6 +715,15 @@ budget the returned text, and wrap extracted content with
 `UNTRUSTED DOCUMENT SOURCE MATERIAL` so document text cannot override
 instructions, policy, approval, sandbox, or tool schemas.
 
+Install all optional Office readers with:
+
+```powershell
+python -m pip install -e ".[documents]"
+```
+
+The extra includes `defusedxml` because the openpyxl project recommends it for
+protection against malicious XML expansion.
+
 `write_markdown_report` requires approval in the non-interactive CLI, creates a
 snapshot before writing, and inserts a source-grounding notice plus a Sources
 section into the report.
@@ -725,9 +738,10 @@ python -m agent.cli doctor
 python -m agent.cli config doctor --cwd F:\agent
 ```
 
-The diagnostics report whether `pypdf`, `python-docx`, `openpyxl`, and
-`python-pptx` are present. Missing optional document dependencies make only the
-matching document tool return a diagnostic `TOOL_FAILED` observation.
+The diagnostics report whether `pypdf`, `defusedxml`, `python-docx`, `openpyxl`,
+and `python-pptx` are present. Missing parser packages make only the matching
+document tool return a diagnostic `TOOL_FAILED` observation; the `defusedxml`
+line separately exposes whether the recommended XML hardening is installed.
 
 v0.3 manual smoke:
 
