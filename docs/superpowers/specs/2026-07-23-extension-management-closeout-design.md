@@ -71,6 +71,10 @@
 - 只读 config 与 `BUILTIN_HOOKS`，无副作用；未知名存在时仍 exit 0（诊断由
   警告承担，list 是展示面）。
 
+**既有展示面补齐**：`config show` 与 `_print_doctor` 目前打印
+`default_skills`/`allowed_commands` 但不打印 hooks 键；各补两行
+`enabled_hooks`/`blocking_hooks`，与其他 list 键格式一致。
+
 不做 `hooks enable/disable` 专用命令：`config set enabled_hooks ...`（见 §4）
 已覆盖同一写路径，两个入口写同一个键只会制造歧义。
 
@@ -79,7 +83,10 @@
 **`McpConfigStore.describe(server_id) -> McpServerDetail`**（`mcp_config.py`）：
 
 - 新 frozen dataclass `McpServerDetail`：`item: McpInventoryItem` +
-  `config: McpServerConfig | None`（invalid/orphan 时为 None）。
+  `config: McpServerConfig | None`。`config` 在片段无法解析为
+  `McpServerConfig` 时为 None：invalid、orphan，以及 disabled 且片段不可解析
+  （lifecycle spec 允许 disabled 的坏 command 存在）；disabled 但可解析时正常
+  返回 config。
 - 实现走既有 `_locked()` + `_read_snapshot()` 快照路径，与
   `validate(server_id)` 同源；未知 ID 抛既有 `McpRuntimeError`。不起进程。
 
@@ -121,7 +128,10 @@
   本模块）→ 合并 `updates` → `_dump_toml`（自 web/settings.py 移入）→
   `_user_store.atomic_replace_bytes` 原子发布 → 返回写入路径。键值验证委托
   `config.py::_validate_value` + `_normalize_value`（改为模块公开名
-  `validate_value`/`normalize_value`，行为不变）。
+  `validate_value`/`normalize_value`，行为不变）。注意 `_validate_value` 的
+  `path=None` 分支期望序列值为 tuple；共享模块在验证前把序列值统一规格化为
+  tuple（web 传入的 JSON list 与 CLI 多 VALUE 同路径），避免两个 caller 各自
+  转换。
 - `remove_project_config_keys(workspace: Path, keys: Iterable[str]) -> Path`：
   同一读改写路径，删除存在的键。
 - 语义护栏（在共享模块统一执行，与加载语义对齐）：项目 config 写入
@@ -174,7 +184,7 @@
 
 - config 文件格式不变；无数据迁移。
 - 新警告只追加进 `diagnostics.warnings`，现有消费者按行打印，天然兼容。
-- doctor 输出只增行不改行；`release doctor` 不变。
+- doctor 与 `config show` 输出只增行不改行；`release doctor` 不变。
 - web `/api/config/save` 请求/响应契约与拒绝语义不变（内部改为委托共享模块，
   错误文案回归测试锁定）。
 - `mcp show`、`hooks list`、`config set/unset` 均为新命令，无旧行为可破坏。
@@ -187,13 +197,14 @@
   `agent doctor` 与 `agent config show`；已知名无警告。
 - `blocking_hooks` 含未启用名 → 警告。
 - `hooks list` 输出全部 builtin 与 config 引用的未知名；无副作用。
+- `config show` 与 doctor 输出 `enabled_hooks`/`blocking_hooks` 行。
 - 契约测试：`BUILTIN_HOOKS.keys() == KNOWN_HOOK_NAMES`。
 
 ### MCP show
 
 - manual/managed/enabled/disabled/invalid/orphan 各形态输出正确字段；
   `pass_env` 只出现变量名；未知 ID exit 1。
-- `describe` 不产生子进程（测试断言无 runtime 构造）。
+- `describe` 路径不 import/构造 `McpStdioRuntime`，不产生子进程。
 
 ### doctor 聚合
 
