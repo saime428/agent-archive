@@ -134,8 +134,8 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "config provider:" in result.output
     assert "config model:" in result.output
     assert "config allowed_commands:" in result.output
-    assert "deepseek api key env:" in result.output
-    assert "deepseek api key present:" in result.output
+    assert "provider capabilities:" in result.output
+    assert "deepseek api key env:" not in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
     assert "config web_search_enabled:" in result.output
@@ -160,8 +160,8 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "config provider:" in result.output
     assert "config model:" in result.output
     assert "config allowed_commands:" in result.output
-    assert "deepseek api key env:" in result.output
-    assert "deepseek api key present:" in result.output
+    assert "provider capabilities:" in result.output
+    assert "deepseek api key env:" not in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
     assert "config web_search_enabled:" in result.output
@@ -185,6 +185,8 @@ def test_release_doctor_reports_release_readiness(tmp_path) -> None:
     assert "config readable: true" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
+    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
+    assert "deepseek api key present:" not in result.output
     assert "settings writes: read-only" in result.output
     assert "packaging: deferred (not required for local release)" in result.output
     assert "test command: python -m pytest -q" in result.output
@@ -1022,7 +1024,7 @@ def test_provider_smoke_deepseek_reports_success(monkeypatch, tmp_path) -> None:
         )
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "secret")
-    monkeypatch.setattr("agent.cli.smoke_deepseek_provider", fake_smoke)
+    monkeypatch.setattr("agent.llm.factory.smoke_deepseek_provider", fake_smoke)
 
     result = runner.invoke(
         app,
@@ -1061,7 +1063,7 @@ def test_provider_smoke_deepseek_uses_workspace_secrets_env(monkeypatch, tmp_pat
         )
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setattr("agent.cli.smoke_deepseek_provider", fake_smoke)
+    monkeypatch.setattr("agent.llm.factory.smoke_deepseek_provider", fake_smoke)
 
     result = runner.invoke(app, ["provider", "smoke", "deepseek", "--cwd", str(workspace)])
 
@@ -1081,7 +1083,7 @@ def test_provider_smoke_deepseek_missing_key_returns_nonzero(monkeypatch, tmp_pa
         raise RuntimeError("should not be called")
 
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    monkeypatch.setattr("agent.cli.smoke_deepseek_provider", fake_smoke)
+    monkeypatch.setattr("agent.llm.factory.smoke_deepseek_provider", fake_smoke)
 
     result = runner.invoke(app, ["provider", "smoke", "deepseek", "--cwd", str(workspace)])
 
@@ -1132,7 +1134,7 @@ def test_provider_smoke_openai_compat_calls_generic_smoke(monkeypatch, tmp_path)
             final="smoke ok",
         )
 
-    monkeypatch.setattr("agent.cli.smoke_provider", fake_smoke)
+    monkeypatch.setattr("agent.llm.factory.smoke_provider", fake_smoke)
 
     result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--cwd", str(workspace)])
 
@@ -1160,7 +1162,7 @@ def test_provider_smoke_native_flag_calls_native_smoke(tmp_path, monkeypatch) ->
             status="ok", action_name="done", final="smoke ok",
         )
 
-    monkeypatch.setattr("agent.cli.smoke_provider_native", fake_native_smoke)
+    monkeypatch.setattr("agent.llm.factory.smoke_provider_native", fake_native_smoke)
     runner = CliRunner()
 
     result = runner.invoke(app, ["provider", "smoke", "openai-compat", "--native", "--cwd", str(tmp_path)])
@@ -1601,7 +1603,7 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
     assert "allowed_commands: []" in result.output
-    assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output
+    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
     assert f"cwd: {workspace.resolve()}" in result.output
     assert "loaded files: none" in result.output
 
@@ -1804,3 +1806,45 @@ def test_skills_cli_never_renders_untrusted_content_as_markup(tmp_path, monkeypa
 
     assert shown.exit_code == 0
     assert "[bold]not-markup[/bold]" in shown.output
+
+
+def test_doctor_shows_auth_env_for_deepseek_provider(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    workspace = tmp_path / "workspace"
+    (workspace / ".agent").mkdir(parents=True)
+    (workspace / ".agent" / "config.toml").write_text('provider = "deepseek"\n', encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "provider capabilities: streaming=true native_tools=true reasoning=true" in result.output
+    assert "api key env: DEEPSEEK_API_KEY" in result.output
+    assert "api key present: false" in result.output
+
+
+def test_doctor_warns_on_native_tools_capability_mismatch(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / ".agent").mkdir(parents=True)
+    (workspace / ".agent" / "config.toml").write_text("native_tools = true\n", encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert (
+        "capability warning: native_tools enabled but provider lacks native tool calling"
+        in result.output
+    )
+
+
+def test_run_prints_capability_warning_event(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / ".agent").mkdir(parents=True)
+    (workspace / ".agent" / "config.toml").write_text("native_tools = true\n", encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 0
+    assert "capability warning: native_tools unavailable; falling back to json-protocol" in result.output

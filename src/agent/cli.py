@@ -18,9 +18,9 @@ from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.skills import SkillError, SkillInventoryItem, SkillStore, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
-from agent.llm.deepseek import DEFAULT_DEEPSEEK_BASE_URL, DeepSeekError, smoke_deepseek_provider
-from agent.llm.factory import make_llm as make_llm_client
-from agent.llm.openai_compat import ProviderError, smoke_provider, smoke_provider_native
+from agent.llm.deepseek import DeepSeekError
+from agent.llm.factory import PROVIDER_REGISTRY, make_llm as make_llm_client
+from agent.llm.openai_compat import ProviderError
 from agent.mcp_config import McpConfigStore, McpInventoryItem, McpRuntimeError
 from agent.mcp_runtime import McpStdioRuntime
 from agent.secrets import load_workspace_secrets
@@ -66,6 +66,25 @@ def doctor() -> None:
     _print_doctor(Path.cwd())
 
 
+def _print_provider_capabilities(config) -> None:
+    spec = PROVIDER_REGISTRY[config.provider]
+    caps = spec.capabilities
+    console.print(
+        "provider capabilities: "
+        f"streaming={str(caps.streaming).lower()} "
+        f"native_tools={str(caps.native_tools).lower()} "
+        f"reasoning={str(caps.reasoning).lower()}"
+    )
+    if spec.requires_base_url:
+        console.print(f"base_url: {config.base_url}")
+    if spec.api_key_env is not None:
+        env_name = spec.api_key_env(config)
+        console.print(f"api key env: {env_name}")
+        console.print(f"api key present: {str(bool(os.environ.get(env_name))).lower()}")
+    if config.native_tools and not caps.native_tools:
+        console.print("capability warning: native_tools enabled but provider lacks native tool calling")
+
+
 def _print_doctor(cwd: Path) -> None:
     load_workspace_secrets(cwd)
     try:
@@ -86,12 +105,7 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config model: {config.model}")
     console.print(f"config default_skills: {list(config.default_skills)}")
     console.print(f"config allowed_commands: {list(config.allowed_commands)}")
-    console.print(f"deepseek api key env: {config.deepseek_api_key_env}")
-    console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
-    if config.provider == "openai-compat":
-        console.print(f"base_url: {config.base_url}")
-        console.print(f"api_key_env: {config.api_key_env}")
-        console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
+    _print_provider_capabilities(config)
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
     console.print(f"config dry_run: {str(config.dry_run).lower()}")
@@ -126,7 +140,7 @@ def release_doctor(
     console.print("config readable: true")
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
-    console.print(f"deepseek api key present: {str(bool(os.environ.get(config.deepseek_api_key_env))).lower()}")
+    _print_provider_capabilities(config)
     console.print("settings writes: read-only")
     console.print("packaging: deferred (not required for local release)")
     console.print("test command: python -m pytest -q")
@@ -396,7 +410,7 @@ def _run_chat_repl(
         if command_result == "handled":
             continue
         stream_handler, stream_was_used = _make_chat_stream_handler(
-            config.provider in {"deepseek", "openai-compat"}
+            PROVIDER_REGISTRY[config.provider].capabilities.streaming
         )
         try:
             result = session.run_turn(
@@ -446,11 +460,7 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
     console.print(f"native_tools: {config.native_tools}")
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
-    console.print(f"deepseek_api_key_env: {config.deepseek_api_key_env}")
-    if config.provider == "openai-compat":
-        console.print(f"base_url: {config.base_url}")
-        console.print(f"api_key_env: {config.api_key_env}")
-        console.print(f"api key present: {str(bool(os.environ.get(config.api_key_env))).lower()}")
+    _print_provider_capabilities(config)
     console.print(f"default_skills: {list(config.default_skills)}")
     console.print(f"allowed_commands: {list(config.allowed_commands)}")
     console.print(f"memory_auto_write: {str(config.memory_auto_write).lower()}")
@@ -487,7 +497,8 @@ def provider_smoke(
     native: bool = typer.Option(False, "--native", help="Smoke-test native tool calling."),
 ) -> None:
     """Run an explicit provider smoke test without creating an agent run."""
-    if provider_name not in {"deepseek", "openai-compat"}:
+    spec = PROVIDER_REGISTRY.get(provider_name)
+    if spec is None or spec.smoke is None:
         console.print(f"Unsupported provider smoke target: {provider_name}")
         raise typer.Exit(code=1)
     workspace = (cwd or Path.cwd()).resolve()
@@ -498,59 +509,11 @@ def provider_smoke(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
-    if provider_name == "deepseek":
-        api_key = os.environ.get(config.deepseek_api_key_env, "")
-        if not api_key:
-            console.print(f"DeepSeek API key is required in {config.deepseek_api_key_env}.")
-            raise typer.Exit(code=1)
-
-        try:
-            if native:
-                result = smoke_provider_native(
-                    provider_name="deepseek",
-                    api_key=api_key,
-                    model=config.model,
-                    base_url=DEFAULT_DEEPSEEK_BASE_URL,
-                    api_key_env=config.deepseek_api_key_env,
-                    provider_label="DeepSeek",
-                )
-            else:
-                result = smoke_deepseek_provider(
-                    api_key=api_key,
-                    model=config.model,
-                    api_key_env=config.deepseek_api_key_env,
-                )
-        except DeepSeekError as exc:
-            console.print(str(exc))
-            raise typer.Exit(code=1) from exc
-
-    if provider_name == "openai-compat":
-        if not config.base_url.strip():
-            console.print("openai-compat smoke requires base_url in .agent/config.toml.")
-            raise typer.Exit(code=1)
-        api_key = os.environ.get(config.api_key_env, "")
-        try:
-            if native:
-                result = smoke_provider_native(
-                    provider_name="openai-compat",
-                    api_key=api_key,
-                    model=config.model,
-                    base_url=config.base_url,
-                    api_key_env=config.api_key_env,
-                    provider_label="openai-compat",
-                )
-            else:
-                result = smoke_provider(
-                    provider_name="openai-compat",
-                    api_key=api_key,
-                    model=config.model,
-                    base_url=config.base_url,
-                    api_key_env=config.api_key_env,
-                    provider_label="openai-compat",
-                )
-        except ProviderError as exc:
-            console.print(str(exc))
-            raise typer.Exit(code=1) from exc
+    try:
+        result = spec.smoke(config, native)
+    except ProviderError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
 
     console.print(f"provider: {result.provider}")
     console.print(f"model: {result.model}")
@@ -965,6 +928,11 @@ def _chat_event_handler(event: dict) -> None:
         console.print(f"activity: waiting for approval {event.get('action')}")
         if event.get("reason"):
             console.print(str(event["reason"]))
+    elif name == "capability_warning":
+        console.print(
+            f"capability warning: {event.get('requested')} unavailable; "
+            f"falling back to {event.get('fallback')}"
+        )
 
 
 def _make_chat_stream_handler(enabled: bool):
