@@ -37,7 +37,7 @@ from agent.core.tool_catalog import (
     builtin_tool_catalog,
 )
 from agent.core.tool_schemas import build_tool_schemas, native_tool_names
-from agent.llm.base import LLMClient
+from agent.llm.base import LLMClient, resolve_capabilities
 from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
@@ -112,7 +112,18 @@ def run_once(
     context = RunContext.create(task=task, cwd=cwd, run_id=run_id, budget=budget)
     runtime_definitions = mcp_runtime.discover_tools() if mcp_runtime is not None else ()
     tool_catalog = build_tool_catalog(runtime_definitions)
-    use_native = effective_config.native_tools and callable(getattr(llm, "chat_tools", None))
+    capabilities = resolve_capabilities(llm)
+    use_native = effective_config.native_tools and capabilities.native_tools
+    if effective_config.native_tools and not capabilities.native_tools:
+        _emit_event(
+            event_handler,
+            "capability_warning",
+            {
+                "run_id": context.run_id,
+                "requested": "native_tools",
+                "fallback": "json-protocol",
+            },
+        )
     action_names = native_tool_names(
         web_search_enabled=effective_config.web_search_enabled,
         tool_catalog=tool_catalog,
