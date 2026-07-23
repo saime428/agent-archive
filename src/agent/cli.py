@@ -13,6 +13,7 @@ from rich.console import Console
 
 from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, ConfigOverrides, load_config
 from agent.core.chat import ChatSession, ConversationState
+from agent.core.hooks import BUILTIN_HOOKS
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
@@ -31,6 +32,7 @@ runs_app = typer.Typer(help="Inspect agent run logs.")
 tools_app = typer.Typer(help="Inspect available agent tools.")
 config_app = typer.Typer(help="Inspect agent configuration.")
 mcp_app = typer.Typer(help="Manage local MCP server configuration.")
+hooks_app = typer.Typer(help="Inspect run hooks.")
 skills_app = typer.Typer(help="Inspect and load agent skills.")
 memory_app = typer.Typer(help="Review and manage agent memory.")
 provider_app = typer.Typer(help="Inspect and smoke-test LLM providers.")
@@ -39,6 +41,7 @@ app.add_typer(runs_app, name="runs")
 app.add_typer(tools_app, name="tools")
 app.add_typer(config_app, name="config")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(hooks_app, name="hooks")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(provider_app, name="provider")
@@ -106,6 +109,8 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config model: {config.model}")
     console.print(f"config default_skills: {list(config.default_skills)}")
     console.print(f"config allowed_commands: {list(config.allowed_commands)}")
+    console.print(f"config enabled_hooks: {list(config.enabled_hooks)}")
+    console.print(f"config blocking_hooks: {list(config.blocking_hooks)}")
     _print_provider_capabilities(config)
     console.print(f"config sandbox: {config.sandbox}")
     console.print(f"config approval: {config.approval}")
@@ -468,6 +473,8 @@ def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace d
     _print_provider_capabilities(config)
     console.print(f"default_skills: {list(config.default_skills)}")
     console.print(f"allowed_commands: {list(config.allowed_commands)}")
+    console.print(f"enabled_hooks: {list(config.enabled_hooks)}")
+    console.print(f"blocking_hooks: {list(config.blocking_hooks)}")
     console.print(f"memory_auto_write: {str(config.memory_auto_write).lower()}")
     console.print(f"memory_max_items: {config.memory_max_items}")
     console.print(f"sandbox: {config.sandbox}")
@@ -683,6 +690,26 @@ def mcp_doctor(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace di
             counts[server_id] += 1
     for server_id, count in counts.items():
         console.file.write(f"{server_id}\tready\t{count} tools\n")
+
+
+@hooks_app.command("list")
+def hooks_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory.")) -> None:
+    """List builtin hooks and their configured state."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        config, _diagnostics = load_config(workspace)
+    except ConfigError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for name in sorted(BUILTIN_HOOKS):
+        enabled = "enabled" if name in config.enabled_hooks else "disabled"
+        blocking = "blocking" if name in config.blocking_hooks else "-"
+        console.file.write(f"{name}\t{enabled}\t{blocking}\n")
+    referenced = tuple(dict.fromkeys(config.enabled_hooks + config.blocking_hooks))
+    for name in referenced:
+        if name not in BUILTIN_HOOKS:
+            blocking = "blocking" if name in config.blocking_hooks else "-"
+            console.file.write(f"{name}\tunknown\t{blocking}\n")
 
 
 def _skill_store(cwd: Path | None) -> SkillStore:

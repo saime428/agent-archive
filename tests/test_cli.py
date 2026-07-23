@@ -1906,3 +1906,55 @@ def test_run_prints_capability_warning_event(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "capability warning: native_tools unavailable; falling back to json-protocol" in result.output
+
+
+def test_hooks_list_shows_builtins_and_state(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    (workspace / ".agent").mkdir(parents=True)
+    (workspace / ".agent" / "config.toml").write_text(
+        'enabled_hooks = ["audit"]\nblocking_hooks = ["audit"]\n', encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["hooks", "list", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "audit\tenabled\tblocking" in result.output
+    assert "before_tool_format\tdisabled\t-" in result.output
+    assert "fail\tdisabled\t-" in result.output
+
+
+def test_hooks_list_marks_unknown_reference(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    (workspace / ".agent").mkdir(parents=True)
+    (workspace / ".agent" / "config.toml").write_text('enabled_hooks = ["typo"]\n', encoding="utf-8")
+
+    result = runner.invoke(app, ["hooks", "list", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "typo\tunknown\t-" in result.output
+
+
+def test_config_show_lists_hook_keys(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "enabled_hooks: []" in result.output
+    assert "blocking_hooks: []" in result.output
+
+
+def test_doctor_lists_hook_keys(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "config enabled_hooks: []" in result.output
+    assert "config blocking_hooks: []" in result.output
