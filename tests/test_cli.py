@@ -2052,3 +2052,97 @@ def test_doctor_extension_summary_survives_store_error(tmp_path, monkeypatch) ->
 
     assert result.exit_code == 0
     assert "mcp inventory error: " in result.output
+
+
+def test_config_set_scalar_roundtrip(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "set", "model", "my-model", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "saved: " in result.output
+    shown = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+    assert "model: my-model" in shown.output
+
+
+def test_config_set_bool_and_int(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    assert runner.invoke(app, ["config", "set", "dry_run", "true", "--cwd", str(workspace)]).exit_code == 0
+    assert runner.invoke(app, ["config", "set", "memory_max_items", "9", "--cwd", str(workspace)]).exit_code == 0
+    shown = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+    assert "dry_run: true" in shown.output
+    assert "memory_max_items: 9" in shown.output
+
+    rejected = runner.invoke(app, ["config", "set", "dry_run", "yes", "--cwd", str(workspace)])
+    assert rejected.exit_code == 1
+    assert "expects true or false" in rejected.output
+
+
+def test_config_set_list_key_takes_multiple_values(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "set", "default_skills", "a", "b", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    shown = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+    assert "default_skills: ['a', 'b']" in shown.output
+
+
+def test_config_set_scalar_rejects_multiple_values(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "set", "model", "a", "b", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "takes exactly one value" in result.output
+
+
+def test_config_set_rejects_danger_values(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    sandbox = runner.invoke(app, ["config", "set", "sandbox", "danger-full-access", "--cwd", str(workspace)])
+    approval = runner.invoke(app, ["config", "set", "approval", "never", "--cwd", str(workspace)])
+
+    assert sandbox.exit_code == 1
+    assert approval.exit_code == 1
+    assert "edit the global config by hand" in sandbox.output
+    assert "edit the global config by hand" in approval.output
+
+
+def test_config_set_prints_new_warnings(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["config", "set", "enabled_hooks", "typo", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "config warning: Unknown hook 'typo'" in result.output
+
+
+def test_config_unset_falls_back(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    assert runner.invoke(app, ["config", "set", "model", "m2", "--cwd", str(workspace)]).exit_code == 0
+
+    result = runner.invoke(app, ["config", "unset", "model", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    shown = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+    assert "model: deepseek-v4-flash" in shown.output
+
+    missing = runner.invoke(app, ["config", "unset", "model", "--cwd", str(workspace)])
+    assert missing.exit_code == 1
+    assert "Key is not set in project config" in missing.output

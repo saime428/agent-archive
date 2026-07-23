@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 
 from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, ConfigOverrides, load_config
+from agent.config_write import remove_project_config_keys, save_project_config
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.hooks import BUILTIN_HOOKS
 from agent.core.loop import run_once
@@ -521,6 +522,68 @@ def config_doctor(
 ) -> None:
     """Report configuration and local environment diagnostics."""
     _print_doctor((cwd or Path.cwd()).resolve())
+
+
+_BOOL_KEYS = {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled", "native_tools"}
+_INT_KEYS = {"memory_max_items", "max_consecutive_errors"}
+_LIST_KEYS = {"default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"}
+
+
+def _parse_config_value(key: str, values: list[str]):
+    if key in _LIST_KEYS:
+        return tuple(values)
+    if len(values) != 1:
+        raise ValueError(f"Key {key} takes exactly one value.")
+    raw = values[0]
+    if key in _BOOL_KEYS:
+        if raw not in {"true", "false"}:
+            raise ValueError(f"Key {key} expects true or false.")
+        return raw == "true"
+    if key in _INT_KEYS:
+        if not raw.isdigit():
+            raise ValueError(f"Key {key} expects a positive integer.")
+        return int(raw)
+    return raw
+
+
+@config_app.command("set")
+def config_set(
+    key: str,
+    values: list[str] = typer.Argument(...),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config."),
+) -> None:
+    """Set one key in the project config with validation and atomic write."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        value = _parse_config_value(key, values)
+        path = save_project_config(workspace, {key: value})
+    except (ValueError, OSError) as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"saved: {path}", soft_wrap=True)
+    try:
+        _config, diagnostics = load_config(workspace)
+    except ConfigError as exc:
+        # 写入已验证成功；reload 失败只可能来自其他文件（如损坏的全局 config）。
+        console.print(f"config warning: {exc}")
+        return
+    for warning in diagnostics.warnings:
+        console.print(f"config warning: {warning}")
+
+
+@config_app.command("unset")
+def config_unset(
+    key: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config."),
+) -> None:
+    """Remove one key from the project config."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        path = remove_project_config_keys(workspace, [key])
+    except (ValueError, OSError) as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"saved: {path}", soft_wrap=True)
 
 
 @provider_app.command("smoke")
