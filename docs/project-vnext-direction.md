@@ -1,6 +1,6 @@
 # Project vNext 总方向
 
-- 日期：2026-07-18
+- 日期：2026-07-23
 - 状态：项目级北极星，持续补充
 - 性质：总方向文档，不是版本承诺或实现 spec
 
@@ -23,7 +23,7 @@
 | 领域 | 已有能力 | 下一层缺口 |
 | --- | --- | --- |
 | Agent runtime | 结构化 action、多轮 loop、native/JSON tool calling、流式事件、错误反馈与预算控制 | 取消、恢复、长任务与并发语义仍需逐步收口 |
-| Providers | Fake、DeepSeek、OpenAI-compatible 与注册表 | 统一能力声明、连接诊断、模型选择与更多协议 Adapter |
+| Providers | Fake、DeepSeek、OpenAI-compatible、显式能力声明与带 auth/smoke 元数据的注册表 | 模型级能力目录、模型选择、更多协议 Adapter 与 Workbench 能力暴露 |
 | Tools 与安全 | Filesystem、Shell、Git、Web、Documents 与 stdio MCP；统一 catalog、schema 校验、sandbox、approval、redaction、snapshot、durable logs | 后续扩展仍必须无例外地接入同一安全链与 trace |
 | 扩展底座 | stdio MCP 动态 Tool 与 managed 配置/启停/live doctor、Skills 三来源与用户级 install/update/package/remove、共享用户存储事务层、Memory、Hooks、Tool catalog | 仍缺自动重连、远程来源、registry 与 Workbench 写接口 |
 | 产品入口 | CLI、Python stdlib Workbench、HTTP JSON/SSE、会话与运行记录 | 前端 vNext、真正的编辑/终端工作区、统一生态管理入口 |
@@ -132,7 +132,7 @@
 | --- | --- | --- | --- |
 | 0. 契约基线 | 记录 Provider、Tool、Run Event、配置与安全不变量 | 前端视觉方向、HTTP/SSE 清单 | 当前行为有契约和真实验收基线 |
 | 1. 开放扩展内核 | stdio MCP、动态 Tool 注册、policy/approval/trace 接线（MCP 后端切片已完成） | Frontend vNext App Shell + Chat 纵切 | MCP Tool 与内置 Tool 同安全、同 trace；新前端能跑真实 turn |
-| 2. 可管理生态 | MCP 管理/诊断与 Skills 本地生命周期（已完成）；Provider 能力声明（未开始） | 前端达到当前 Workbench 功能等价并加入真实生态入口 | 安装到卸载闭环可测，旧前端才允许退役 |
+| 2. 可管理生态 | MCP 管理/诊断、Skills 本地生命周期与 Provider 能力声明（均已完成） | 前端达到当前 Workbench 功能等价并加入真实生态入口 | 安装到卸载闭环可测，旧前端才允许退役 |
 | 3. 持久生产力 | Memory 生命周期、Automation、取消/恢复、稳定 eval | Monaco、Git/diff、Terminal、任务复盘 | 长任务可控、知识可修订、自动化可审计 |
 | 4. 分发闭环 | CI、可重复构建、安装包、签名、升级与回滚 | Onboarding、迁移与发布状态 UI | 新机器可安装、诊断、升级和回退 |
 | 5. 远程与社区 | Gateway、设备身份、远程事件/审批、registry | Remote WebUI 与生态发现 | 安全模型、断线恢复、撤销和供应链验证通过 |
@@ -142,7 +142,7 @@
 ## 下一次正式开工的默认顺序
 
 1. [stdio MCP + 动态 Tool 注册 + 现有安全链](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md) 已完成；不再把它列为待实现项。
-2. [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md) 已完成；下一份后端 spec 聚焦 Provider 能力声明，仍不提前做 Marketplace、registry 或远程来源。
+2. [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md)和 [Provider 能力声明](superpowers/specs/2026-07-22-provider-capability-declaration-design.md)均已完成；下一份后端 spec 聚焦阶段 2 的剩余管理面，仍不提前做 Marketplace、registry 或远程来源。
 3. 前端可并行完成阶段 0：视觉方向选稿、HTTP/SSE Interface 清单和功能等价表，并且只接入后端已存在的能力。
 
 如果当期目标明确是先获得可见的产品提升，可以先做 Frontend Chat 纵切；但不因此跳过 MCP、安全或契约主线。

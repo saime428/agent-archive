@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-07-18
+Last updated: 2026-07-23
 
 Status update (2026-07-18): this file keeps the completed local-baseline
 milestones and records completed Project vNext slices separately. The
@@ -308,12 +308,12 @@ stdlib server and local safety model intact.
 
 Next slice: optional trigger-based work only if explicitly needed.
 
-Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle.
+Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then
+provider capability declaration.
 
-Next Project vNext slice: Provider capability declaration, then the remaining
-Phase 2 management surface. Marketplace, registry, remote sources, Workbench
-write interfaces, and automatic reconnect stay out of scope until a later
-slice has its own spec.
+Next Project vNext slice: the remaining Phase 2 management surface. Marketplace,
+registry, remote sources, Workbench write interfaces, and automatic reconnect
+stay out of scope until a later slice has its own spec.
 
 ## Guardrails
 

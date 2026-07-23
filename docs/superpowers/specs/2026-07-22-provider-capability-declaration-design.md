@@ -1,7 +1,7 @@
 # 设计：Provider 能力声明
 
 - 日期：2026-07-22
-- 状态：已批准，待实施
+- 状态：已实施（全量门禁通过）
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)（seam：Provider Interface）
 
 ## 背景
@@ -137,7 +137,7 @@ Workbench run 都会产生固定噪声。streaming 能力只在 doctor / `config
 | --- | --- | --- |
 | `_print_doctor`、`config show` | `if provider == "openai-compat"` 才显示 base_url/key | 按 `ProviderSpec` 驱动：`requires_base_url` 决定显示 `base_url`，`api_key_env` 决定显示哪个 env 与 present 状态；新增 `provider capabilities: ...` 一行；`native_tools=true` 但能力缺失时输出警告行（纯注册表查询，不实例化） |
 | chat 开流判断 | `provider in {"deepseek", "openai-compat"}` | `PROVIDER_REGISTRY[config.provider].capabilities.streaming` |
-| `provider smoke` | 名字集合准入 + 两个名字分支 | `spec.smoke is None` 时拒绝并提示；否则调用 `spec.smoke(config, model, native)` |
+| `provider smoke` | 名字集合准入 + 两个名字分支 | `spec.smoke is None` 时拒绝并提示；否则调用 `spec.smoke(config, native)` |
 | `release doctor` | 无条件打印 deepseek key 状态 | 按当前 provider 的 spec 打印 auth 状态；`api_key_env` 为 None（fake）时**省略**相关行，不打印占位值——doctor 与 `config show` 同规则 |
 
 doctor 中原有 `deepseek api key env/present` 两行改由 spec 驱动后，仅在当前

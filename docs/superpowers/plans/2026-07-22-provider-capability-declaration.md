@@ -33,7 +33,7 @@
 - Consumes: 无（首个任务）。
 - Produces: `agent.llm.base.ProviderCapabilities`（frozen dataclass，字段 `streaming: bool, native_tools: bool, reasoning: bool`）；`agent.llm.base.resolve_capabilities(llm: object) -> ProviderCapabilities`；类属性 `FakeLLMClient.capabilities`（全 False）、`OpenAICompatClient.capabilities`（全 True，`DeepSeekClient` 继承）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/test_capabilities.py`：
 
@@ -108,12 +108,12 @@ def test_resolve_ignores_non_capability_attribute() -> None:
     assert caps == ProviderCapabilities(streaming=True, native_tools=False, reasoning=False)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_capabilities.py -q`
 Expected: FAIL，`ImportError: cannot import name 'ProviderCapabilities'`
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `src/agent/llm/base.py` 顶部 import 改为并追加（保留现有 `LLMClient` Protocol 不动）：
 
@@ -167,17 +167,17 @@ class OpenAICompatClient:
 
 （`DeepSeekClient` 继承 `OpenAICompatClient`，不改 `deepseek.py`。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_capabilities.py -q`
 Expected: 7 passed
 
-- [ ] **Step 5: 相邻回归**
+- [x] **Step 5: 相邻回归**
 
 Run: `python -m pytest tests/test_openai_compat.py tests/test_deepseek.py -q`
 Expected: 全部 passed（类属性不影响现有行为）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/llm/base.py src/agent/llm/fake.py src/agent/llm/openai_compat.py tests/test_capabilities.py
@@ -196,7 +196,7 @@ git commit -m "feat: declare provider capabilities with resolve fallback"
 - Consumes: Task 1 的 `ProviderCapabilities` 与三个类的 `capabilities` 属性。
 - Produces: `agent.llm.factory.ProviderSpec`（frozen dataclass，字段 `factory: Callable[[AgentConfig], LLMClient]`、`capabilities: ProviderCapabilities`、`api_key_env: Callable[[AgentConfig], str] | None`、`requires_base_url: bool`、`smoke: Callable[[AgentConfig, bool], SmokeResult] | None`）；`PROVIDER_REGISTRY: dict[str, ProviderSpec]`（键：`fake`/`deepseek`/`openai-compat`）；`make_llm(config)` 签名与返回不变。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 修改 `tests/test_llm_factory.py`：
 
@@ -335,12 +335,12 @@ def test_openai_compat_smoke_closure_wires_config(monkeypatch) -> None:
     }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_llm_factory.py -q`
 Expected: 新增测试 FAIL（`AttributeError: 'function' object has no attribute 'factory'` 一类——注册表值还是裸 factory）；现有 4 条 `make_llm` 测试仍 PASS
 
-- [ ] **Step 3: 重写 factory.py**
+- [x] **Step 3: 重写 factory.py**
 
 `src/agent/llm/factory.py` 整文件替换为：
 
@@ -466,17 +466,17 @@ def make_llm(config: AgentConfig):
     return PROVIDER_REGISTRY[config.provider].factory(config)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_llm_factory.py tests/test_capabilities.py -q`
 Expected: 全部 passed
 
-- [ ] **Step 5: 相邻回归（make_llm 消费方）**
+- [x] **Step 5: 相邻回归（make_llm 消费方）**
 
 Run: `python -m pytest tests/test_cli.py tests/test_web.py -q`
 Expected: 全部 passed（`make_llm` 行为未变；CLI 尚未接线）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/llm/factory.py tests/test_llm_factory.py
@@ -495,7 +495,7 @@ git commit -m "feat: provider registry with capability and smoke specs"
 - Consumes: Task 1 的 `resolve_capabilities`。
 - Produces: `capability_warning` run event，record 形如 `{"event": "capability_warning", "run_id": <str>, "requested": "native_tools", "fallback": "json-protocol"}`（`_emit_event` 会把 event 名并入 record，Task 4 的 CLI 打印依赖这些键）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/core/test_loop_capabilities.py`：
 
@@ -571,12 +571,12 @@ def test_capable_double_with_native_config_emits_no_warning(tmp_path) -> None:
     assert _capability_events(events) == []
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/core/test_loop_capabilities.py -q`
 Expected: 第一条 FAIL（`len(warnings) == 1` 断言失败，收到 0 个事件）；后两条 PASS
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `src/agent/core/loop.py` 第 40 行 import 改为：
 
@@ -607,17 +607,17 @@ from agent.llm.base import LLMClient, resolve_capabilities
         )
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/core/test_loop_capabilities.py -q`
 Expected: 3 passed
 
-- [ ] **Step 5: loop 全量回归（含 ScriptedNativeLLM/StreamingNativeLLM 派生路径）**
+- [x] **Step 5: loop 全量回归（含 ScriptedNativeLLM/StreamingNativeLLM 派生路径）**
 
 Run: `python -m pytest tests/core -q`
 Expected: 全部 passed
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/core/loop.py tests/core/test_loop_capabilities.py
@@ -636,7 +636,7 @@ git commit -m "feat: emit capability warning on native tools downgrade"
 - Consumes: Task 2 的 `PROVIDER_REGISTRY`/`ProviderSpec`；Task 3 的 `capability_warning` record 键。
 - Produces: `_print_provider_capabilities(config) -> None`（cli.py 内部 helper，doctor / `config show` / `release doctor` 共用）。输出行契约：`provider capabilities: streaming=<bool> native_tools=<bool> reasoning=<bool>`、`base_url: ...`（仅 requires_base_url）、`api key env: ...` + `api key present: ...`（仅 api_key_env 非 None）、`capability warning: native_tools enabled but provider lacks native tool calling`（仅不匹配时）。
 
-- [ ] **Step 1: 更新既有断言 + 写失败测试**
+- [x] **Step 1: 更新既有断言 + 写失败测试**
 
 `tests/test_cli.py`：
 
@@ -720,12 +720,12 @@ def test_run_prints_capability_warning_event(tmp_path) -> None:
     assert "capability warning: native_tools unavailable; falling back to json-protocol" in result.output
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_cli.py -q`
 Expected: FAIL（更新断言与三条新测试失败；smoke 测试因 monkeypatch 目标迁移暂时失败属预期——`agent.llm.factory` 中函数已存在，但 CLI 还没走注册表路径，行为断言未生效）
 
-- [ ] **Step 3: 实现 CLI 接线**
+- [x] **Step 3: 实现 CLI 接线**
 
 `src/agent/cli.py`：
 
@@ -819,17 +819,17 @@ def _print_provider_capabilities(config) -> None:
         )
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_cli.py -q`
 Expected: 全部 passed
 
-- [ ] **Step 5: 字面量清零验证**
+- [x] **Step 5: 字面量清零验证**
 
 Run: `grep -n "openai-compat\"\|\"deepseek\"" src/agent/cli.py`
 Expected: 无输出（cli.py 不再有 provider 名字字面量分支）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/cli.py tests/test_cli.py
@@ -849,7 +849,7 @@ git commit -m "refactor: drive cli provider paths from capability registry"
 - Consumes: Task 1-4 全部完成。
 - Produces: 无代码接口；文档与验收证据。
 
-- [ ] **Step 1: CHANGELOG**
+- [x] **Step 1: CHANGELOG**
 
 `CHANGELOG.md` 的 `## Unreleased` 下第一条加：
 
@@ -857,7 +857,7 @@ git commit -m "refactor: drive cli provider paths from capability registry"
 - Provider 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；`native_tools = true` 而 provider 不支持时发 `capability_warning` 事件并照旧降级 JSON 协议；doctor/`config show`/`release doctor` 按注册表显示能力与 auth 要求（fake 不再显示 deepseek key 行）；`provider smoke` 由注册表准入。不含上下文窗口声明、模型选择与 Workbench 能力暴露。
 ```
 
-- [ ] **Step 2: roadmap-progress**
+- [x] **Step 2: roadmap-progress**
 
 `docs/roadmap-progress.md` 中：
 
@@ -881,11 +881,11 @@ registry, remote sources, Workbench write interfaces, and automatic reconnect
 stay out of scope until a later slice has its own spec.
 ```
 
-- [ ] **Step 3: spec 状态**
+- [x] **Step 3: spec 状态**
 
 spec 头部 `- 状态：已批准，待实施` 改为 `- 状态：已实施（全量门禁通过）`。
 
-- [ ] **Step 4: 全量门禁**
+- [x] **Step 4: 全量门禁**
 
 Run: `python -m pytest -q`
 Expected: 全部 passed（基线 943 + 新增 ~18）
@@ -893,7 +893,7 @@ Expected: 全部 passed（基线 943 + 新增 ~18）
 Run: `git diff --check`
 Expected: 无输出
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CHANGELOG.md docs/roadmap-progress.md docs/superpowers/specs/2026-07-22-provider-capability-declaration-design.md

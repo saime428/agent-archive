@@ -771,10 +771,10 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
 
     assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
     assert "Full Project vNext ecosystem | In progress" in roadmap
-    assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle." in roadmap
-    assert "Next Project vNext slice: Provider capability declaration" in roadmap
+    assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
+    assert "Next Project vNext slice: the remaining Phase 2 management surface" in roadmap
 
-    assert "Provider 能力声明（未开始）" in direction
+    assert "Provider 能力声明（均已完成）" in direction
     assert "2026-07-18-managed-extension-lifecycle-design.md" in direction
     assert "仍缺自动重连、远程来源、registry 与 Workbench 写接口" in direction
 
