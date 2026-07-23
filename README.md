@@ -286,9 +286,10 @@ git:
 DEEPSEEK_API_KEY=...
 ```
 
-`agent doctor`, `agent release doctor`, provider smoke, terminal chat, and the
-Workbench read this file before checking key presence. A real environment
-variable still wins if both are set. Do not put API keys in `.agent/config.toml`.
+`agent doctor`, `agent config show`, `agent config doctor`, `agent release doctor`,
+provider smoke, terminal chat, and the Workbench read this file before checking
+key presence. A real environment variable still wins if both are set.
+Do not put API keys in `.agent/config.toml`.
 
 ## v0.7 Product Shell Decision
 

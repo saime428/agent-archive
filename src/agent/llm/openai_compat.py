@@ -39,7 +39,7 @@ class SmokeResult:
 
 
 class OpenAICompatClient:
-    capabilities = ProviderCapabilities(streaming=True, native_tools=True, reasoning=True)
+    capabilities = ProviderCapabilities(streaming=True, native_tools=True)
 
     def __init__(
         self,

@@ -1,7 +1,7 @@
 # 设计：Provider 能力声明
 
 - 日期：2026-07-22
-- 状态：已实施（全量门禁通过）
+- 状态：已实施（复审修订，全量门禁通过）
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)（seam：Provider Interface）
 
 ## 背景
@@ -18,10 +18,11 @@ Provider 差异目前以两种特判形式散落在代码里：
    同一集合作为准入并按名字分支到两段 smoke 调用；release doctor 无条件打印
    DeepSeek key 状态，即使当前 provider 不是 deepseek。
 
-三个 Adapter 的真实能力：`FakeLLMClient` 只有 `chat`；`OpenAICompatClient` 与其子类
-`DeepSeekClient` 具备 `chat`、`stream_chat`、`chat_tools`、`stream_chat_tools`，流式
-可携带 `reasoning_content`。auth 要求各不同：fake 无要求；deepseek 需要 API key（有
-默认 base_url）；openai-compat 需要 API key 与显式 `base_url`。
+三个 Adapter 的本地方法能力：`FakeLLMClient` 只有 `chat`；`OpenAICompatClient` 与
+其子类 `DeepSeekClient` 具备 `chat`、`stream_chat`、`chat_tools`、
+`stream_chat_tools`。这些声明只描述 Adapter 可走的代码路径，不承诺远端 endpoint
+或具体模型具备相同能力。auth 要求各不同：fake 无要求；deepseek 需要 API key（有
+默认 base_url）；openai-compat 的 API key 可选，但必须显式配置 `base_url`。
 
 测试通过向 loop 直接注入临时类（如 `ScriptedNativeLLM`）驱动 native 路径，此时
 `config.provider` 仍是 `"fake"`。因此 runtime 的能力事实必须来自 **llm 实例**，
@@ -29,7 +30,7 @@ Provider 差异目前以两种特判形式散落在代码里：
 
 ## 目标
 
-1. Provider Adapter 显式声明 streaming、native tools、reasoning 能力；runtime 与
+1. Provider Adapter 显式声明 streaming、native tools 能力；runtime 与
    CLI 不再写 provider 名字分支或散落的 getattr 探测。
 2. 配置要求了 provider 不具备的能力时，保持现有降级行为，但发出明确警告
    （run event + doctor 静态检查），消除静默降级。
@@ -43,22 +44,24 @@ Provider 差异目前以两种特判形式散落在代码里：
 
 ### ProviderCapabilities（`agent/llm/base.py`）
 
-frozen dataclass，三个布尔字段：
+frozen dataclass，两个布尔字段：
 
 | 字段 | 含义 | 声明方的方法契约（契约测试强制） |
 | --- | --- | --- |
 | `streaming` | 支持流式响应 | `stream_chat` 可调用；与 `native_tools` 同真时 `stream_chat_tools` 也可调用 |
 | `native_tools` | 支持原生 tool calling | `chat_tools` 可调用 |
-| `reasoning` | 流式输出可携带 reasoning 内容 | 无新增方法；用于诊断显示 |
 
 方法契约只约束**显式声明**的 Adapter；探测派生（见下）是尽力而为的宽推断，
 配合 `_model_response` 的结构性兜底保证部分实现的替身行为不变。
 
 声明位置为类属性，实例经属性查找即可读取：
 
-- `FakeLLMClient`：全 False。
-- `OpenAICompatClient`：全 True。
+- `FakeLLMClient`：两项均为 False。
+- `OpenAICompatClient`：两项均为 True。
 - `DeepSeekClient`：继承 `OpenAICompatClient`，不重复声明。
+
+`reasoning` 不在本轮声明：它依赖远端模型、thinking 模式与具体响应路径，当前也不
+驱动 runtime 分支。没有模型级证据链时硬编码 True 只会制造失真的诊断结果。
 
 `LLMClient` Protocol 保持不变（它本来就不含 `chat_tools`）；capabilities 是被
 `resolve_capabilities` 识别的约定属性，不进 Protocol，避免破坏结构化类型的外部实现。
@@ -71,7 +74,8 @@ frozen dataclass，三个布尔字段：
 | --- | --- | --- |
 | `factory` | `Callable[[AgentConfig], LLMClient]` | 现有构造逻辑不变 |
 | `capabilities` | `ProviderCapabilities` | 直接引用对应类的声明，单一事实源 |
-| `api_key_env` | `Callable[[AgentConfig], str] \| None` | deepseek 读 `config.deepseek_api_key_env`；openai-compat 读 `config.api_key_env`；fake 为 None。是否需要 API key 由 `api_key_env is not None` 推出，不设冗余布尔 |
+| `api_key_env` | `Callable[[AgentConfig], str] \| None` | deepseek 读 `config.deepseek_api_key_env`；openai-compat 读 `config.api_key_env`；fake 为 None。只表示读取位置 |
+| `api_key_required` | `bool` | deepseek 为 True；fake/openai-compat 为 False，避免把本地兼容端点的可选 key 误判成必需 |
 | `requires_base_url` | `bool` | 仅 openai-compat 为 True |
 | `smoke` | `Callable \| None` | 现有两段 smoke 调用收敛为 factory.py 内两个闭包，统一签名 `smoke(config, native) -> SmokeResult`（CLI 已用 `ConfigOverrides(model=...)` 把 `--model` 并入 config，闭包读 `config.model`，不设第二个可能不一致的 model 参数）；fake 为 None |
 
@@ -89,18 +93,14 @@ def resolve_capabilities(llm) -> ProviderCapabilities:
     if isinstance(declared, ProviderCapabilities):
         return declared
     return ProviderCapabilities(
-        streaming=(
-            callable(getattr(llm, "stream_chat", None))
-            or callable(getattr(llm, "stream_chat_tools", None))
-        ),
+        streaming=callable(getattr(llm, "stream_chat", None)),
         native_tools=callable(getattr(llm, "chat_tools", None)),
-        reasoning=False,
     )
 ```
 
-派生的 `streaming` 取两个流式方法**任一存在**：`StreamingNativeLLM` 这类只实现
-`stream_chat_tools` 的替身必须仍被判为支持流式，否则 native 流式路径出现回归。
-这是能力**判定**的唯一探测点，服务测试替身与外部注入 client。
+派生的 `streaming` 只表示普通 `stream_chat` 路径；native 流是否可用仍由
+`_model_response` 结构性检查 `stream_chat_tools`，缺失时回退 `chat_tools`。这是能力
+**判定**的唯一探测点，服务测试替身与外部注入 client。
 
 `run_once` 开始处解析一次：
 
@@ -135,7 +135,7 @@ Workbench run 都会产生固定噪声。streaming 能力只在 doctor / `config
 
 | 位置 | 现状 | 改为 |
 | --- | --- | --- |
-| `_print_doctor`、`config show` | `if provider == "openai-compat"` 才显示 base_url/key | 按 `ProviderSpec` 驱动：`requires_base_url` 决定显示 `base_url`，`api_key_env` 决定显示哪个 env 与 present 状态；新增 `provider capabilities: ...` 一行；`native_tools=true` 但能力缺失时输出警告行（纯注册表查询，不实例化） |
+| `_print_doctor`、`config show` | `if provider == "openai-compat"` 才显示 base_url/key | 按 `ProviderSpec` 驱动：`requires_base_url` 决定显示 `base_url`，`api_key_env`/`api_key_required` 决定显示 env、required 与 present 状态；新增 `provider adapter capabilities: ...` 一行；`config show` 与 doctor 一样先加载 workspace secrets；`native_tools=true` 但能力缺失时输出警告行（纯注册表查询，不实例化） |
 | chat 开流判断 | `provider in {"deepseek", "openai-compat"}` | `PROVIDER_REGISTRY[config.provider].capabilities.streaming` |
 | `provider smoke` | 名字集合准入 + 两个名字分支 | `spec.smoke is None` 时拒绝并提示；否则调用 `spec.smoke(config, native)` |
 | `release doctor` | 无条件打印 deepseek key 状态 | 按当前 provider 的 spec 打印 auth 状态；`api_key_env` 为 None（fake）时**省略**相关行，不打印占位值——doctor 与 `config show` 同规则 |
@@ -155,8 +155,8 @@ provider 需要该 key 时显示；这是有意的输出契约变化，相关 CL
   `capability_warning`；能力匹配时无该事件。
 - 现有 native/streaming/MCP loop 测试与 CLI 测试全部保持通过；doctor/config show
   输出行变化处同步更新断言。
-- 探测派生宽推断回归防线：`StreamingNativeLLM`（仅 `stream_chat_tools`）经派生
-  仍判为支持流式，现有 native 流式测试不降级。
+- 探测派生契约：仅 `stream_chat_tools` 的替身不被误报为支持普通 streaming；native
+  流式仍由 `_model_response` 直接检查方法并保持现有行为。
 - 验收标准：`cli.py` 中除注册表查询外不再出现 provider 名字字面量分支；
   `loop.py` 的能力**判定**（`use_native`、警告）只读 capabilities，散点探测仅存
   于 `resolve_capabilities` 与 `_model_response` 的结构性方法获取；smoke 收敛后
@@ -167,12 +167,13 @@ provider 需要该 key 时显示；这是有意的输出契约变化，相关 CL
 ## 非目标
 
 - 上下文窗口/token 预算声明（当前无消费者，budget 是字符制）。
+- reasoning/vision 等模型级能力声明；在模型、模式与响应路径没有证据链前不硬编码。
 - 模型选择、连接复用、重试/退避策略变化，以及新协议 Adapter。
 - Workbench HTTP 能力暴露与 `web/settings.py` 的 provider 字面量（归前端 vNext
   切片，接入真实前端时一并处理）。
 - 新 provider、marketplace、registry、远程来源。
-- 不新增第三方依赖；不改变 secrets 读取与 redaction 行为；config 文件格式与
-  run/session 数据不迁移。
+- 不新增第三方依赖；不改变 secrets 格式与 redaction 行为；`config show` 只补齐与
+  doctor 一致的 workspace secrets 读取；config 文件格式与 run/session 数据不迁移。
 
 ## 兼容与迁移
 

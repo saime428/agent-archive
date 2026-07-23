@@ -70,16 +70,16 @@ def _print_provider_capabilities(config) -> None:
     spec = PROVIDER_REGISTRY[config.provider]
     caps = spec.capabilities
     console.print(
-        "provider capabilities: "
+        "provider adapter capabilities: "
         f"streaming={str(caps.streaming).lower()} "
-        f"native_tools={str(caps.native_tools).lower()} "
-        f"reasoning={str(caps.reasoning).lower()}"
+        f"native_tools={str(caps.native_tools).lower()}"
     )
     if spec.requires_base_url:
         console.print(f"base_url: {config.base_url}")
     if spec.api_key_env is not None:
         env_name = spec.api_key_env(config)
         console.print(f"api key env: {env_name}")
+        console.print(f"api key required: {str(spec.api_key_required).lower()}")
         console.print(f"api key present: {str(bool(os.environ.get(env_name))).lower()}")
     if config.native_tools and not caps.native_tools:
         console.print("capability warning: native_tools enabled but provider lacks native tool calling")
@@ -449,6 +449,7 @@ def tools_list() -> None:
 def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config.")) -> None:
     """Show the effective merged configuration."""
     workspace = (cwd or Path.cwd()).resolve()
+    load_workspace_secrets(workspace)
     try:
         config, diagnostics = load_config(workspace)
     except ConfigError as exc:

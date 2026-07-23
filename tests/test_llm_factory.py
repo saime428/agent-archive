@@ -73,6 +73,7 @@ def test_declared_capabilities_match_methods(name, monkeypatch) -> None:
 def test_fake_spec_has_no_auth_and_no_smoke() -> None:
     spec = PROVIDER_REGISTRY["fake"]
     assert spec.api_key_env is None
+    assert spec.api_key_required is False
     assert spec.requires_base_url is False
     assert spec.smoke is None
 
@@ -81,6 +82,8 @@ def test_api_key_env_reads_provider_specific_config_field() -> None:
     config = AgentConfig(deepseek_api_key_env="DS_KEY", api_key_env="OA_KEY")
     assert PROVIDER_REGISTRY["deepseek"].api_key_env(config) == "DS_KEY"
     assert PROVIDER_REGISTRY["openai-compat"].api_key_env(config) == "OA_KEY"
+    assert PROVIDER_REGISTRY["deepseek"].api_key_required is True
+    assert PROVIDER_REGISTRY["openai-compat"].api_key_required is False
     assert PROVIDER_REGISTRY["openai-compat"].requires_base_url is True
 
 

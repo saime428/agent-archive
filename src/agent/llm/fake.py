@@ -6,7 +6,7 @@ from agent.llm.base import ProviderCapabilities
 
 
 class FakeLLMClient:
-    capabilities = ProviderCapabilities(streaming=False, native_tools=False, reasoning=False)
+    capabilities = ProviderCapabilities(streaming=False, native_tools=False)
 
     def __init__(
         self,

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Provider 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；`native_tools = true` 而 provider 不支持时发 `capability_warning` 事件并照旧降级 JSON 协议；doctor/`config show`/`release doctor` 按注册表显示能力与 auth 要求（fake 不再显示 deepseek key 行）；`provider smoke` 由注册表准入。不含上下文窗口声明、模型选择与 Workbench 能力暴露。
+- Provider Adapter 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；能力只描述本地 streaming/native-tools 路径，不冒充 endpoint/模型能力；auth 元数据区分必需与可选 key，`config show` 与 doctor 统一读取 workspace secrets；`native_tools = true` 而 Adapter 不支持时发 `capability_warning` 并照旧降级 JSON 协议；`provider smoke` 由注册表准入。不含 reasoning/context 等模型级声明、模型选择与 Workbench 能力暴露。
 - 可管理的本地扩展生命周期：MCP 增加 managed fragment、启停状态与 `agent mcp list/validate/set/enable/disable/remove/doctor`，手写 `mcp.toml` 保持只读兼容；Skills 增加用户级 store 与 `agent skills validate/install/enable/disable/update/package/remove/doctor`，支持目录与 `.skill.zip` 两种本地来源。共享的用户存储原语（文件锁、canonical path、原子发布、事务记录）收敛到一处，崩溃后只能观察到完整旧状态或完整新状态；静态命令从不启动 Server，`doctor` 是唯一 live probe；不含 Marketplace、registry、远程来源、Workbench 写接口或自动重连。
 - Skill 文档兼容 UTF-8 BOM：Windows 编辑器保存的 `SKILL.md` 不再被误报为缺少 frontmatter，与用户 MCP 配置读取保持同一容忍度。
 - MCP Server 故障隔离：`ready` 之后单台 Server 的 request timeout、进程退出或 transport 失败只淘汰该 Server，健康 Server 与内置 Tool 继续可用；首次 discovery 仍为全有或全无，且不自动重放或重连。原生工具调用的空 `arguments` 现在等价于 `{}`，不再进入 repair 通道。

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Provider Adapter 显式声明 streaming/native_tools/reasoning 能力，runtime 与 CLI 不再写 provider 名字分支或散点 getattr 探测；native_tools 配置不匹配时降级 + `capability_warning` 事件。
+**Goal:** Provider Adapter 显式声明 streaming/native_tools 本地方法能力，runtime 与 CLI 不再写 provider 名字分支或散点 getattr 探测；native_tools 配置不匹配时降级 + `capability_warning` 事件。reasoning 等模型级能力待有真实证据链后另做。
 
 **Architecture:** `ProviderCapabilities`（类级声明）+ `resolve_capabilities`（实例读取，探测回退）供 runtime 用；`ProviderSpec` 注册表（capabilities + auth + smoke 闭包）供 CLI/doctor 按名字读，不实例化。`_model_response` 保持不动。
 
@@ -19,6 +19,16 @@
 - 测试命令：`python -m pytest`（miniconda python 3.13）。提交前 `git diff --check`。
 - 提交消息遵循仓库现有风格（`feat:`/`refactor:`/`test:`/`docs:` 前缀，无 attribution 尾注）。
 
+## 复审修订（2026-07-23）
+
+- 能力字段只描述 Adapter 的本地 streaming/native-tools 路径；删除未驱动行为且无法在
+  Provider 级可靠声明的 `reasoning`。
+- `resolve_capabilities().streaming` 只从 `stream_chat` 派生；native 流继续由
+  `_model_response` 检查 `stream_chat_tools` 并回退。
+- `ProviderSpec.api_key_required` 区分 DeepSeek 必需 key 与 openai-compat 可选 key。
+- `config show` 在报告 key presence 前加载 workspace secrets，并新增必需/可选 key
+  与 secrets 一致性测试。
+
 ---
 
 ### Task 1: ProviderCapabilities 声明与 resolve_capabilities
@@ -31,7 +41,7 @@
 
 **Interfaces:**
 - Consumes: 无（首个任务）。
-- Produces: `agent.llm.base.ProviderCapabilities`（frozen dataclass，字段 `streaming: bool, native_tools: bool, reasoning: bool`）；`agent.llm.base.resolve_capabilities(llm: object) -> ProviderCapabilities`；类属性 `FakeLLMClient.capabilities`（全 False）、`OpenAICompatClient.capabilities`（全 True，`DeepSeekClient` 继承）。
+- Produces: `agent.llm.base.ProviderCapabilities`（frozen dataclass，字段 `streaming: bool, native_tools: bool`）；`agent.llm.base.resolve_capabilities(llm: object) -> ProviderCapabilities`；类属性 `FakeLLMClient.capabilities`（两项 False）、`OpenAICompatClient.capabilities`（两项 True，`DeepSeekClient` 继承）。
 
 - [x] **Step 1: 写失败测试**
 
@@ -47,15 +57,11 @@ from agent.llm.openai_compat import OpenAICompatClient
 
 
 def test_fake_declares_no_capabilities() -> None:
-    assert FakeLLMClient.capabilities == ProviderCapabilities(
-        streaming=False, native_tools=False, reasoning=False
-    )
+    assert FakeLLMClient.capabilities == ProviderCapabilities(streaming=False, native_tools=False)
 
 
-def test_openai_compat_declares_full_capabilities() -> None:
-    assert OpenAICompatClient.capabilities == ProviderCapabilities(
-        streaming=True, native_tools=True, reasoning=True
-    )
+def test_openai_compat_declares_adapter_paths() -> None:
+    assert OpenAICompatClient.capabilities == ProviderCapabilities(streaming=True, native_tools=True)
 
 
 def test_deepseek_inherits_openai_compat_capabilities() -> None:
@@ -64,7 +70,7 @@ def test_deepseek_inherits_openai_compat_capabilities() -> None:
 
 def test_resolve_prefers_declared_capabilities() -> None:
     class Declared:
-        capabilities = ProviderCapabilities(streaming=True, native_tools=False, reasoning=True)
+        capabilities = ProviderCapabilities(streaming=True, native_tools=False)
 
         def chat_tools(self, messages, tools):  # 声明撒谎也以声明为准
             return {}
@@ -81,10 +87,10 @@ def test_resolve_derives_from_methods() -> None:
             return {}
 
     caps = resolve_capabilities(NativeOnly())
-    assert caps == ProviderCapabilities(streaming=False, native_tools=True, reasoning=False)
+    assert caps == ProviderCapabilities(streaming=False, native_tools=True)
 
 
-def test_resolve_derives_streaming_from_native_stream_method_only() -> None:
+def test_resolve_does_not_treat_native_stream_as_regular_stream() -> None:
     class NativeStreamOnly:
         def chat_tools(self, messages, tools):
             return {}
@@ -93,7 +99,7 @@ def test_resolve_derives_streaming_from_native_stream_method_only() -> None:
             yield "chunk"
 
     caps = resolve_capabilities(NativeStreamOnly())
-    assert caps.streaming is True
+    assert caps.streaming is False
     assert caps.native_tools is True
 
 
@@ -105,7 +111,7 @@ def test_resolve_ignores_non_capability_attribute() -> None:
             yield "chunk"
 
     caps = resolve_capabilities(WrongType())
-    assert caps == ProviderCapabilities(streaming=True, native_tools=False, reasoning=False)
+    assert caps == ProviderCapabilities(streaming=True, native_tools=False)
 ```
 
 - [x] **Step 2: 跑测试确认失败**
@@ -128,7 +134,6 @@ from typing import Protocol
 class ProviderCapabilities:
     streaming: bool
     native_tools: bool
-    reasoning: bool
 
 
 def resolve_capabilities(llm: object) -> ProviderCapabilities:
@@ -136,12 +141,8 @@ def resolve_capabilities(llm: object) -> ProviderCapabilities:
     if isinstance(declared, ProviderCapabilities):
         return declared
     return ProviderCapabilities(
-        streaming=(
-            callable(getattr(llm, "stream_chat", None))
-            or callable(getattr(llm, "stream_chat_tools", None))
-        ),
+        streaming=callable(getattr(llm, "stream_chat", None)),
         native_tools=callable(getattr(llm, "chat_tools", None)),
-        reasoning=False,
     )
 ```
 
@@ -152,7 +153,7 @@ from agent.llm.base import ProviderCapabilities
 
 
 class FakeLLMClient:
-    capabilities = ProviderCapabilities(streaming=False, native_tools=False, reasoning=False)
+    capabilities = ProviderCapabilities(streaming=False, native_tools=False)
 ```
 
 `src/agent/llm/openai_compat.py`：`class OpenAICompatClient:` 体第一行加类属性，并在文件顶部 import 区加：
@@ -162,7 +163,7 @@ from agent.llm.base import ProviderCapabilities
 
 
 class OpenAICompatClient:
-    capabilities = ProviderCapabilities(streaming=True, native_tools=True, reasoning=True)
+    capabilities = ProviderCapabilities(streaming=True, native_tools=True)
 ```
 
 （`DeepSeekClient` 继承 `OpenAICompatClient`，不改 `deepseek.py`。）
@@ -194,7 +195,7 @@ git commit -m "feat: declare provider capabilities with resolve fallback"
 
 **Interfaces:**
 - Consumes: Task 1 的 `ProviderCapabilities` 与三个类的 `capabilities` 属性。
-- Produces: `agent.llm.factory.ProviderSpec`（frozen dataclass，字段 `factory: Callable[[AgentConfig], LLMClient]`、`capabilities: ProviderCapabilities`、`api_key_env: Callable[[AgentConfig], str] | None`、`requires_base_url: bool`、`smoke: Callable[[AgentConfig, bool], SmokeResult] | None`）；`PROVIDER_REGISTRY: dict[str, ProviderSpec]`（键：`fake`/`deepseek`/`openai-compat`）；`make_llm(config)` 签名与返回不变。
+- Produces: `agent.llm.factory.ProviderSpec`（frozen dataclass，字段 `factory: Callable[[AgentConfig], LLMClient]`、`capabilities: ProviderCapabilities`、`api_key_env: Callable[[AgentConfig], str] | None`、`api_key_required: bool`、`requires_base_url: bool`、`smoke: Callable[[AgentConfig, bool], SmokeResult] | None`）；`PROVIDER_REGISTRY: dict[str, ProviderSpec]`（键：`fake`/`deepseek`/`openai-compat`）；`make_llm(config)` 签名与返回不变。
 
 - [x] **Step 1: 写失败测试**
 
@@ -248,6 +249,7 @@ def test_declared_capabilities_match_methods(name, monkeypatch) -> None:
 def test_fake_spec_has_no_auth_and_no_smoke() -> None:
     spec = PROVIDER_REGISTRY["fake"]
     assert spec.api_key_env is None
+    assert spec.api_key_required is False
     assert spec.requires_base_url is False
     assert spec.smoke is None
 
@@ -256,6 +258,8 @@ def test_api_key_env_reads_provider_specific_config_field() -> None:
     config = AgentConfig(deepseek_api_key_env="DS_KEY", api_key_env="OA_KEY")
     assert PROVIDER_REGISTRY["deepseek"].api_key_env(config) == "DS_KEY"
     assert PROVIDER_REGISTRY["openai-compat"].api_key_env(config) == "OA_KEY"
+    assert PROVIDER_REGISTRY["deepseek"].api_key_required is True
+    assert PROVIDER_REGISTRY["openai-compat"].api_key_required is False
     assert PROVIDER_REGISTRY["openai-compat"].requires_base_url is True
 
 
@@ -433,6 +437,7 @@ class ProviderSpec:
     factory: Callable[[AgentConfig], LLMClient]
     capabilities: ProviderCapabilities
     api_key_env: Callable[[AgentConfig], str] | None
+    api_key_required: bool
     requires_base_url: bool
     smoke: Callable[[AgentConfig, bool], SmokeResult] | None
 
@@ -442,6 +447,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         factory=lambda _config: FakeLLMClient(),
         capabilities=FakeLLMClient.capabilities,
         api_key_env=None,
+        api_key_required=False,
         requires_base_url=False,
         smoke=None,
     ),
@@ -449,6 +455,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         factory=_make_deepseek,
         capabilities=DeepSeekClient.capabilities,
         api_key_env=lambda config: config.deepseek_api_key_env,
+        api_key_required=True,
         requires_base_url=False,
         smoke=_smoke_deepseek,
     ),
@@ -456,6 +463,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         factory=_make_openai_compat,
         capabilities=OpenAICompatClient.capabilities,
         api_key_env=lambda config: config.api_key_env,
+        api_key_required=False,
         requires_base_url=True,
         smoke=_smoke_openai_compat,
     ),
@@ -634,7 +642,7 @@ git commit -m "feat: emit capability warning on native tools downgrade"
 
 **Interfaces:**
 - Consumes: Task 2 的 `PROVIDER_REGISTRY`/`ProviderSpec`；Task 3 的 `capability_warning` record 键。
-- Produces: `_print_provider_capabilities(config) -> None`（cli.py 内部 helper，doctor / `config show` / `release doctor` 共用）。输出行契约：`provider capabilities: streaming=<bool> native_tools=<bool> reasoning=<bool>`、`base_url: ...`（仅 requires_base_url）、`api key env: ...` + `api key present: ...`（仅 api_key_env 非 None）、`capability warning: native_tools enabled but provider lacks native tool calling`（仅不匹配时）。
+- Produces: `_print_provider_capabilities(config) -> None`（cli.py 内部 helper，doctor / `config show` / `release doctor` 共用）。输出行契约：`provider adapter capabilities: streaming=<bool> native_tools=<bool>`、`base_url: ...`（仅 requires_base_url）、`api key env/required/present: ...`（仅 api_key_env 非 None）、`capability warning: native_tools enabled but provider lacks native tool calling`（仅不匹配时）。
 
 - [x] **Step 1: 更新既有断言 + 写失败测试**
 
@@ -647,14 +655,14 @@ git commit -m "feat: emit capability warning on native tools downgrade"
     assert "deepseek api key env:" in result.output
     assert "deepseek api key present:" in result.output
     # 换成:
-    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
+    assert "provider adapter capabilities: streaming=false native_tools=false" in result.output
     assert "deepseek api key env:" not in result.output
 ```
 
 2. `test_release_doctor_reports_release_readiness`：`assert "model: deepseek-v4-flash" in result.output` 之后加：
 
 ```python
-    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
+    assert "provider adapter capabilities: streaming=false native_tools=false" in result.output
     assert "deepseek api key present:" not in result.output
 ```
 
@@ -664,7 +672,7 @@ git commit -m "feat: emit capability warning on native tools downgrade"
     # 删除:
     assert "deepseek_api_key_env: DEEPSEEK_API_KEY" in result.output
     # 换成:
-    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
+    assert "provider adapter capabilities: streaming=false native_tools=false" in result.output
 ```
 
 4. 5 处 monkeypatch 目标（1025、1064、1084、1135、1163 行）从 `agent.cli.*` 改为 `agent.llm.factory.*`：
@@ -688,8 +696,9 @@ def test_doctor_shows_auth_env_for_deepseek_provider(tmp_path, monkeypatch) -> N
     result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
 
     assert result.exit_code == 0
-    assert "provider capabilities: streaming=true native_tools=true reasoning=true" in result.output
+    assert "provider adapter capabilities: streaming=true native_tools=true" in result.output
     assert "api key env: DEEPSEEK_API_KEY" in result.output
+    assert "api key required: true" in result.output
     assert "api key present: false" in result.output
 
 
@@ -744,16 +753,16 @@ def _print_provider_capabilities(config) -> None:
     spec = PROVIDER_REGISTRY[config.provider]
     caps = spec.capabilities
     console.print(
-        "provider capabilities: "
+        "provider adapter capabilities: "
         f"streaming={str(caps.streaming).lower()} "
-        f"native_tools={str(caps.native_tools).lower()} "
-        f"reasoning={str(caps.reasoning).lower()}"
+        f"native_tools={str(caps.native_tools).lower()}"
     )
     if spec.requires_base_url:
         console.print(f"base_url: {config.base_url}")
     if spec.api_key_env is not None:
         env_name = spec.api_key_env(config)
         console.print(f"api key env: {env_name}")
+        console.print(f"api key required: {str(spec.api_key_required).lower()}")
         console.print(f"api key present: {str(bool(os.environ.get(env_name))).lower()}")
     if config.native_tools and not caps.native_tools:
         console.print("capability warning: native_tools enabled but provider lacks native tool calling")
@@ -765,7 +774,7 @@ def _print_provider_capabilities(config) -> None:
     _print_provider_capabilities(config)
 ```
 
-4. `config_show`：删除 `console.print(f"deepseek_api_key_env: {config.deepseek_api_key_env}")` 与其后的 `if config.provider == "openai-compat":` 条件块（449-453 行），原位替换为：
+4. `config_show`：解析 workspace 后先调用 `load_workspace_secrets(workspace)`；删除 `console.print(f"deepseek_api_key_env: {config.deepseek_api_key_env}")` 与其后的 `if config.provider == "openai-compat":` 条件块（449-453 行），原位替换为：
 
 ```python
     _print_provider_capabilities(config)
@@ -854,7 +863,7 @@ git commit -m "refactor: drive cli provider paths from capability registry"
 `CHANGELOG.md` 的 `## Unreleased` 下第一条加：
 
 ```markdown
-- Provider 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；`native_tools = true` 而 provider 不支持时发 `capability_warning` 事件并照旧降级 JSON 协议；doctor/`config show`/`release doctor` 按注册表显示能力与 auth 要求（fake 不再显示 deepseek key 行）；`provider smoke` 由注册表准入。不含上下文窗口声明、模型选择与 Workbench 能力暴露。
+- Provider Adapter 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；能力只描述本地 streaming/native-tools 路径，auth 元数据区分必需与可选 key，`config show` 与 doctor 统一读取 workspace secrets；`native_tools = true` 而 Adapter 不支持时发 `capability_warning` 并照旧降级 JSON 协议；`provider smoke` 由注册表准入。不含 reasoning/context 等模型级声明、模型选择与 Workbench 能力暴露。
 ```
 
 - [x] **Step 2: roadmap-progress**

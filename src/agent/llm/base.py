@@ -8,7 +8,6 @@ from typing import Protocol
 class ProviderCapabilities:
     streaming: bool
     native_tools: bool
-    reasoning: bool
 
 
 def resolve_capabilities(llm: object) -> ProviderCapabilities:
@@ -16,12 +15,8 @@ def resolve_capabilities(llm: object) -> ProviderCapabilities:
     if isinstance(declared, ProviderCapabilities):
         return declared
     return ProviderCapabilities(
-        streaming=(
-            callable(getattr(llm, "stream_chat", None))
-            or callable(getattr(llm, "stream_chat_tools", None))
-        ),
+        streaming=callable(getattr(llm, "stream_chat", None)),
         native_tools=callable(getattr(llm, "chat_tools", None)),
-        reasoning=False,
     )
 
 

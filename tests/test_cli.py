@@ -134,7 +134,7 @@ def test_doctor_reports_python_and_cwd() -> None:
     assert "config provider:" in result.output
     assert "config model:" in result.output
     assert "config allowed_commands:" in result.output
-    assert "provider capabilities:" in result.output
+    assert "provider adapter capabilities:" in result.output
     assert "deepseek api key env:" not in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
@@ -160,7 +160,7 @@ def test_config_doctor_reports_same_core_diagnostics() -> None:
     assert "config provider:" in result.output
     assert "config model:" in result.output
     assert "config allowed_commands:" in result.output
-    assert "provider capabilities:" in result.output
+    assert "provider adapter capabilities:" in result.output
     assert "deepseek api key env:" not in result.output
     assert "config sandbox:" in result.output
     assert "config approval:" in result.output
@@ -185,7 +185,7 @@ def test_release_doctor_reports_release_readiness(tmp_path) -> None:
     assert "config readable: true" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
-    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
+    assert "provider adapter capabilities: streaming=false native_tools=false" in result.output
     assert "deepseek api key present:" not in result.output
     assert "settings writes: read-only" in result.output
     assert "packaging: deferred (not required for local release)" in result.output
@@ -1603,9 +1603,45 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
     assert "allowed_commands: []" in result.output
-    assert "provider capabilities: streaming=false native_tools=false reasoning=false" in result.output
+    assert "provider adapter capabilities: streaming=false native_tools=false" in result.output
     assert f"cwd: {workspace.resolve()}" in result.output
     assert "loaded files: none" in result.output
+
+
+def test_config_show_loads_workspace_secrets_before_reporting_key_presence(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    config_dir = workspace / ".agent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text('provider = "deepseek"\n', encoding="utf-8")
+    (config_dir / "secrets.env").write_text("DEEPSEEK_API_KEY=workspace-secret\n", encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "api key required: true" in result.output
+    assert "api key present: true" in result.output
+    assert "workspace-secret" not in result.output
+
+
+def test_config_show_marks_openai_compat_api_key_optional(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    config_dir = workspace / ".agent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text(
+        'provider = "openai-compat"\nbase_url = "http://localhost:11434/v1"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "api key env: OPENAI_API_KEY" in result.output
+    assert "api key required: false" in result.output
+    assert "api key present: false" in result.output
 
 
 def test_config_show_outputs_project_config_and_warning(tmp_path) -> None:
@@ -1818,8 +1854,9 @@ def test_doctor_shows_auth_env_for_deepseek_provider(tmp_path, monkeypatch) -> N
     result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
 
     assert result.exit_code == 0
-    assert "provider capabilities: streaming=true native_tools=true reasoning=true" in result.output
+    assert "provider adapter capabilities: streaming=true native_tools=true" in result.output
     assert "api key env: DEEPSEEK_API_KEY" in result.output
+    assert "api key required: true" in result.output
     assert "api key present: false" in result.output
 
 

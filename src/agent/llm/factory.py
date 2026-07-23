@@ -86,6 +86,7 @@ class ProviderSpec:
     factory: Callable[[AgentConfig], LLMClient]
     capabilities: ProviderCapabilities
     api_key_env: Callable[[AgentConfig], str] | None
+    api_key_required: bool
     requires_base_url: bool
     smoke: Callable[[AgentConfig, bool], SmokeResult] | None
 
@@ -95,6 +96,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         factory=lambda _config: FakeLLMClient(),
         capabilities=FakeLLMClient.capabilities,
         api_key_env=None,
+        api_key_required=False,
         requires_base_url=False,
         smoke=None,
     ),
@@ -102,6 +104,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         factory=_make_deepseek,
         capabilities=DeepSeekClient.capabilities,
         api_key_env=lambda config: config.deepseek_api_key_env,
+        api_key_required=True,
         requires_base_url=False,
         smoke=_smoke_deepseek,
     ),
@@ -109,6 +112,7 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         factory=_make_openai_compat,
         capabilities=OpenAICompatClient.capabilities,
         api_key_env=lambda config: config.api_key_env,
+        api_key_required=False,
         requires_base_url=True,
         smoke=_smoke_openai_compat,
     ),
