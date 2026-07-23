@@ -1,6 +1,28 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class ProviderCapabilities:
+    streaming: bool
+    native_tools: bool
+    reasoning: bool
+
+
+def resolve_capabilities(llm: object) -> ProviderCapabilities:
+    declared = getattr(llm, "capabilities", None)
+    if isinstance(declared, ProviderCapabilities):
+        return declared
+    return ProviderCapabilities(
+        streaming=(
+            callable(getattr(llm, "stream_chat", None))
+            or callable(getattr(llm, "stream_chat_tools", None))
+        ),
+        native_tools=callable(getattr(llm, "chat_tools", None)),
+        reasoning=False,
+    )
 
 
 class LLMClient(Protocol):

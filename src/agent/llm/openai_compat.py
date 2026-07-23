@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 
 from agent.core.actions import ActionParseError, parse_model_action
+from agent.llm.base import ProviderCapabilities
 
 
 Transport = Callable[[str, dict[str, str], bytes, float], bytes]
@@ -38,6 +39,8 @@ class SmokeResult:
 
 
 class OpenAICompatClient:
+    capabilities = ProviderCapabilities(streaming=True, native_tools=True, reasoning=True)
+
     def __init__(
         self,
         *,

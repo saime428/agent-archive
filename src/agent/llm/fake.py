@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent.llm.base import ProviderCapabilities
+
 
 class FakeLLMClient:
+    capabilities = ProviderCapabilities(streaming=False, native_tools=False, reasoning=False)
+
     def __init__(
         self,
         *,
