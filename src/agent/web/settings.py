@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import tomllib
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from agent import _user_store
-from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, VALID_VALUES, load_config
+from agent.config import AgentConfig, ConfigDiagnostics, VALID_VALUES, load_config
+from agent.config_write import save_project_config
 from agent.core.budget import truncate_text
 from agent.core.memory import MemoryCandidate, MemoryEntry, MemoryStore
 from agent.core.run_store import RunStore, RunStoreError
@@ -249,37 +247,15 @@ def _config_payload(workspace: Path, config: AgentConfig, diagnostics: ConfigDia
 
 def build_save_config_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
     root = workspace.resolve()
-    config_path = root / ".agent" / "config.toml"
-    existing = _read_project_config(config_path)
     updates = _validated_config_updates(request)
-    existing.update(updates)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        _user_store.atomic_replace_bytes(
-            config_path.parent,
-            config_path,
-            _dump_toml(existing).encode("utf-8"),
-        )
-    except _user_store.UserStoreError as exc:
-        raise OSError(f"Could not save project config {config_path}.") from exc
+    save_project_config(root, updates)
     payload = build_config_payload(root)
     payload["status"] = "ok"
     return payload
 
 
-def _read_project_config(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
-    except tomllib.TOMLDecodeError as exc:
-        raise ConfigError(f"Could not parse config file {path}: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise ConfigError(f"Config file {path} must contain a TOML table.")
-    return dict(raw)
-
-
 def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
+    # 浏览器策略层：键白名单与 approval/sandbox 收紧；类型/枚举验证委托 config_write。
     allowed = {
         "provider",
         "model",
@@ -296,66 +272,19 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
     for key, value in request.items():
         if key not in allowed:
             continue
-        if key == "provider":
-            if value not in PROVIDER_REGISTRY:
-                raise ValueError("provider must be fake, deepseek, or openai-compat.")
-            updates[key] = value
-        elif key == "model":
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError("model must be a non-empty string.")
-            updates[key] = value.strip()
-        elif key == "mode":
-            if not isinstance(value, str) or value not in VALID_VALUES["mode"]:
-                raise ValueError("mode must be step, guided, auto, or plan-first.")
-            updates[key] = value
-        elif key == "sandbox":
-            if value not in {"read-only", "workspace-write"}:
-                raise ValueError("sandbox must be read-only or workspace-write.")
-            updates[key] = value
-        elif key == "approval":
+        if key == "provider" and value not in PROVIDER_REGISTRY:
+            raise ValueError("provider must be fake, deepseek, or openai-compat.")
+        if key == "mode" and (not isinstance(value, str) or value not in VALID_VALUES["mode"]):
+            raise ValueError("mode must be step, guided, auto, or plan-first.")
+        if key == "sandbox" and value not in {"read-only", "workspace-write"}:
+            raise ValueError("sandbox must be read-only or workspace-write.")
+        if key == "approval":
             if value == "never":
                 raise ValueError("browser config cannot disable approvals.")
             if value not in {"risky-confirm", "always"}:
                 raise ValueError("approval must be risky-confirm or always.")
-            updates[key] = value
-        elif key == "dry_run":
-            if not isinstance(value, bool):
-                raise ValueError("dry_run must be a boolean.")
-            updates[key] = value
-        elif key == "web_search_enabled":
-            if not isinstance(value, bool):
-                raise ValueError("web_search_enabled must be a boolean.")
-            updates[key] = value
-        elif key == "computer_read_enabled":
-            if not isinstance(value, bool):
-                raise ValueError("computer_read_enabled must be a boolean.")
-            updates[key] = value
-        elif key == "native_tools":
-            if not isinstance(value, bool):
-                raise ValueError("native_tools must be a boolean.")
-            updates[key] = value
-        elif key == "default_skills":
-            if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-                raise ValueError("default_skills must be a list of non-empty strings.")
-            updates[key] = [item.strip() for item in value]
+        updates[key] = value
     return updates
-
-
-def _dump_toml(values: dict[str, Any]) -> str:
-    lines = [f"{key} = {_toml_value(value)}" for key, value in values.items()]
-    return "\n".join(lines) + ("\n" if lines else "")
-
-
-def _toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=True)
-    if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
-    raise ValueError(f"Unsupported config value type: {type(value).__name__}")
 
 
 def build_tools_payload() -> dict[str, Any]:

@@ -157,7 +157,7 @@ def _apply_file_config(
         if key not in values:
             continue
         value = values[key]
-        _validate_value(key, value, path)
+        validate_value(key, value, path)
         if source == "project" and key == "sandbox" and value == "danger-full-access":
             warnings.append(
                 "Ignoring project config sandbox=danger-full-access because project config cannot widen sandbox permissions."
@@ -166,7 +166,7 @@ def _apply_file_config(
         if source == "project" and key == "approval" and value == "never":
             warnings.append("Ignoring project config approval=never because project config cannot disable approvals.")
             continue
-        config = replace(config, **{key: _normalize_value(key, value)})
+        config = replace(config, **{key: normalize_value(key, value)})
     return config
 
 
@@ -208,12 +208,12 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
     for key, value in values.items():
         if value is None:
             continue
-        _validate_value(key, value, None)
-        config = replace(config, **{key: _normalize_value(key, value)})
+        validate_value(key, value, None)
+        config = replace(config, **{key: normalize_value(key, value)})
     return config
 
 
-def _validate_value(key: str, value: Any, path: Path | None) -> None:
+def validate_value(key: str, value: Any, path: Path | None) -> None:
     cli = path is None
     sequence_type = tuple if cli else list
     if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled", "native_tools"}:
@@ -249,7 +249,7 @@ def _invalid_config_value(key: str, message: str, path: Path | None) -> ConfigEr
     return ConfigError(f"Invalid value for {key} in {path}: {message}.")
 
 
-def _normalize_value(key: str, value: Any) -> Any:
+def normalize_value(key: str, value: Any) -> Any:
     if key in {"default_skills", "allowed_commands", "enabled_hooks", "blocking_hooks"}:
         return tuple(value)
     return value
