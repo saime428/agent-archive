@@ -37,6 +37,8 @@ KNOWN_KEYS = {
     "max_consecutive_errors",
     "native_tools",
 }
+# 与 agent.core.hooks.BUILTIN_HOOKS 保持一致；契约测试锁定（config 保持叶子模块不 import core）。
+KNOWN_HOOK_NAMES = frozenset({"audit", "before_tool_format", "fail"})
 
 
 class ConfigError(ValueError):
@@ -120,6 +122,15 @@ def load_config(
 
     if overrides is not None:
         config = _apply_overrides(config, overrides)
+
+    for key_name, names in (("enabled_hooks", config.enabled_hooks), ("blocking_hooks", config.blocking_hooks)):
+        for name in names:
+            if name not in KNOWN_HOOK_NAMES:
+                known = ", ".join(sorted(KNOWN_HOOK_NAMES))
+                warnings.append(f"Unknown hook {name!r} in {key_name}; known hooks: {known}.")
+    for name in config.blocking_hooks:
+        if name in KNOWN_HOOK_NAMES and name not in config.enabled_hooks:
+            warnings.append(f"Blocking hook {name!r} is not in enabled_hooks and will never run.")
 
     diagnostics = ConfigDiagnostics(
         global_config_path=global_config_path,

@@ -329,3 +329,51 @@ def test_allowed_commands_accepts_cli_override(tmp_path) -> None:
 
     assert config.allowed_commands == ("npm test",)
     assert diagnostics.warnings == []
+
+
+def test_unknown_enabled_hook_warns(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text('enabled_hooks = ["audit", "typo"]\n', encoding="utf-8")
+
+    config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert config.enabled_hooks == ("audit", "typo")
+    hook_warnings = [w for w in diagnostics.warnings if "Unknown hook" in w]
+    assert len(hook_warnings) == 1
+    assert "Unknown hook 'typo' in enabled_hooks; known hooks:" in hook_warnings[0]
+    assert "audit, before_tool_format, fail" in hook_warnings[0]
+
+
+def test_unknown_blocking_hook_warns(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text('blocking_hooks = ["nope"]\n', encoding="utf-8")
+
+    _config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert any("Unknown hook 'nope' in blocking_hooks" in w for w in diagnostics.warnings)
+
+
+def test_blocking_hook_not_enabled_warns(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'enabled_hooks = ["audit"]\nblocking_hooks = ["fail"]\n', encoding="utf-8"
+    )
+
+    _config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert any("Blocking hook 'fail' is not in enabled_hooks" in w for w in diagnostics.warnings)
+
+
+def test_known_hooks_produce_no_hook_warnings(tmp_path) -> None:
+    config_dir = tmp_path / ".agent"
+    config_dir.mkdir()
+    (config_dir / "config.toml").write_text(
+        'enabled_hooks = ["audit"]\nblocking_hooks = ["audit"]\n', encoding="utf-8"
+    )
+
+    _config, diagnostics = load_config(tmp_path, home=tmp_path / "home")
+
+    assert not any("hook" in w.lower() for w in diagnostics.warnings)

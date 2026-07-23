@@ -97,3 +97,9 @@ def test_blocking_hook_failure_returns_error_observation(tmp_path) -> None:
     assert result.observation.error is not None
     assert result.observation.error.code == ErrorCode.INTERNAL_ERROR
     assert "Blocking hook failed" in result.observation.error.message
+
+def test_known_hook_names_match_builtin_hooks() -> None:
+    from agent.config import KNOWN_HOOK_NAMES
+    from agent.core.hooks import BUILTIN_HOOKS
+
+    assert frozenset(BUILTIN_HOOKS) == KNOWN_HOOK_NAMES
