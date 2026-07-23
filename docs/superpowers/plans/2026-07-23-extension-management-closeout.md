@@ -15,6 +15,8 @@
 - 不新增第三方依赖；config 文件格式与 run/session 数据不迁移。
 - 行为变化仅限：新增命令（`hooks list`、`mcp show`、`config set/unset`）、新增 config 警告、doctor 与 `config show` 新增输出行。已有输出行不改。
 - web `/api/config/save` 请求/响应契约不变；`tests/test_web.py` 现有断言一律不改（已核实：该文件未断言 `_validated_config_updates` 的类型/枚举错误文案，委托后文案变为 config 风格属允许漂移）。
+- `tests/test_ui.py:253` 断言 `OSError, match="Could not save project config"`：共享写模块的发布失败包装必须保持消息 `Could not save project config {config_path}.`。
+- `tests/test_docs.py:786` 硬断言 roadmap 的 `Next Project vNext slice: the remaining Phase 2 management surface`：该行只能在 Task 7 与 roadmap 同一提交内一起更新（Task 1-6 不碰 roadmap，全量测试保持绿）。
 - `McpConfigStore.describe` 不 import/构造 `McpStdioRuntime`，不产生子进程。
 - 顶层 doctor 退出码语义不变：仍只在 config 加载失败时 exit 1。
 - 测试命令：`python -m pytest`（项目 venv：`.venv\Scripts\python.exe`，`$env:PYTHONPATH="src"`）。提交前 `git diff --check`。
@@ -194,6 +196,7 @@ git commit -m "feat: add hooks list and surface hook config"
 - `test_describe_valid_server_returns_config`：set 一个合法 server 后 `describe`，断言 `item.status == "valid"`、`config.command`/`args`/`pass_env`/`cwd` 与写入一致。
 - `test_describe_disabled_server_still_parses_config`：disable 后 `describe`，`item.status == "disabled"` 且 `config is not None`。
 - `test_describe_disabled_broken_command_returns_none_config`：写入坏 command 的 disabled 片段（沿用既有"disabled 坏 command"fixture 手法），`config is None` 且 `item.status == "disabled"`。
+- `test_describe_env_invalid_server_returns_none_config`：enabled 但缺 `pass_env` 环境变量的 server（`_inventory` 判为 invalid 的既有 fixture 手法），`item.status == "invalid"` 且 `config is None`（describe 与 `_inventory` 同链：parse 成功但 env 校验失败也归 None，保持 spec 的 invalid→None 映射）。
 - `test_describe_orphan_returns_none_config`：构造 orphan state（既有测试有此手法），`item.status == "orphan"`、`config is None`。
 - `test_describe_unknown_server_raises`：`pytest.raises(McpRuntimeError, match="Server does not exist.")`。
 
@@ -204,7 +207,7 @@ git commit -m "feat: add hooks list and surface hook config"
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `python -m pytest tests/test_mcp_config.py tests/test_cli.py -q -k describe_or_show -k "describe or mcp_show"`
+Run: `python -m pytest tests/test_mcp_config.py tests/test_cli.py -q -k "describe or mcp_show"`
 Expected: FAIL（`AttributeError: describe` / 未知命令）
 
 - [ ] **Step 3: 最小实现**
@@ -231,9 +234,11 @@ class McpServerDetail:
             raw = next((raw for raw in snapshot.servers if raw.server_id == server_id), None)
             if raw is not None:
                 try:
-                    config = self._parse_servers((raw,))[0]
+                    parsed = self._parse_servers((raw,))[0]
+                    self._validate_environment(parsed)
+                    config = parsed
                 except McpRuntimeError:
-                    config = None  # invalid/disabled 坏片段：item.status 已表达原因
+                    config = None  # 与 _inventory 同链：parse 或 env 校验失败都归 None
             return McpServerDetail(item=item, config=config)
 ```
 
@@ -301,7 +306,7 @@ git commit -m "feat: add mcp show command"
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `python -m pytest tests/test_cli.py -q -k extension_summary_or_counts -k "extension_summary or counts_mcp"`
+Run: `python -m pytest tests/test_cli.py -q -k "extension_summary or counts_mcp"`
 Expected: FAIL（无摘要行）
 
 - [ ] **Step 3: 最小实现**
@@ -333,19 +338,20 @@ Expected: FAIL（无摘要行）
         console.file.write("skills detail: agent skills doctor\n")
 ```
 
-（`McpConfigStore`/`SkillStore`/`SkillError` 均已在 cli.py import。若 `SkillStore` 构造签名与 `_skill_store` 不同，沿用 `_skill_store(cwd)`/`_mcp_store(cwd)` helper。）
+（`McpConfigStore`/`SkillStore`/`SkillError` 均已在 cli.py import。直接沿用既有
+helper：`_mcp_store(cwd)` 与 `_skill_store(cwd)`（cli.py:533、688，接受
+`Path | None`；`_print_doctor` 传入的 `cwd` 已是 resolved Path，可直接传）。上面
+代码块中的 `McpConfigStore(cwd)`/`SkillStore(cwd)` 相应写作
+`_mcp_store(cwd)`/`_skill_store(cwd)`。）
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_cli.py -q`
 Expected: 全部 passed（既有 doctor 断言只增行不受影响）
 
-- [ ] **Step 5: 相邻回归**
+- [ ] **Step 5: Commit**
 
-Run: `python -m pytest tests/test_docs.py -q`
-Expected: 全部 passed（doctor 输出契约若有文档测试，同步核对）
-
-- [ ] **Step 6: Commit**
+（已核实 `tests/test_docs.py` 无 doctor 输出断言，无需相邻回归。）
 
 ```bash
 git add src/agent/cli.py tests/test_cli.py
@@ -372,6 +378,7 @@ git commit -m "feat: aggregate extension status in doctor"
 
 - `test_save_writes_project_config_atomically`：`save_project_config(tmp, {"model": "m2"})` 后 `load_config` 读到 `m2`，其余键不变。
 - `test_save_accepts_list_and_tuple_sequences`：`{"default_skills": ["a", "b"]}` 与 `("a", "b")` 均成功且文件内为 TOML list。
+- `test_save_strips_string_values`：`{"model": " m "}` 存为 `"m"`；`{"default_skills": [" a "]}` 项存为 `"a"`（保持 web 委托前的 strip 行为）。
 - `test_save_rejects_unknown_key`：`{"nope": 1}` → `ValueError`，文件不变。
 - `test_save_rejects_invalid_value_and_keeps_file`：先写合法值，再用非法值（如 `{"mode": "bogus"}`）断言抛错且文件内容与前一次一致。
 - `test_save_rejects_danger_sandbox_and_never_approval`：两个值各断言 `ValueError` 文案（见 Step 3）。
@@ -413,7 +420,9 @@ def save_project_config(workspace: Path, updates: dict[str, Any]) -> Path:
         if key not in KNOWN_KEYS:
             raise ValueError(f"Unknown config key: {key}.")
         if key in _SEQUENCE_KEYS and isinstance(value, (list, tuple)):
-            value = tuple(value)
+            value = tuple(item.strip() if isinstance(item, str) else item for item in value)
+        elif isinstance(value, str):
+            value = value.strip()  # 保持 web 委托前的 strip 行为；base_url 允许空串语义不变
         rejected = _REJECTED_PROJECT_VALUES.get((key, value if isinstance(value, str) else None))
         if rejected is not None:
             raise ValueError(rejected)
@@ -445,14 +454,15 @@ def remove_project_config_keys(workspace: Path, keys: Iterable[str]) -> Path:
 def build_save_config_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
     root = workspace.resolve()
     updates = _validated_config_updates(request)
-    try:
-        config_write.save_project_config(root, updates)
-    except _user_store.UserStoreError as exc:
-        raise OSError(f"Could not save project config.") from exc
+    save_project_config(root, updates)
     payload = build_config_payload(root)
     payload["status"] = "ok"
     return payload
 ```
+
+（发布失败的 `OSError` 包装移入共享 `_publish`，消息保持
+`Could not save project config {config_path}.` 逐字不变——`tests/test_ui.py:253`
+以 `match="Could not save project config"` 锁定该文案。）
 
 `_validated_config_updates` 保留：键白名单（浏览器不暴露 hooks/allowed_commands 等键）、`approval`/`sandbox` 的浏览器收紧与其现有文案、`provider` 白名单文案；删除与 `validate_value` 重复的纯类型检查（model/mode/bool/default_skills 各分支的 isinstance 检查改为直接放行，由共享模块验证）。`ConfigError` 是 `ValueError` 子类，server 现有 `except ValueError` 路径不变。
 
@@ -499,7 +509,7 @@ git commit -m "refactor: share project config write path"
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `python -m pytest tests/test_cli.py -q -k config_set_or_unset -k "config_set or config_unset"`
+Run: `python -m pytest tests/test_cli.py -q -k "config_set or config_unset"`
 Expected: FAIL（无 set/unset 命令）
 
 - [ ] **Step 3: 最小实现**
@@ -544,7 +554,12 @@ def config_set(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     console.print(f"saved: {path}", soft_wrap=True)
-    _config, diagnostics = load_config(workspace)
+    try:
+        _config, diagnostics = load_config(workspace)
+    except ConfigError as exc:
+        # 写入已验证成功；reload 失败只可能来自其他文件（如损坏的全局 config）
+        console.print(f"config warning: {exc}")
+        return
     for warning in diagnostics.warnings:
         console.print(f"config warning: {warning}")
 
@@ -583,24 +598,44 @@ git commit -m "feat: add config set and unset commands"
 ### Task 7: 收尾——文档同步与全量门禁
 
 **Files:**
-- Modify: `CHANGELOG.md`、`docs/roadmap-progress.md`、`docs/project-vnext-direction.md`、spec 状态行；`README.md` 若含命令清单则同步
+- Modify: `CHANGELOG.md`、`README.md`、`docs/roadmap-progress.md`、`docs/project-vnext-direction.md`、`tests/test_docs.py`、spec 状态行
 
 **Interfaces:**
 - Consumes: Task 1-6 全部完成。
 - Produces: 文档与验收证据。
 
-- [ ] **Step 1: CHANGELOG**
+- [ ] **Step 1: CHANGELOG 与 README**
 
-`## Unreleased` 顶部加一条：hooks 加载警告与 `hooks list`、`mcp show`、doctor 扩展摘要、`config set/unset` 与共享 config 写路径；注明 Workbench 写接口、reconnect、marketplace 仍不在范围。
+- `CHANGELOG.md` 的 `## Unreleased` 顶部加一条：hooks 加载警告与 `hooks list`、`mcp show`、doctor 扩展摘要、`config set/unset` 与共享 config 写路径；注明 Workbench 写接口、reconnect、marketplace 仍不在范围。
+- `README.md` 在既有 mcp/skills/config 命令文档处补 `agent hooks list`、`agent mcp show`、`agent config set`、`agent config unset` 及一句用途说明。
 
-- [ ] **Step 2: roadmap 与方向文档**
+- [ ] **Step 2: roadmap、方向文档与 test_docs 同步**
 
-- `docs/roadmap-progress.md`：vNext 表 `Full Project vNext ecosystem` 行的 next gap 更新——剩余 Phase 2 management surface 完成；`Next Project vNext slice` 段落改为指向下一主线（Frontend vNext 阶段 0 或 Phase 3，按方向文档措辞，不宣布未批准的新工作）。
+三者同一提交内更新（`tests/test_docs.py:786` 硬断言 roadmap 措辞）：
+
+- `docs/roadmap-progress.md`：vNext 表 `Full Project vNext ecosystem` 行的 next gap 更新——剩余 Phase 2 management surface 完成；`Next Project vNext slice` 段落改为指向下一主线（Frontend vNext 阶段 0 或 Phase 3，按方向文档措辞，不宣布未批准的新工作）；`Completed slice:` 追加一行（保留既有各行文字不动，`test_docs` 多处按行断言）。
 - `docs/project-vnext-direction.md` "下一次正式开工的默认顺序" 第 2 条：追加本 spec 为已完成。
+- `tests/test_docs.py`：`test_managed_extension_lifecycle_docs_record_commands_scope_and_status` 中
+  `assert "Next Project vNext slice: the remaining Phase 2 management surface" in roadmap`
+  改为断言新的 next-slice 措辞；文件末尾追加本切片 docs 测试（house 模式，紧凑版）：
+
+```python
+def test_extension_management_closeout_docs_record_commands_and_status() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-23-extension-management-closeout-design.md"
+    ).read_text(encoding="utf-8")
+
+    for command in ("agent hooks list", "agent mcp show", "agent config set", "agent config unset"):
+        assert command in readme
+    assert "config set" in changelog
+    assert "状态：已实施" in spec
+```
 
 - [ ] **Step 3: spec 状态**
 
-spec 头部 `- 状态：草案（待审查）` 改为 `- 状态：已实施（全量门禁通过）`。
+spec 头部 `- 状态：已批准，待实施` 改为 `- 状态：已实施（全量门禁通过）`。
 
 - [ ] **Step 4: 全量门禁**
 
@@ -616,6 +651,6 @@ Expected: 无输出
 - [ ] **Step 5: Commit**
 
 ```bash
-git add CHANGELOG.md README.md docs/roadmap-progress.md docs/project-vnext-direction.md docs/superpowers/specs/2026-07-23-extension-management-closeout-design.md
+git add CHANGELOG.md README.md docs/roadmap-progress.md docs/project-vnext-direction.md tests/test_docs.py docs/superpowers/specs/2026-07-23-extension-management-closeout-design.md
 git commit -m "docs: close extension management closeout slice"
 ```
