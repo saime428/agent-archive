@@ -1,0 +1,80 @@
+# Frontend vNext 阶段 0：功能等价清单
+
+- 日期：2026-07-23
+- 状态：基线快照（对应旧静态 Workbench `d1ab2dc`，v2.0 Tokenicode 形态）
+- 用途：新 React 前端的等价验收基线。方向文档规定：达到功能等价前不宣布
+  迁移完成，旧前端保持回退路径；等价后一次切换并删除旧壳。
+- 旧实现事实来源：`src/agent/web/static/assets/`（app.js、sse.js、state.js、
+  api.js 与 render/ 八个模块）。
+
+## 等价矩阵
+
+"目标阶段"对应前端方向文档的分阶段路线：1 = App Shell + Chat 纵切，
+2 = 核心功能等价。标 2 的项在阶段 1 期间由旧前端继续承载。
+
+### 会话与聊天（render/chat.js）
+
+| # | 能力 | 后端依赖 | 目标阶段 |
+| --- | --- | --- | --- |
+| C1 | 会话列表、切换、标签页 | `GET /api/chats` | 1 |
+| C2 | 新建会话 + 发送消息 | `POST /api/chat/start` | 1 |
+| C3 | SSE 流式渲染（thinking/content/args 三种 kind） | `GET /api/chat/events` | 1 |
+| C4 | 工具过程展示（model_call/action/tool_start） | SSE 事件 | 1 |
+| C5 | 浏览器内审批面板（approve/deny、超时态） | `POST /api/chat/approval` | 1 |
+| C6 | turn 终态渲染（final/error、失败解释） | SSE + `/api/chats/<id>` | 1 |
+| C7 | 会话重命名 / 删除 | `POST /api/chat/rename` `/delete` | 1 |
+| C8 | 刷新后从持久化 turn 重建历史 | `GET /api/chats/<id>` | 1 |
+| C9 | 未知事件宽容（忽略不报错） | SSE 契约 §4 | 1 |
+
+### 文件与编辑（render/files.js、render/editor.js）
+
+| # | 能力 | 后端依赖 | 目标阶段 |
+| --- | --- | --- | --- |
+| F1 | 文件树浏览（workspace 路径策略内） | `GET /api/files` | 2 |
+| F2 | 文件预览 | `GET /api/file` | 2 |
+| F3 | 文本编辑与保存（走审批 + snapshot） | `POST /api/file/save` | 2 |
+| F4 | Diff 查看（对 snapshot） | `GET /api/diff` | 2 |
+| F5 | Snapshot 恢复（带确认） | `POST /api/snapshot/restore` | 2 |
+
+### 运行与复盘（render/runs.js）
+
+| # | 能力 | 后端依赖 | 目标阶段 |
+| --- | --- | --- | --- |
+| R1 | Run 列表 + 状态/风险过滤 | `GET /api/runs` | 2 |
+| R2 | Run 详情：Task Review 面板 | `/api/runs/<id>` `review` | 2 |
+| R3 | Workflow Hints（验证命令建议） | 同上 `workflow` | 2 |
+| R4 | Failure Summary | 同上 `failure` | 2 |
+| R5 | Patch Review Helper | 同上 `patch_review` | 2 |
+| R6 | Run Replay（存储时间线，不执行） | 同上 `replay` | 2 |
+| R7 | Failure Recovery 指引 | 同上 `recovery` | 2 |
+| R8 | Trace/Replay 的 Log Filters（文本+终态） | 前端本地过滤 | 2 |
+
+### 健康与设置（render/health.js、render/diagnostics.js）
+
+| # | 能力 | 后端依赖 | 目标阶段 |
+| --- | --- | --- | --- |
+| H1 | Status Bar（workspace/provider/model/key/会话/刷新时间） | `GET /api/health` | 1（精简版）/ 2（完整） |
+| H2 | Provider Notice（FakeLLM vs 真实 Provider） | 同上 `provider_notice` | 1 |
+| H3 | Settings Readiness 检查 | 同上 `settings_readiness` | 2 |
+| H4 | Workspace Risk 提示 | 同上 `workspace_risk` | 2 |
+| H5 | Memory Review（候选与生效项，只读） | 同上 `memory_review` | 2 |
+| H6 | 设置页读取 + 受控写（键白名单） | `GET/POST /api/config` | 2 |
+| H7 | Tools 目录只读清单 | `GET /api/tools` | 2 |
+
+### 壳与交互（app.js、state.js、render/ui.js、resources.js）
+
+| # | 能力 | 说明 | 目标阶段 |
+| --- | --- | --- | --- |
+| S1 | 三栏布局 + 可拖拽调宽 | 新壳重新设计，不逐像素等价 | 1 |
+| S2 | 深/浅主题切换 | 同一套语义 token | 1 |
+| S3 | 10 秒安全自动刷新 + 手动 Refresh | 不覆盖打开的编辑器/待审批 | 2 |
+| S4 | 资源详情面板（resources.js） | 并入新信息架构 | 2 |
+| S5 | 基础可访问性（键盘、焦点、标签、reduced-motion） | 新壳按验收护栏做，不低于旧壳 | 1 起持续 |
+
+## 等价判定规则
+
+1. 逐项在新前端可用且走同一后端 Interface，不新增后端能力。
+2. "等价"指能力与安全语义等价，不要求视觉与 DOM 结构一致。
+3. 异常路径也在清单内：断线、刷新、unknown job、审批超时、保存失败、
+   后端不可用（对应验收护栏），在阶段 2 完成前逐项打勾。
+4. 本清单只增不删；实际实现发现的旧能力遗漏补录进来，而不是默默丢弃。
