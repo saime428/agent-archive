@@ -34,7 +34,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | --- | --- | --- |
 | Phase 1: stdio MCP dynamic Tools | Complete | User-only config, SDK lifecycle, unified catalog/safety chain, and real CLI/Chat/Workbench acceptance |
 | Phase 2 slice 1: managed MCP and Skills lifecycle | Complete | Managed MCP fragments/state with a live `mcp doctor`, user Skill install/update/package/remove, one shared user-store transaction layer, and crash-recovery evidence |
-| Full Project vNext ecosystem | In progress | Provider capability declaration is complete; next is the remaining Phase 2 management surface, while later phases still cover productivity, distribution, remote, and community loops |
+| Full Project vNext ecosystem | In progress | The Phase 2 backend management surface is complete (managed lifecycle, provider capabilities, hooks/mcp show/doctor/config write closeout); later phases still cover the frontend, productivity, distribution, remote, and community loops |
 
 ## Completed Milestones
 
@@ -311,9 +311,14 @@ Next slice: optional trigger-based work only if explicitly needed.
 Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then
 provider capability declaration.
 
-Next Project vNext slice: the remaining Phase 2 management surface. Marketplace,
-registry, remote sources, Workbench write interfaces, and automatic reconnect
-stay out of scope until a later slice has its own spec.
+Completed slice: Project vNext Phase 2 extension management closeout (hook
+warnings and `hooks list`, `mcp show`, doctor extension summaries, and the
+shared `config set/unset` write path).
+
+Next Project vNext slice: Frontend vNext phase 0 or a Phase 3 productivity
+slice, chosen by its own spec. Marketplace, registry, remote sources, Workbench
+write interfaces, and automatic reconnect stay out of scope until a later slice
+has its own spec.
 
 ## Guardrails
 

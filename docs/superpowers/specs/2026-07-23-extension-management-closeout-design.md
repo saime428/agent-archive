@@ -1,7 +1,7 @@
 # 设计：扩展管理面收尾
 
 - 日期：2026-07-23
-- 状态：已批准，待实施
+- 状态：已实施（全量门禁通过）
 - 上位方向：[Project vNext 总方向](../../project-vnext-direction.md)（seam：Extension Lifecycle Interface 与 Operations 收尾）
 
 ## 背景

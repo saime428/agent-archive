@@ -142,7 +142,7 @@
 ## 下一次正式开工的默认顺序
 
 1. [stdio MCP + 动态 Tool 注册 + 现有安全链](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md) 已完成；不再把它列为待实现项。
-2. [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md)和 [Provider 能力声明](superpowers/specs/2026-07-22-provider-capability-declaration-design.md)均已完成；下一份后端 spec 聚焦阶段 2 的剩余管理面，仍不提前做 Marketplace、registry 或远程来源。
+2. [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md)、[Provider 能力声明](superpowers/specs/2026-07-22-provider-capability-declaration-design.md)和[扩展管理面收尾](superpowers/specs/2026-07-23-extension-management-closeout-design.md)均已完成；阶段 2 后端管理面就此闭合，仍不提前做 Marketplace、registry 或远程来源。
 3. 前端可并行完成阶段 0：视觉方向选稿、HTTP/SSE Interface 清单和功能等价表，并且只接入后端已存在的能力。
 
 如果当期目标明确是先获得可见的产品提升，可以先做 Frontend Chat 纵切；但不因此跳过 MCP、安全或契约主线。

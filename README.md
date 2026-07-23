@@ -117,6 +117,7 @@ which records only the disabled server IDs:
 
 ```powershell
 agent mcp list
+agent mcp show <server-id>
 agent mcp validate <server-id>
 agent mcp set <server-id> --command C:\Python313\python.exe --arg D:\mcp\server.py --pass-env EXAMPLE_API_KEY
 agent mcp enable <server-id>
@@ -125,8 +126,10 @@ agent mcp remove <server-id>
 agent mcp doctor
 ```
 
-`list`, `validate`, `set`, `enable`, `disable`, and `remove` are static: they
-never start a server process. Only `agent mcp doctor` starts the currently
+`list`, `show`, `validate`, `set`, `enable`, `disable`, and `remove` are
+static: they never start a server process. `agent mcp show` prints one server's
+source, enabled state, static status, and parsed command/args/pass_env names.
+Only `agent mcp doctor` starts the currently
 enabled servers, and it does so through one Runtime that always closes in a
 single `finally`. Manual `mcp.toml` entries are read-only to these commands;
 `set` and `remove` refuse to touch them. A state entry whose source has
@@ -185,6 +188,28 @@ are managed by the package and the project.
 Skill content stays untrusted context. Installing or enabling a skill never
 widens the Tool catalog, bypasses policy or approval, or raises instruction
 priority; `allowed_tools` can only narrow what a run may call.
+
+### Hooks and managed project config
+
+`agent hooks list` prints every builtin hook with its enabled/blocking state
+and flags config references to unknown hook names; unknown names also produce
+a `config warning:` line in `agent doctor` and `agent config show`.
+
+```powershell
+agent hooks list
+agent config set <key> <value...>
+agent config unset <key>
+```
+
+`agent config set` writes one validated key to the project
+`.agent/config.toml` through the same atomic publish path the Workbench uses;
+list keys such as `default_skills` take multiple values. It refuses
+`sandbox danger-full-access` and `approval never` because project config
+cannot widen those settings; edit the global config by hand instead.
+`agent config unset` removes a project key so the global or default value
+applies again. The top-level `agent doctor` now also prints one-line MCP and
+Skills summaries and points to `agent mcp doctor` / `agent skills doctor` for
+detail.
 
 ### Recovering managed extensions
 

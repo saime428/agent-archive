@@ -783,7 +783,7 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
     assert "Full Project vNext ecosystem | In progress" in roadmap
     assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
-    assert "Next Project vNext slice: the remaining Phase 2 management surface" in roadmap
+    assert "Next Project vNext slice: Frontend vNext phase 0 or a Phase 3 productivity" in roadmap
 
     assert "Provider 能力声明（均已完成）" in direction
     assert "2026-07-18-managed-extension-lifecycle-design.md" in direction
@@ -793,3 +793,16 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "实施与验收证据" in spec
     assert "状态：已执行" in plan
     assert "- [ ] Step" not in plan
+
+
+def test_extension_management_closeout_docs_record_commands_and_status() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-23-extension-management-closeout-design.md"
+    ).read_text(encoding="utf-8")
+
+    for command in ("agent hooks list", "agent mcp show", "agent config set", "agent config unset"):
+        assert command in readme
+    assert "config set" in changelog
+    assert "状态：已实施" in spec

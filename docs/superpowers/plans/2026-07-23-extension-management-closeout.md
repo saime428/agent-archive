@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-23-extension-management-closeout-design.md`
 
+**状态：** 已执行（2026-07-23，全量门禁通过）
+
 ## Global Constraints
 
 - 不新增第三方依赖；config 文件格式与 run/session 数据不迁移。
@@ -34,7 +36,7 @@
 - Consumes: 无（首个任务）。
 - Produces: `agent.config.KNOWN_HOOK_NAMES: frozenset[str]`（`{"audit", "before_tool_format", "fail"}`）；`load_config` 对合并后 config 追加两类警告。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/test_hooks.py` 追加契约测试：
 
@@ -53,12 +55,12 @@ def test_known_hook_names_match_builtin_hooks() -> None:
 - `test_blocking_hook_not_enabled_warns`：`enabled_hooks = ["audit"]`、`blocking_hooks = ["fail"]` → 警告含 `Blocking hook 'fail' is not in enabled_hooks`。
 - `test_known_hooks_produce_no_hook_warnings`：`enabled_hooks = ["audit"]`、`blocking_hooks = ["audit"]` → warnings 中无 `hook` 字样。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_hooks.py tests/test_config.py -q`
 Expected: FAIL（`ImportError: cannot import name 'KNOWN_HOOK_NAMES'`）
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `src/agent/config.py`：
 
@@ -83,17 +85,17 @@ KNOWN_HOOK_NAMES = frozenset({"audit", "before_tool_format", "fail"})
 
 （未知名不重复报第二类警告，避免一个 typo 产出两行。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_hooks.py tests/test_config.py -q`
 Expected: 全部 passed
 
-- [ ] **Step 5: 相邻回归**
+- [x] **Step 5: 相邻回归**
 
 Run: `python -m pytest tests/test_cli.py tests/test_web.py -q`
 Expected: 全部 passed（现有测试的 hooks 配置都用已知名或空值）
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/config.py tests/test_config.py tests/test_hooks.py
@@ -112,7 +114,7 @@ git commit -m "feat: warn on unknown hook names in config"
 - Consumes: Task 1 的 `KNOWN_HOOK_NAMES`（经 config warnings 间接）；`agent.core.hooks.BUILTIN_HOOKS`。
 - Produces: `agent hooks list [--cwd]`；`config show` 与 `_print_doctor` 各新增 `enabled_hooks`/`blocking_hooks` 两行。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/test_cli.py` 追加（沿用 `CliRunner` 与临时 workspace 写法）：
 
@@ -121,12 +123,12 @@ git commit -m "feat: warn on unknown hook names in config"
 - `test_config_show_lists_hook_keys`：默认 workspace 下 `config show` 输出含 `enabled_hooks: []` 与 `blocking_hooks: []`。
 - `test_doctor_lists_hook_keys`：`config doctor` 输出含 `config enabled_hooks: []` 与 `config blocking_hooks: []`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_cli.py -q -k "hooks or hook_keys"`
 Expected: 4 条 FAIL（无 `hooks` 命令、无输出行）
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `src/agent/cli.py`：
 
@@ -164,12 +166,12 @@ def hooks_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace di
 
 5. `_print_doctor`：`config allowed_commands` 行之后加同格式两行（`config enabled_hooks:` / `config blocking_hooks:`）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_cli.py -q`
 Expected: 全部 passed（含既有 doctor/config show 断言——只增行不改行）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/cli.py tests/test_cli.py
@@ -189,7 +191,7 @@ git commit -m "feat: add hooks list and surface hook config"
 - Consumes: 既有 `_locked`/`_read_snapshot`/`_inventory`/`_parse_servers`/`_validate_server_id`/`_config_error`。
 - Produces: `McpServerDetail`（frozen dataclass：`item: McpInventoryItem`、`config: McpServerConfig | None`）；`McpConfigStore.describe(server_id: str) -> McpServerDetail`；`agent mcp show ID [--cwd]`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/test_mcp_config.py` 追加（沿用既有 store fixture 写法）：
 
@@ -205,12 +207,12 @@ git commit -m "feat: add hooks list and surface hook config"
 - `test_mcp_show_prints_fields`：set 后 `mcp show ID`，断言输出含 `server_id: `、`source: managed`、`enabled: true`、`status: valid`、`command: `、`args: `、`pass_env: `、`cwd: `，exit 0。
 - `test_mcp_show_unknown_exits_one`：`mcp show missing` → exit 1，输出含 `Server does not exist.`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_mcp_config.py tests/test_cli.py -q -k "describe or mcp_show"`
 Expected: FAIL（`AttributeError: describe` / 未知命令）
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `src/agent/mcp_config.py`：`McpInventoryItem` 之后加 dataclass，`validate` 之后加方法：
 
@@ -272,12 +274,12 @@ def mcp_show(
 
 （`pass_env` 只含环境变量名；`describe` 全程不触碰 `McpStdioRuntime`。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_mcp_config.py tests/test_cli.py -q`
 Expected: 全部 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/mcp_config.py src/agent/cli.py tests/test_mcp_config.py tests/test_cli.py
@@ -296,7 +298,7 @@ git commit -m "feat: add mcp show command"
 - Consumes: `McpConfigStore.inventory()`、`SkillStore.doctor(default_skills=...)`（均既有）。
 - Produces: doctor 末尾摘要行（格式见 Step 3）；读取失败时单行 error，不改退出码。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/test_cli.py` 追加：
 
@@ -304,12 +306,12 @@ git commit -m "feat: add mcp show command"
 - `test_doctor_counts_mcp_servers`：set 一个 server 后输出 `mcp servers: 1 total, 1 enabled, 0 invalid, 0 orphan` 与 `mcp detail: agent mcp doctor`。
 - `test_doctor_extension_summary_survives_store_error`：monkeypatch `agent.cli.McpConfigStore.inventory` 抛 `McpRuntimeError` → 输出含 `mcp inventory error: `，exit 0。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_cli.py -q -k "extension_summary or counts_mcp"`
 Expected: FAIL（无摘要行）
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `_print_doctor` 末尾（config warnings 循环之后）追加：
 
@@ -344,12 +346,12 @@ helper：`_mcp_store(cwd)` 与 `_skill_store(cwd)`（cli.py:533、688，接受
 代码块中的 `McpConfigStore(cwd)`/`SkillStore(cwd)` 相应写作
 `_mcp_store(cwd)`/`_skill_store(cwd)`。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_cli.py -q`
 Expected: 全部 passed（既有 doctor 断言只增行不受影响）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 （已核实 `tests/test_docs.py` 无 doctor 输出断言，无需相邻回归。）
 
@@ -372,7 +374,7 @@ git commit -m "feat: aggregate extension status in doctor"
 - Consumes: `config.validate_value(key, value, path)`、`config.normalize_value(key, value)`（重命名后）；`_user_store.atomic_replace_bytes`。
 - Produces: `agent.config_write.save_project_config(workspace: Path, updates: dict[str, Any]) -> Path`；`agent.config_write.remove_project_config_keys(workspace: Path, keys: Iterable[str]) -> Path`。语义：键必须在 `KNOWN_KEYS`；序列值规格化为 tuple 后验证；`sandbox="danger-full-access"`/`approval="never"` 抛 `ValueError`（文案见 Step 3）；写入原子，失败保留旧文件；`remove` 对项目 config 不存在的键抛 `ValueError`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `tests/test_config_write.py`：
 
@@ -385,12 +387,12 @@ git commit -m "feat: aggregate extension status in doctor"
 - `test_remove_deletes_key_and_falls_back`：set 后 remove，`load_config` 回落默认值。
 - `test_remove_missing_key_raises`：`ValueError`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_config_write.py -q`
 Expected: FAIL（`ModuleNotFoundError: agent.config_write`）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 1. `src/agent/config.py`：`_validate_value` → `validate_value`、`_normalize_value` → `normalize_value`（模块内 3 处调用同步改；无外部引用，已核实）。
 2. 新建 `src/agent/config_write.py`：
@@ -466,17 +468,17 @@ def build_save_config_payload(workspace: Path, request: dict[str, Any]) -> dict[
 
 `_validated_config_updates` 保留：键白名单（浏览器不暴露 hooks/allowed_commands 等键）、`approval`/`sandbox` 的浏览器收紧与其现有文案、`provider` 白名单文案；删除与 `validate_value` 重复的纯类型检查（model/mode/bool/default_skills 各分支的 isinstance 检查改为直接放行，由共享模块验证）。`ConfigError` 是 `ValueError` 子类，server 现有 `except ValueError` 路径不变。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_config_write.py tests/test_web.py tests/test_config.py -q`
 Expected: 全部 passed；`tests/test_web.py` 零修改
 
-- [ ] **Step 5: 全量回归**
+- [x] **Step 5: 全量回归**
 
 Run: `python -m pytest -q`
 Expected: 全部 passed
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent/config.py src/agent/config_write.py src/agent/web/settings.py tests/test_config_write.py
@@ -495,7 +497,7 @@ git commit -m "refactor: share project config write path"
 - Consumes: Task 5 的 `save_project_config`/`remove_project_config_keys`。
 - Produces: `agent config set KEY VALUE... [--cwd]`、`agent config unset KEY [--cwd]`。VALUE 解析：list 键收多 VALUE；bool 键收 `true|false`；int 键收十进制正整数；enum/str 键收单 VALUE。成功后重载 config 并打印 `saved: <path>` 与全部 `config warning:` 行。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `tests/test_cli.py` 追加：
 
@@ -507,12 +509,12 @@ git commit -m "refactor: share project config write path"
 - `test_config_set_prints_new_warnings`：`config set enabled_hooks typo` → exit 0 且输出含 `config warning: Unknown hook 'typo'`（写成功、警告即时可见）。
 - `test_config_unset_falls_back`：set 后 unset，`config show` 回落默认；unset 未设键 → exit 1。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m pytest tests/test_cli.py -q -k "config_set or config_unset"`
 Expected: FAIL（无 set/unset 命令）
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 `src/agent/cli.py`（`config_doctor` 之后）：
 
@@ -581,12 +583,12 @@ def config_unset(
 
 import 区加 `from agent.config_write import remove_project_config_keys, save_project_config`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_cli.py -q`
 Expected: 全部 passed
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/cli.py tests/test_cli.py
@@ -604,12 +606,12 @@ git commit -m "feat: add config set and unset commands"
 - Consumes: Task 1-6 全部完成。
 - Produces: 文档与验收证据。
 
-- [ ] **Step 1: CHANGELOG 与 README**
+- [x] **Step 1: CHANGELOG 与 README**
 
 - `CHANGELOG.md` 的 `## Unreleased` 顶部加一条：hooks 加载警告与 `hooks list`、`mcp show`、doctor 扩展摘要、`config set/unset` 与共享 config 写路径；注明 Workbench 写接口、reconnect、marketplace 仍不在范围。
 - `README.md` 在既有 mcp/skills/config 命令文档处补 `agent hooks list`、`agent mcp show`、`agent config set`、`agent config unset` 及一句用途说明。
 
-- [ ] **Step 2: roadmap、方向文档与 test_docs 同步**
+- [x] **Step 2: roadmap、方向文档与 test_docs 同步**
 
 三者同一提交内更新（`tests/test_docs.py:786` 硬断言 roadmap 措辞）：
 
@@ -633,11 +635,11 @@ def test_extension_management_closeout_docs_record_commands_and_status() -> None
     assert "状态：已实施" in spec
 ```
 
-- [ ] **Step 3: spec 状态**
+- [x] **Step 3: spec 状态**
 
 spec 头部 `- 状态：已批准，待实施` 改为 `- 状态：已实施（全量门禁通过）`。
 
-- [ ] **Step 4: 全量门禁**
+- [x] **Step 4: 全量门禁**
 
 Run: `python -m pytest -q`
 Expected: 全部 passed（基线 986 + 新增 ~30）
@@ -648,7 +650,7 @@ Expected: exit 0，含新摘要行
 Run: `git diff --check`
 Expected: 无输出
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CHANGELOG.md README.md docs/roadmap-progress.md docs/project-vnext-direction.md tests/test_docs.py docs/superpowers/specs/2026-07-23-extension-management-closeout-design.md

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 扩展管理面收尾：config 加载时对未知 hook 名与永不触发的 blocking hook 发警告，新增 `agent hooks list`；`agent mcp show` 静态显示单 Server 的来源、状态与解析配置（不起进程）；顶层 `agent doctor` 聚合 MCP/Skills 一行式摘要；新增 `agent config set/unset` 受控项目 config 写命令，与 Workbench 共用 `config_write` 的验证与原子发布路径，拒绝 `sandbox=danger-full-access` 与 `approval=never`。Workbench 写接口、自动重连、marketplace、registry 与远程来源仍不在范围。
 - Provider Adapter 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；能力只描述本地 streaming/native-tools 路径，不冒充 endpoint/模型能力；auth 元数据区分必需与可选 key，`config show` 与 doctor 统一读取 workspace secrets；`native_tools = true` 而 Adapter 不支持时发 `capability_warning` 并照旧降级 JSON 协议；`provider smoke` 由注册表准入。不含 reasoning/context 等模型级声明、模型选择与 Workbench 能力暴露。
 - 整体健康修复：Workbench Provider 状态与 registry 对齐，可选 API key 不再误报；服务只允许 loopback 绑定并拒绝异常 Host/跨源写入，请求线程可随服务退出；同会话 turn、重命名与删除互斥，项目配置和会话 JSON 通过现有原子发布原语写入；Office 文档读取器补充可安装 extra。
 - 可管理的本地扩展生命周期：MCP 增加 managed fragment、启停状态与 `agent mcp list/validate/set/enable/disable/remove/doctor`，手写 `mcp.toml` 保持只读兼容；Skills 增加用户级 store 与 `agent skills validate/install/enable/disable/update/package/remove/doctor`，支持目录与 `.skill.zip` 两种本地来源。共享的用户存储原语（文件锁、canonical path、原子发布、事务记录）收敛到一处，崩溃后只能观察到完整旧状态或完整新状态；静态命令从不启动 Server，`doctor` 是唯一 live probe；不含 Marketplace、registry、远程来源、Workbench 写接口或自动重连。
