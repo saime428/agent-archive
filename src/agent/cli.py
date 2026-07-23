@@ -124,6 +124,28 @@ def _print_doctor(cwd: Path) -> None:
     console.print(f"config project: {diagnostics.project_config_path}")
     for warning in diagnostics.warnings:
         console.print(f"config warning: {warning}")
+    try:
+        mcp_items = _mcp_store(cwd).inventory()
+    except McpRuntimeError as exc:
+        console.file.write(f"mcp inventory error: {_bounded_text(str(exc))}\n")
+    else:
+        enabled = sum(1 for item in mcp_items if item.enabled)
+        invalid = sum(1 for item in mcp_items if item.status == "invalid")
+        orphan = sum(1 for item in mcp_items if item.status == "orphan")
+        console.file.write(
+            f"mcp servers: {len(mcp_items)} total, {enabled} enabled, {invalid} invalid, {orphan} orphan\n"
+        )
+        if mcp_items:
+            console.file.write("mcp detail: agent mcp doctor\n")
+    try:
+        report = _skill_store(cwd).doctor(default_skills=config.default_skills)
+    except SkillError as exc:
+        console.file.write(f"skills doctor error: {_bounded_text(str(exc))}\n")
+    else:
+        console.file.write(
+            f"skills: {len(report.items)} total, {len(report.problems)} problems, healthy={str(report.healthy).lower()}\n"
+        )
+        console.file.write("skills detail: agent skills doctor\n")
 
 
 @release_app.command("doctor")

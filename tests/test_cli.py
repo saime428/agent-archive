@@ -1999,3 +1999,56 @@ def test_mcp_show_unknown_exits_one(tmp_path, monkeypatch) -> None:
 
     assert result.exit_code == 1
     assert "Server does not exist." in result.output
+
+
+def test_doctor_reports_extension_summary_when_empty(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "mcp servers: 0 total, 0 enabled, 0 invalid, 0 orphan" in result.output
+    assert "skills: " in result.output
+    assert "healthy=" in result.output
+
+
+def test_doctor_counts_mcp_servers(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+    assert runner.invoke(
+        app,
+        ["mcp", "set", "local", "--command", str(Path(sys.executable).resolve()), "--cwd", str(workspace)],
+    ).exit_code == 0
+
+    result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "mcp servers: 1 total, 1 enabled, 0 invalid, 0 orphan" in result.output
+    assert "mcp detail: agent mcp doctor" in result.output
+
+
+def test_doctor_extension_summary_survives_store_error(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    def broken_inventory(self):
+        raise McpRuntimeError(stage="config", server_id=None, message="store unavailable")
+
+    monkeypatch.setattr("agent.cli.McpConfigStore.inventory", broken_inventory)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["config", "doctor", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "mcp inventory error: " in result.output
