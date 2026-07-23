@@ -570,6 +570,31 @@ def mcp_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace dire
         _print_mcp_item(item)
 
 
+@mcp_app.command("show")
+def mcp_show(
+    server_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory."),
+) -> None:
+    """Show one MCP server's static config without starting it."""
+    try:
+        detail = _mcp_store(cwd).describe(server_id)
+    except McpRuntimeError as exc:
+        _print_mcp_error(exc)
+        raise typer.Exit(code=1) from exc
+    item = detail.item
+    console.file.write(f"server_id: {item.server_id}\n")
+    console.file.write(f"source: {item.source}\n")
+    console.file.write(f"enabled: {str(item.enabled).lower()}\n")
+    console.file.write(f"status: {item.status}\n")
+    if item.message:
+        console.file.write(f"message: {_bounded_text(item.message)}\n")
+    if detail.config is not None:
+        console.file.write(f"command: {detail.config.command}\n")
+        console.file.write(f"args: {list(detail.config.args)}\n")
+        console.file.write(f"pass_env: {list(detail.config.pass_env)}\n")
+        console.file.write(f"cwd: {detail.config.cwd}\n")
+
+
 @mcp_app.command("validate")
 def mcp_validate(
     server_id: str | None = typer.Argument(None),

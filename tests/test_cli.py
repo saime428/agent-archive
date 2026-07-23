@@ -1958,3 +1958,44 @@ def test_doctor_lists_hook_keys(tmp_path) -> None:
     assert result.exit_code == 0
     assert "config enabled_hooks: []" in result.output
     assert "config blocking_hooks: []" in result.output
+
+
+def test_mcp_show_prints_fields(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+    assert runner.invoke(
+        app,
+        ["mcp", "set", "local", "--command", str(Path(sys.executable).resolve()), "--cwd", str(workspace)],
+    ).exit_code == 0
+
+    result = runner.invoke(app, ["mcp", "show", "local", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert "server_id: local" in result.output
+    assert "source: managed" in result.output
+    assert "enabled: true" in result.output
+    assert "status: valid" in result.output
+    assert "command: " in result.output
+    assert "args: " in result.output
+    assert "pass_env: " in result.output
+    assert "cwd: " in result.output
+
+
+def test_mcp_show_unknown_exits_one(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    home.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["mcp", "show", "missing", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "Server does not exist." in result.output

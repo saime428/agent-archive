@@ -1157,3 +1157,70 @@ def test_default_environment_uses_import_time_path_snapshot(tmp_path, monkeypatc
     path_entries = config.subprocess_path.split(os.pathsep)
 
     assert str(injected.resolve()) not in path_entries
+
+
+def test_describe_valid_server_returns_config(tmp_path) -> None:
+    store, _, _ = _make_store(tmp_path)
+    _set(store, "local", args=("{workspace}",))
+
+    detail = store.describe("local")
+
+    assert detail.item.status == "valid"
+    assert detail.item.enabled is True
+    assert detail.config is not None
+    assert detail.config.command == Path(sys.executable).resolve()
+    assert detail.config.pass_env == ()
+
+
+def test_describe_disabled_server_still_parses_config(tmp_path) -> None:
+    store, _, _ = _make_store(tmp_path)
+    _set(store, "local")
+    store.set_enabled("local", False)
+
+    detail = store.describe("local")
+
+    assert detail.item.status == "disabled"
+    assert detail.config is not None
+
+
+def test_describe_disabled_broken_command_returns_none_config(tmp_path) -> None:
+    store, _, home = _make_store(tmp_path)
+    _set(store, "broken")
+    store.set_enabled("broken", False)
+    (home / ".agent" / "mcp.d" / "broken.toml").write_text(
+        'command = "definitely-missing-command"\n', encoding="utf-8"
+    )
+
+    detail = store.describe("broken")
+
+    assert detail.item.status == "disabled"
+    assert detail.config is None
+
+
+def test_describe_env_invalid_server_returns_none_config(tmp_path) -> None:
+    store, _, home = _make_store(tmp_path)
+    _write_config(home, _valid_server())
+
+    detail = store.describe("local")
+
+    assert detail.item.status == "invalid"
+    assert detail.config is None
+
+
+def test_describe_orphan_returns_none_config(tmp_path) -> None:
+    store, _, home = _make_store(tmp_path)
+    agent_root = home / ".agent"
+    agent_root.mkdir()
+    (agent_root / "mcp-state.json").write_text('{"version":1,"disabled":["ghost"]}\n', encoding="utf-8")
+
+    detail = store.describe("ghost")
+
+    assert detail.item.status == "orphan"
+    assert detail.config is None
+
+
+def test_describe_unknown_server_raises(tmp_path) -> None:
+    store, _, _ = _make_store(tmp_path)
+
+    with pytest.raises(McpRuntimeError, match="Server does not exist."):
+        store.describe("missing")

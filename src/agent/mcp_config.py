@@ -100,6 +100,12 @@ class McpInventoryItem:
     message: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class McpServerDetail:
+    item: McpInventoryItem
+    config: McpServerConfig | None
+
+
 class McpRuntimeError(RuntimeError):
     def __init__(self, *, stage: str, server_id: str | None, message: str) -> None:
         self.stage = stage
@@ -166,6 +172,25 @@ class McpConfigStore:
                 )
                 for raw in selected
             )
+
+    def describe(self, server_id: str) -> McpServerDetail:
+        _validate_server_id(server_id)
+        with self._locked() as root:
+            snapshot = self._read_snapshot(root)
+            items = {item.server_id: item for item in self._inventory(snapshot)}
+            item = items.get(server_id)
+            if item is None:
+                raise _config_error("Server does not exist.", server_id=server_id)
+            config = None
+            raw = next((entry for entry in snapshot.servers if entry.server_id == server_id), None)
+            if raw is not None:
+                try:
+                    parsed = self._parse_servers((raw,))[0]
+                    self._validate_environment(parsed)
+                    config = parsed
+                except McpRuntimeError:
+                    config = None  # 与 _inventory 同链：parse 或 env 校验失败都归 None
+            return McpServerDetail(item=item, config=config)
 
     def load_enabled_configs(self) -> tuple[McpServerConfig, ...]:
         with self._locked() as root:
