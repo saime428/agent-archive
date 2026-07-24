@@ -1,0 +1,2048 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="b" data-mode="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>LiveAgent Frontend vNext Spatial Prototype</title>
+  <script defer src="https://unpkg.com/lucide@1.26.0/dist/umd/lucide.min.js"></script>
+  <script>
+    if (new URLSearchParams(window.location.search).get("motion") === "reduce") {
+      document.documentElement.dataset.motion = "reduce";
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #0c0e13;
+      --surface: #13161d;
+      --surface-raised: #1a1e28;
+      --surface-soft: rgba(19, 22, 29, 0.82);
+      --ink: #f0eee7;
+      --muted: #979ca9;
+      --faint: #646a78;
+      --line: rgba(240, 238, 231, 0.13);
+      --line-strong: rgba(240, 238, 231, 0.24);
+      --accent: #8790ff;
+      --accent-rgb: 135, 144, 255;
+      --accent-soft: rgba(135, 144, 255, 0.13);
+      --ok: #68c8a6;
+      --warn: #e6b46b;
+      --danger: #e97972;
+      --radius-control: 999px;
+      --radius-panel: 12px;
+      --radius-code: 8px;
+      --rail-width: 76px;
+      --top-height: 58px;
+      --composer-height: 116px;
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      font-family: Inter, "Segoe UI Variable", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    html[data-theme="a"] {
+      --accent: #df735d;
+      --accent-rgb: 223, 115, 93;
+      --accent-soft: rgba(223, 115, 93, 0.13);
+      --ok: #81b17a;
+      --warn: #d6a15c;
+    }
+
+    html[data-theme="c"] {
+      --accent: #a8ca65;
+      --accent-rgb: 168, 202, 101;
+      --accent-soft: rgba(168, 202, 101, 0.12);
+      --ok: #78c7ad;
+      --warn: #d4ad63;
+    }
+
+    html[data-mode="light"] {
+      --bg: #e8e7e1;
+      --surface: #f1f0e9;
+      --surface-raised: #faf8f0;
+      --surface-soft: rgba(241, 240, 233, 0.88);
+      --ink: #17191f;
+      --muted: #626773;
+      --faint: #8b8f98;
+      --line: rgba(23, 25, 31, 0.15);
+      --line-strong: rgba(23, 25, 31, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--ink);
+      text-rendering: geometricPrecision;
+      transition: background-color 180ms ease, color 180ms ease;
+    }
+
+    button,
+    textarea,
+    input {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    button,
+    [role="button"] {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:focus-visible,
+    textarea:focus-visible,
+    input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    ::selection {
+      color: var(--bg);
+      background: var(--accent);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .context-field {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.78;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: var(--rail-width) minmax(0, 1fr) 74px;
+      grid-template-rows: var(--top-height) minmax(0, 1fr) var(--composer-height);
+      width: 100%;
+      height: 100%;
+      isolation: isolate;
+    }
+
+    .command-spine {
+      grid-column: 2 / 4;
+      grid-row: 1;
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto auto;
+      align-items: center;
+      min-width: 0;
+      padding: 0 20px 0 26px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-soft);
+      backdrop-filter: blur(18px);
+    }
+
+    .command-path {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .wordmark {
+      flex: 0 0 auto;
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.14em;
+      color: var(--accent);
+    }
+
+    .path-divider {
+      width: 24px;
+      height: 1px;
+      flex: 0 0 auto;
+      background: var(--line-strong);
+    }
+
+    .workspace {
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 560;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .prototype-tag {
+      flex: 0 0 auto;
+      padding: 5px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-control);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .command-meta {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-left: 20px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .meta-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .meta-item svg {
+      color: var(--faint);
+    }
+
+    .live-state {
+      color: var(--ok);
+    }
+
+    .edge-rail {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 10px;
+      border-right: 1px solid var(--line);
+      background: var(--surface-soft);
+      backdrop-filter: blur(18px);
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 44px;
+      height: 32px;
+      place-items: center;
+      margin-bottom: 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-code);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      color: var(--accent);
+    }
+
+    .rail-action,
+    .dock-action {
+      position: relative;
+      display: grid;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: var(--radius-control);
+      background: transparent;
+      cursor: pointer;
+      transition:
+        transform 260ms var(--ease-spring),
+        background-color 180ms ease,
+        border-color 180ms ease,
+        color 180ms ease;
+    }
+
+    .rail-action:hover,
+    .dock-action:hover {
+      border-color: var(--line);
+      background: var(--surface-raised);
+      transform: translateY(-2px);
+    }
+
+    .rail-action[aria-pressed="true"],
+    .dock-action[aria-pressed="true"] {
+      border-color: rgba(var(--accent-rgb), 0.42);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .rail-action.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--bg);
+    }
+
+    .rail-action.primary:hover {
+      background: var(--ink);
+      border-color: var(--ink);
+    }
+
+    .rail-spacer {
+      flex: 1 1 auto;
+    }
+
+    .action-tip {
+      position: absolute;
+      z-index: 20;
+      left: calc(100% + 12px);
+      top: 50%;
+      width: max-content;
+      max-width: 160px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-code);
+      color: var(--ink);
+      background: var(--surface-raised);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.2;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(5px, -50%);
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+
+    .rail-action:hover .action-tip,
+    .rail-action:focus-visible .action-tip,
+    .dock-action:hover .action-tip,
+    .dock-action:focus-visible .action-tip {
+      opacity: 1;
+      transform: translate(0, -50%);
+    }
+
+    .task-drawer {
+      position: fixed;
+      z-index: 8;
+      top: 72px;
+      bottom: 18px;
+      left: calc(var(--rail-width) + 14px);
+      display: flex;
+      width: min(342px, calc(100vw - 118px));
+      flex-direction: column;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-panel);
+      background: var(--surface);
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.22);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-24px) scale(0.98);
+      transform-origin: left center;
+      transition:
+        transform 420ms var(--ease-spring),
+        opacity 180ms ease;
+    }
+
+    .app[data-drawer="open"] .task-drawer {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(0) scale(1);
+    }
+
+    .drawer-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 22px 22px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .drawer-kicker,
+    .section-kicker,
+    .phase-kicker,
+    .message-role,
+    .tool-label,
+    .composer-label,
+    .drawer-group {
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .drawer-kicker,
+    .section-kicker,
+    .message-role,
+    .tool-label,
+    .composer-label,
+    .drawer-group {
+      color: var(--muted);
+    }
+
+    .drawer-title {
+      margin: 8px 0 0;
+      font-size: 23px;
+      font-weight: 590;
+      letter-spacing: -0.04em;
+    }
+
+    .drawer-close {
+      width: 46px;
+      height: 46px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-control);
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .drawer-search {
+      position: relative;
+      padding: 16px 18px 10px;
+    }
+
+    .drawer-search svg {
+      position: absolute;
+      top: 29px;
+      left: 31px;
+      color: var(--faint);
+      pointer-events: none;
+    }
+
+    .drawer-search input {
+      width: 100%;
+      height: 44px;
+      padding: 0 14px 0 40px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-control);
+      color: var(--ink);
+      background: var(--bg);
+      outline: none;
+    }
+
+    .drawer-search input::placeholder {
+      color: var(--faint);
+    }
+
+    .drawer-list {
+      overflow: auto;
+      padding: 10px 12px 18px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-strong) transparent;
+    }
+
+    .drawer-list::-webkit-scrollbar,
+    .stage::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+
+    .drawer-list::-webkit-scrollbar-track,
+    .stage::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .drawer-list::-webkit-scrollbar-thumb,
+    .stage::-webkit-scrollbar-thumb {
+      border-radius: var(--radius-control);
+      background: var(--line-strong);
+    }
+
+    .drawer-group {
+      padding: 10px 10px 8px;
+      color: var(--faint);
+    }
+
+    .task-item {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      padding: 13px 10px;
+      border: 0;
+      border-top: 1px solid var(--line);
+      text-align: left;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .task-item:last-child {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .task-item:hover,
+    .task-item[aria-current="page"] {
+      background: var(--accent-soft);
+    }
+
+    .task-index {
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 10px;
+      color: var(--faint);
+    }
+
+    .task-copy {
+      min-width: 0;
+    }
+
+    .task-title {
+      display: block;
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 580;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task-subtitle {
+      display: block;
+      overflow: hidden;
+      margin-top: 4px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 9px;
+      color: var(--muted);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task-item svg {
+      color: var(--faint);
+    }
+
+    .stage {
+      grid-column: 2;
+      grid-row: 2;
+      overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line-strong) transparent;
+    }
+
+    .stage-inner {
+      position: relative;
+      width: min(1160px, 100%);
+      min-height: 100%;
+      margin: 0 auto;
+      padding: clamp(46px, 7vh, 86px) clamp(28px, 5vw, 74px) 70px;
+    }
+
+    .phase-lockup {
+      position: absolute;
+      z-index: -1;
+      top: clamp(28px, 4.4vh, 54px);
+      right: clamp(22px, 4.4vw, 64px);
+      max-width: min(52vw, 620px);
+      text-align: right;
+      pointer-events: none;
+    }
+
+    .phase-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--accent);
+    }
+
+    .phase-kicker::before {
+      width: 32px;
+      height: 1px;
+      content: "";
+      background: currentColor;
+    }
+
+    .phase-title {
+      margin: 8px 0 0;
+      font-size: clamp(72px, 11vw, 176px);
+      font-weight: 760;
+      line-height: 0.76;
+      letter-spacing: -0.095em;
+      color: rgba(var(--accent-rgb), 0.10);
+      text-transform: uppercase;
+      transition: color 250ms ease;
+    }
+
+    .scene-sequence {
+      display: grid;
+      grid-template-columns: 38px minmax(0, 720px);
+      gap: 22px;
+      width: min(820px, 83%);
+      margin-top: clamp(104px, 14vh, 168px);
+    }
+
+    .sequence-line {
+      position: relative;
+    }
+
+    .sequence-line::before {
+      position: absolute;
+      top: 6px;
+      bottom: 0;
+      left: 18px;
+      width: 1px;
+      content: "";
+      background: var(--line-strong);
+    }
+
+    .sequence-mark {
+      position: sticky;
+      top: 30px;
+      display: grid;
+      width: 37px;
+      height: 37px;
+      place-items: center;
+      border: 1px solid rgba(var(--accent-rgb), 0.52);
+      border-radius: var(--radius-control);
+      color: var(--accent);
+      background: var(--bg);
+    }
+
+    .transcript {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 34px;
+    }
+
+    .turn {
+      position: relative;
+    }
+
+    .message-role {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .message-role svg {
+      color: var(--faint);
+    }
+
+    .user-prompt {
+      max-width: 650px;
+      margin: 0;
+      font-size: clamp(20px, 2.15vw, 31px);
+      font-weight: 540;
+      line-height: 1.28;
+      letter-spacing: -0.038em;
+    }
+
+    .agent-copy {
+      max-width: 660px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    .agent-copy strong {
+      color: var(--ink);
+      font-weight: 590;
+    }
+
+    .stream-caret {
+      display: inline-block;
+      width: 8px;
+      height: 17px;
+      margin-left: 4px;
+      vertical-align: -3px;
+      background: var(--accent);
+      animation: caret-pulse 900ms steps(1, end) infinite;
+    }
+
+    @keyframes caret-pulse {
+      50% {
+        opacity: 0.16;
+      }
+    }
+
+    .tool-run {
+      display: grid;
+      grid-template-columns: minmax(150px, 0.54fr) minmax(260px, 1fr);
+      gap: 0;
+      overflow: hidden;
+      max-width: 710px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-panel);
+      background: var(--surface-soft);
+      backdrop-filter: blur(14px);
+    }
+
+    .tool-summary {
+      padding: 18px;
+      border-right: 1px solid var(--line);
+    }
+
+    .tool-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--accent);
+    }
+
+    .tool-name {
+      margin: 14px 0 4px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .tool-time {
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 9px;
+      color: var(--faint);
+    }
+
+    .tool-output {
+      margin: 0;
+      padding: 18px 20px;
+      overflow: auto;
+      color: var(--muted);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+
+    .tool-output .ok {
+      color: var(--ok);
+    }
+
+    .scene-block {
+      display: none;
+    }
+
+    body[data-scene="stream"] .stream-block,
+    body[data-scene="tool"] .tool-block,
+    body[data-scene="approval"] .approval-block,
+    body[data-scene="final"] .final-block {
+      display: block;
+      animation: scene-enter 520ms var(--ease-out) both;
+    }
+
+    @keyframes scene-enter {
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .reasoning-lines {
+      display: grid;
+      max-width: 650px;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .reasoning-line {
+      height: 1px;
+      background: var(--line-strong);
+      transform-origin: left;
+      animation: line-breathe 2.4s ease-in-out infinite alternate;
+    }
+
+    .reasoning-line:nth-child(1) {
+      width: 92%;
+    }
+
+    .reasoning-line:nth-child(2) {
+      width: 67%;
+      animation-delay: -500ms;
+    }
+
+    .reasoning-line:nth-child(3) {
+      width: 78%;
+      animation-delay: -900ms;
+    }
+
+    @keyframes line-breathe {
+      from {
+        opacity: 0.28;
+        transform: scaleX(0.62);
+      }
+
+      to {
+        opacity: 1;
+        transform: scaleX(1);
+      }
+    }
+
+    .approval-panel {
+      max-width: 710px;
+      border: 1px solid rgba(230, 180, 107, 0.52);
+      border-radius: var(--radius-panel);
+      background: var(--surface);
+    }
+
+    .approval-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      color: var(--warn);
+    }
+
+    .approval-title {
+      margin: 0;
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 620;
+    }
+
+    .approval-body {
+      padding: 18px 20px 20px;
+    }
+
+    .approval-command {
+      display: block;
+      overflow: auto;
+      margin: 0 0 18px;
+      padding: 12px 14px;
+      border-radius: var(--radius-code);
+      color: var(--muted);
+      background: var(--bg);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .approval-note {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .approval-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .text-action {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-control);
+      color: var(--ink);
+      background: transparent;
+      cursor: pointer;
+      transition: transform 220ms var(--ease-spring), background-color 160ms ease;
+    }
+
+    .text-action:hover {
+      background: var(--surface-raised);
+      transform: translateY(-1px);
+    }
+
+    .text-action.approve {
+      border-color: var(--accent);
+      color: var(--bg);
+      background: var(--accent);
+    }
+
+    .final-summary {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 18px;
+      max-width: 710px;
+      padding-top: 8px;
+    }
+
+    .final-icon {
+      display: grid;
+      width: 46px;
+      height: 46px;
+      place-items: center;
+      border: 1px solid rgba(104, 200, 166, 0.5);
+      border-radius: var(--radius-control);
+      color: var(--ok);
+    }
+
+    .final-title {
+      margin: 0;
+      font-size: clamp(22px, 2.3vw, 32px);
+      font-weight: 590;
+      letter-spacing: -0.045em;
+    }
+
+    .final-copy {
+      max-width: 560px;
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .final-path {
+      display: inline-flex;
+      max-width: 100%;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+      color: var(--accent);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 10px;
+    }
+
+    .final-path span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .right-dock {
+      grid-column: 3;
+      grid-row: 2 / 4;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 9px;
+      padding: 20px 12px;
+      border-left: 1px solid var(--line);
+      background: var(--surface-soft);
+      backdrop-filter: blur(18px);
+    }
+
+    .dock-index {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 13px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 9px;
+      color: var(--faint);
+    }
+
+    .dock-index strong {
+      color: var(--accent);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .dock-action .action-tip {
+      right: calc(100% + 12px);
+      left: auto;
+      transform: translate(-5px, -50%);
+    }
+
+    .dock-action:hover .action-tip,
+    .dock-action:focus-visible .action-tip {
+      transform: translate(0, -50%);
+    }
+
+    .dock-divider {
+      width: 1px;
+      height: 34px;
+      margin: 6px 0;
+      background: var(--line);
+    }
+
+    .composer-wrap {
+      grid-column: 2;
+      grid-row: 3;
+      display: flex;
+      align-items: center;
+      padding: 12px clamp(22px, 5vw, 74px) 18px;
+      border-top: 1px solid var(--line);
+      background: var(--surface-soft);
+      backdrop-filter: blur(22px);
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      width: min(1040px, 100%);
+      margin: 0 auto;
+      padding: 13px 14px 12px 18px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-panel);
+      background: var(--surface);
+      transition: border-color 160ms ease, transform 260ms var(--ease-spring);
+    }
+
+    .composer:focus-within {
+      border-color: rgba(var(--accent-rgb), 0.66);
+      transform: translateY(-2px);
+    }
+
+    .composer-label {
+      grid-column: 1;
+      grid-row: 1;
+      align-self: center;
+      color: var(--accent);
+    }
+
+    .composer textarea {
+      grid-column: 1;
+      grid-row: 2;
+      width: 100%;
+      height: 36px;
+      min-height: 36px;
+      padding: 8px 14px 0 0;
+      resize: none;
+      border: 0;
+      outline: 0;
+      color: var(--ink);
+      background: transparent;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .composer textarea::placeholder {
+      color: var(--faint);
+    }
+
+    .send-action {
+      grid-column: 2;
+      grid-row: 1 / 3;
+      display: grid;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      align-self: center;
+      border: 0;
+      border-radius: var(--radius-control);
+      color: var(--bg);
+      background: var(--accent);
+      cursor: pointer;
+      transition: transform 260ms var(--ease-spring), background-color 160ms ease;
+    }
+
+    .send-action:hover {
+      background: var(--ink);
+      transform: rotate(-6deg) scale(1.06);
+    }
+
+    .composer-hint {
+      align-self: end;
+      justify-self: end;
+      margin-right: 62px;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 9px;
+      color: var(--faint);
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 30;
+      right: 92px;
+      bottom: 132px;
+      display: flex;
+      max-width: min(390px, calc(100vw - 32px));
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-panel);
+      color: var(--ink);
+      background: var(--surface-raised);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity 180ms ease, transform 300ms var(--ease-spring);
+    }
+
+    .toast[data-visible="true"] {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast svg {
+      flex: 0 0 auto;
+      color: var(--accent);
+    }
+
+    body[data-scene="tool"] .phase-title {
+      color: rgba(var(--accent-rgb), 0.13);
+    }
+
+    body[data-scene="approval"] .phase-title {
+      color: rgba(230, 180, 107, 0.12);
+    }
+
+    body[data-scene="final"] .phase-title {
+      color: rgba(104, 200, 166, 0.12);
+    }
+
+    body[data-canvas="off"] .context-field {
+      display: none;
+    }
+
+    @media (max-width: 980px) {
+      .command-meta .provider-label {
+        display: none;
+      }
+
+      .scene-sequence {
+        width: 92%;
+      }
+
+      .phase-lockup {
+        max-width: 64vw;
+      }
+    }
+
+    @media (max-width: 760px) {
+      :root {
+        --top-height: 50px;
+      }
+
+      .app {
+        display: block;
+      }
+
+      .command-spine {
+        position: fixed;
+        z-index: 6;
+        top: 0;
+        right: 0;
+        left: 0;
+        display: flex;
+        height: var(--top-height);
+        justify-content: space-between;
+        padding: 0 14px;
+      }
+
+      .prototype-tag,
+      .path-divider,
+      .command-meta {
+        display: none;
+      }
+
+      .workspace {
+        font-size: 12px;
+      }
+
+      .edge-rail {
+        position: fixed;
+        z-index: 9;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 58px;
+        flex-direction: row;
+        justify-content: center;
+        padding: 7px 12px;
+        border-top: 1px solid var(--line);
+        border-right: 0;
+      }
+
+      .brand-mark,
+      .rail-spacer,
+      .edge-rail .rail-action[data-mobile-hide="true"] {
+        display: none;
+      }
+
+      .rail-action {
+        width: 48px;
+        height: 44px;
+      }
+
+      .rail-action .action-tip {
+        display: none;
+      }
+
+      .task-drawer {
+        top: auto;
+        right: 10px;
+        bottom: 68px;
+        left: 10px;
+        width: auto;
+        max-height: 68vh;
+        transform: translateY(24px) scale(0.98);
+        transform-origin: center bottom;
+      }
+
+      .app[data-drawer="open"] .task-drawer {
+        transform: translateY(0) scale(1);
+      }
+
+      .stage {
+        position: fixed;
+        top: var(--top-height);
+        right: 0;
+        bottom: 158px;
+        left: 0;
+      }
+
+      .stage-inner {
+        padding: 34px 18px 48px;
+      }
+
+      .phase-lockup {
+        top: 24px;
+        right: 16px;
+        max-width: 78vw;
+      }
+
+      .phase-title {
+        font-size: clamp(64px, 21vw, 118px);
+      }
+
+      .scene-sequence {
+        grid-template-columns: 26px minmax(0, 1fr);
+        gap: 13px;
+        width: 100%;
+        margin-top: 92px;
+      }
+
+      .sequence-line::before {
+        left: 12px;
+      }
+
+      .sequence-mark {
+        width: 26px;
+        height: 26px;
+      }
+
+      .sequence-mark svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .user-prompt {
+        font-size: clamp(19px, 6vw, 27px);
+      }
+
+      .tool-run {
+        grid-template-columns: 1fr;
+      }
+
+      .tool-summary {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .approval-actions {
+        flex-wrap: wrap;
+      }
+
+      .right-dock {
+        position: fixed;
+        z-index: 7;
+        top: 66px;
+        right: 10px;
+        display: flex;
+        width: 46px;
+        padding: 4px 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-control);
+        background: var(--surface-soft);
+      }
+
+      .dock-index,
+      .dock-divider,
+      .right-dock .dock-action[data-mobile-hide="true"] {
+        display: none;
+      }
+
+      .dock-action {
+        width: 44px;
+        height: 44px;
+      }
+
+      .dock-action .action-tip {
+        display: none;
+      }
+
+      .composer-wrap {
+        position: fixed;
+        z-index: 8;
+        right: 0;
+        bottom: 58px;
+        left: 0;
+        height: 100px;
+        padding: 10px 12px;
+      }
+
+      .composer {
+        padding: 10px 10px 9px 14px;
+      }
+
+      .composer textarea {
+        padding-top: 6px;
+      }
+
+      .composer-hint {
+        display: none;
+      }
+
+      .toast {
+        right: 16px;
+        bottom: 170px;
+        left: 16px;
+      }
+    }
+
+    @media (max-width: 390px) {
+      .phase-kicker {
+        font-size: 9px;
+      }
+
+      .phase-kicker::before {
+        width: 18px;
+      }
+
+      .transcript {
+        gap: 28px;
+      }
+
+      .agent-copy {
+        font-size: 14px;
+      }
+
+      .final-summary {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    html[data-motion="reduce"] *,
+    html[data-motion="reduce"] *::before,
+    html[data-motion="reduce"] *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body data-scene="stream" data-canvas="on">
+  <canvas class="context-field" id="contextField" aria-hidden="true"></canvas>
+
+  <div class="app" id="app" data-drawer="closed">
+    <header class="command-spine">
+      <div class="command-path">
+        <span class="wordmark">LIVEAGENT / NEXT</span>
+        <span class="path-divider" aria-hidden="true"></span>
+        <span class="workspace">frontend-vnext / shell-chat</span>
+        <span class="prototype-tag">VISUAL PROTOTYPE</span>
+      </div>
+      <div class="command-meta">
+        <span class="meta-item">
+          <i data-lucide="git-branch" aria-hidden="true"></i>
+          <span>codex/mcp-server-fault-isolation</span>
+        </span>
+        <span class="meta-item">
+          <i data-lucide="cpu" aria-hidden="true"></i>
+          <span class="provider-label">DeepSeek / chat</span>
+        </span>
+      </div>
+      <div class="command-meta live-state">
+        <span class="meta-item">
+          <i data-lucide="activity" aria-hidden="true"></i>
+          <span>CONNECTED</span>
+        </span>
+      </div>
+    </header>
+
+    <aside class="edge-rail" aria-label="主导航">
+      <div class="brand-mark" aria-label="LiveAgent">LA</div>
+      <button class="rail-action" id="drawerToggle" type="button" aria-label="打开任务索引" aria-controls="taskDrawer" aria-expanded="false" aria-pressed="false">
+        <i data-lucide="panel-left-open" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">任务索引</span>
+      </button>
+      <button class="rail-action primary" id="newTask" type="button" aria-label="新建任务">
+        <i data-lucide="plus" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">新建任务</span>
+      </button>
+      <button class="rail-action" id="focusSearch" type="button" aria-label="搜索任务">
+        <i data-lucide="search" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">搜索任务</span>
+      </button>
+      <button class="rail-action" type="button" aria-label="当前对话" aria-pressed="true">
+        <i data-lucide="message-square" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">当前对话</span>
+      </button>
+      <div class="rail-spacer"></div>
+      <button class="rail-action" type="button" aria-label="命令面板" data-mobile-hide="true">
+        <i data-lucide="command" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">命令面板</span>
+      </button>
+      <button class="rail-action" type="button" aria-label="设置" data-mobile-hide="true">
+        <i data-lucide="settings" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">设置</span>
+      </button>
+    </aside>
+
+    <aside class="task-drawer" id="taskDrawer" aria-label="任务索引" aria-hidden="true">
+      <div class="drawer-head">
+        <div>
+          <div class="drawer-kicker">Workspace memory</div>
+          <h2 class="drawer-title">Task index</h2>
+        </div>
+        <button class="drawer-close" id="drawerClose" type="button" aria-label="关闭任务索引" title="关闭任务索引">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <label class="drawer-search">
+        <span class="sr-only">搜索任务</span>
+        <i data-lucide="search" aria-hidden="true"></i>
+        <input id="taskSearch" type="text" inputmode="search" placeholder="Filter tasks" autocomplete="off">
+      </label>
+      <div class="drawer-list" id="taskList">
+        <div class="drawer-group">Today / 03</div>
+        <button class="task-item" type="button" aria-current="page" data-search="frontend vnext spatial prototype">
+          <span class="task-index">01</span>
+          <span class="task-copy">
+            <span class="task-title">Frontend vNext spatial prototype</span>
+            <span class="task-subtitle">active / visual direction</span>
+          </span>
+          <i data-lucide="chevron-right" aria-hidden="true"></i>
+        </button>
+        <button class="task-item" type="button" data-search="managed mcp fault isolation">
+          <span class="task-index">02</span>
+          <span class="task-copy">
+            <span class="task-title">Managed MCP fault isolation</span>
+            <span class="task-subtitle">complete / 18 files</span>
+          </span>
+          <i data-lucide="circle-check" aria-hidden="true"></i>
+        </button>
+        <button class="task-item" type="button" data-search="workbench acceptance">
+          <span class="task-index">03</span>
+          <span class="task-copy">
+            <span class="task-title">Workbench acceptance</span>
+            <span class="task-subtitle">archived / test evidence</span>
+          </span>
+          <i data-lucide="archive" aria-hidden="true"></i>
+        </button>
+        <div class="drawer-group">Earlier / 02</div>
+        <button class="task-item" type="button" data-search="stream recovery contract">
+          <span class="task-index">04</span>
+          <span class="task-copy">
+            <span class="task-title">Stream recovery contract</span>
+            <span class="task-subtitle">paused / interface notes</span>
+          </span>
+          <i data-lucide="pause" aria-hidden="true"></i>
+        </button>
+        <button class="task-item" type="button" data-search="provider capability matrix">
+          <span class="task-index">05</span>
+          <span class="task-copy">
+            <span class="task-title">Provider capability matrix</span>
+            <span class="task-subtitle">complete / reference</span>
+          </span>
+          <i data-lucide="circle-check" aria-hidden="true"></i>
+        </button>
+      </div>
+    </aside>
+
+    <main class="stage" id="stage">
+      <div class="stage-inner">
+        <div class="phase-lockup" aria-hidden="true">
+          <div class="phase-kicker" id="phaseKicker">Live / reasoning stream</div>
+          <div class="phase-title" id="phaseTitle">Think</div>
+        </div>
+
+        <div class="scene-sequence">
+          <div class="sequence-line" aria-hidden="true">
+            <div class="sequence-mark">
+              <i data-lucide="braces"></i>
+            </div>
+          </div>
+
+          <section class="transcript" aria-label="任务对话">
+            <article class="turn">
+              <div class="message-role">
+                <i data-lucide="user-round" aria-hidden="true"></i>
+                <span>You / 12:04</span>
+              </div>
+              <p class="user-prompt">把最新前端 spec 变成一个可以直接感受空间、排版与状态动效的设计成品。</p>
+            </article>
+
+            <article class="turn">
+              <div class="message-role">
+                <i data-lucide="bot" aria-hidden="true"></i>
+                <span>LiveAgent / active turn</span>
+              </div>
+
+              <div class="scene-block stream-block">
+                <p class="agent-copy">
+                  正在把 <strong>任务状态转换成空间语言</strong>。聊天仍是可读、可复制的真实 DOM，生成式画布只表达系统能量，不承载唯一语义。<span class="stream-caret" aria-hidden="true"></span>
+                </p>
+                <div class="reasoning-lines" aria-hidden="true">
+                  <span class="reasoning-line"></span>
+                  <span class="reasoning-line"></span>
+                  <span class="reasoning-line"></span>
+                </div>
+              </div>
+
+              <div class="scene-block tool-block">
+                <div class="tool-run">
+                  <div class="tool-summary">
+                    <div class="tool-label">
+                      <i data-lucide="square-terminal" aria-hidden="true"></i>
+                      <span>Tool / inspect</span>
+                    </div>
+                    <div class="tool-name">git diff --check</div>
+                    <div class="tool-time">312 ms / exit 0</div>
+                  </div>
+                  <pre class="tool-output"><span class="ok">PASS</span>  spec structure
+<span class="ok">PASS</span>  Lucide-only UI
+<span class="ok">PASS</span>  reduced motion
+<span class="ok">PASS</span>  responsive shell</pre>
+                </div>
+              </div>
+
+              <div class="scene-block approval-block">
+                <section class="approval-panel" aria-label="需要审批">
+                  <div class="approval-head">
+                    <i data-lucide="shield-alert" aria-hidden="true"></i>
+                    <h2 class="approval-title">需要审批：创建本地提交</h2>
+                  </div>
+                  <div class="approval-body">
+                    <code class="approval-command">git commit -m "docs: add vNext spatial prototype"</code>
+                    <p class="approval-note">只包含本次 spec 与视觉原型。不会包含既有 handoff，也不会推送远端。</p>
+                    <div class="approval-actions">
+                      <button class="text-action approve" type="button" data-demo-action="approve">
+                        <i data-lucide="check" aria-hidden="true"></i>
+                        <span>批准一次</span>
+                      </button>
+                      <button class="text-action" type="button" data-demo-action="deny">
+                        <i data-lucide="x" aria-hidden="true"></i>
+                        <span>拒绝</span>
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="scene-block final-block">
+                <div class="final-summary">
+                  <div class="final-icon">
+                    <i data-lucide="circle-check" aria-hidden="true"></i>
+                  </div>
+                  <div>
+                    <h2 class="final-title">视觉原型已生成并完成浏览器验证。</h2>
+                    <p class="final-copy">桌面端、移动端、键盘焦点与动效降级均保留同一信息层级。发送操作明确标记为未连接后端。</p>
+                    <div class="final-path">
+                      <i data-lucide="file-code-2" aria-hidden="true"></i>
+                      <span>docs/design/frontend-vnext-spatial-prototype.html</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <aside class="right-dock" aria-label="原型控制">
+      <div class="dock-index" aria-hidden="true">
+        <strong id="sceneIndex">01</strong>
+        <span>/ 04</span>
+      </div>
+      <button class="dock-action" id="nextScene" type="button" aria-label="切换任务状态" title="切换任务状态">
+        <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">下一状态</span>
+      </button>
+      <div class="dock-divider" aria-hidden="true"></div>
+      <button class="dock-action" id="themeToggle" type="button" aria-label="切换主题" title="切换主题">
+        <i data-lucide="palette" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">主题 A / B / C</span>
+      </button>
+      <button class="dock-action" id="modeToggle" type="button" aria-label="切换深浅模式" title="切换深浅模式">
+        <i data-lucide="sun-medium" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">深浅模式</span>
+      </button>
+      <button class="dock-action" id="canvasToggle" type="button" aria-label="关闭上下文场" aria-pressed="true" title="开关上下文场" data-mobile-hide="true">
+        <i data-lucide="network" aria-hidden="true"></i>
+        <span class="action-tip" aria-hidden="true">上下文场</span>
+      </button>
+    </aside>
+
+    <div class="composer-wrap">
+      <form class="composer" id="composer">
+        <label class="composer-label" for="promptInput">Continue task</label>
+        <textarea id="promptInput" rows="1" placeholder="输入下一步指令"></textarea>
+        <button class="send-action" type="submit" aria-label="发送消息" title="发送消息">
+          <i data-lucide="send-horizontal" aria-hidden="true"></i>
+        </button>
+        <span class="composer-hint">CTRL + ENTER / SEND</span>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <i data-lucide="info" aria-hidden="true"></i>
+    <span id="toastText">视觉原型：发送未连接后端。</span>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (window.lucide) {
+        window.lucide.createIcons({
+          attrs: {
+            width: 18,
+            height: 18,
+            "stroke-width": 1.75
+          }
+        });
+      }
+
+      var root = document.documentElement;
+      var body = document.body;
+      var app = document.getElementById("app");
+      var drawer = document.getElementById("taskDrawer");
+      var drawerToggle = document.getElementById("drawerToggle");
+      var drawerClose = document.getElementById("drawerClose");
+      var taskSearch = document.getElementById("taskSearch");
+      var phaseTitle = document.getElementById("phaseTitle");
+      var phaseKicker = document.getElementById("phaseKicker");
+      var sceneIndex = document.getElementById("sceneIndex");
+      var nextScene = document.getElementById("nextScene");
+      var themeToggle = document.getElementById("themeToggle");
+      var modeToggle = document.getElementById("modeToggle");
+      var canvasToggle = document.getElementById("canvasToggle");
+      var toast = document.getElementById("toast");
+      var toastText = document.getElementById("toastText");
+      var promptInput = document.getElementById("promptInput");
+      var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      var scenes = [
+        { id: "stream", title: "Think", kicker: "Live / reasoning stream" },
+        { id: "tool", title: "Act", kicker: "Tool / verified execution" },
+        { id: "approval", title: "Decide", kicker: "Human / approval boundary" },
+        { id: "final", title: "Done", kicker: "Final / evidence ready" }
+      ];
+      var scenePosition = 0;
+      var toastTimer = 0;
+
+      function motionIsReduced() {
+        return reducedMotion.matches || root.dataset.motion === "reduce";
+      }
+
+      function showToast(message) {
+        window.clearTimeout(toastTimer);
+        toastText.textContent = message;
+        toast.dataset.visible = "true";
+        toastTimer = window.setTimeout(function () {
+          toast.dataset.visible = "false";
+        }, 2500);
+      }
+
+      function setDrawer(open) {
+        app.dataset.drawer = open ? "open" : "closed";
+        drawer.setAttribute("aria-hidden", String(!open));
+        drawerToggle.setAttribute("aria-expanded", String(open));
+        drawerToggle.setAttribute("aria-pressed", String(open));
+        drawerToggle.setAttribute("aria-label", open ? "关闭任务索引" : "打开任务索引");
+        if (open) {
+          window.setTimeout(function () {
+            taskSearch.focus();
+          }, motionIsReduced() ? 0 : 180);
+        }
+      }
+
+      function animatePhase() {
+        if (motionIsReduced() || !phaseTitle.animate) {
+          return;
+        }
+        phaseTitle.animate(
+          [
+            { transform: "translateY(22px)", opacity: 0 },
+            { transform: "translateY(0)", opacity: 1 }
+          ],
+          { duration: 620, easing: "cubic-bezier(0.16, 1, 0.3, 1)" }
+        );
+      }
+
+      function applyScene(index) {
+        scenePosition = (index + scenes.length) % scenes.length;
+        var scene = scenes[scenePosition];
+        body.dataset.scene = scene.id;
+        phaseTitle.textContent = scene.title;
+        phaseKicker.textContent = scene.kicker;
+        sceneIndex.textContent = String(scenePosition + 1).padStart(2, "0");
+        nextScene.setAttribute("aria-label", "切换任务状态，当前为 " + scene.title);
+        animatePhase();
+        if (window.contextFieldController) {
+          window.contextFieldController.setScene(scene.id);
+        }
+      }
+
+      drawerToggle.addEventListener("click", function () {
+        setDrawer(app.dataset.drawer !== "open");
+      });
+
+      drawerClose.addEventListener("click", function () {
+        setDrawer(false);
+        drawerToggle.focus();
+      });
+
+      document.getElementById("focusSearch").addEventListener("click", function () {
+        setDrawer(true);
+      });
+
+      document.getElementById("newTask").addEventListener("click", function () {
+        showToast("视觉原型：新任务入口尚未连接数据层。");
+        promptInput.focus();
+      });
+
+      taskSearch.addEventListener("input", function () {
+        var query = taskSearch.value.trim().toLowerCase();
+        document.querySelectorAll(".task-item").forEach(function (item) {
+          item.hidden = query.length > 0 && !item.dataset.search.includes(query);
+        });
+      });
+
+      document.querySelectorAll(".task-item").forEach(function (item) {
+        item.addEventListener("click", function () {
+          showToast("视觉原型：任务切换只演示导航结构。");
+        });
+      });
+
+      nextScene.addEventListener("click", function () {
+        applyScene(scenePosition + 1);
+      });
+
+      themeToggle.addEventListener("click", function () {
+        var themes = ["a", "b", "c"];
+        var next = themes[(themes.indexOf(root.dataset.theme) + 1) % themes.length];
+        root.dataset.theme = next;
+        showToast("主题已切换为 " + next.toUpperCase() + "。");
+        if (window.contextFieldController) {
+          window.contextFieldController.refresh();
+        }
+      });
+
+      modeToggle.addEventListener("click", function () {
+        root.dataset.mode = root.dataset.mode === "dark" ? "light" : "dark";
+        modeToggle.setAttribute("aria-label", "切换深浅模式，当前为 " + root.dataset.mode);
+        showToast(root.dataset.mode === "dark" ? "已切换为深色模式。" : "已切换为浅色模式。");
+        if (window.contextFieldController) {
+          window.contextFieldController.refresh();
+        }
+      });
+
+      canvasToggle.addEventListener("click", function () {
+        var enabled = body.dataset.canvas !== "off";
+        body.dataset.canvas = enabled ? "off" : "on";
+        canvasToggle.setAttribute("aria-pressed", String(!enabled));
+        canvasToggle.setAttribute("aria-label", enabled ? "打开上下文场" : "关闭上下文场");
+        if (window.contextFieldController) {
+          window.contextFieldController.setEnabled(!enabled);
+        }
+      });
+
+      document.getElementById("composer").addEventListener("submit", function (event) {
+        event.preventDefault();
+        showToast("视觉原型：发送未连接后端。");
+      });
+
+      promptInput.addEventListener("keydown", function (event) {
+        if (event.ctrlKey && event.key === "Enter") {
+          event.preventDefault();
+          showToast("视觉原型：发送未连接后端。");
+        }
+      });
+
+      document.querySelectorAll("[data-demo-action]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          showToast(button.dataset.demoAction === "approve" ? "视觉原型：审批操作未提交。" : "视觉原型：拒绝操作未提交。");
+        });
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && app.dataset.drawer === "open") {
+          setDrawer(false);
+          drawerToggle.focus();
+        }
+      });
+
+      applyScene(0);
+    });
+
+    (function createContextField() {
+      var canvas = document.getElementById("contextField");
+      var context = canvas.getContext("2d", { alpha: true });
+      var reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      var points = [];
+      var frame = 0;
+      var lastTime = 0;
+      var enabled = true;
+      var scene = "stream";
+      var pointer = { x: 0.68, y: 0.4, active: false };
+      var width = 0;
+      var height = 0;
+      var pixelRatio = 1;
+      var observer;
+      var seed = 84721;
+
+      if (!context) {
+        document.body.dataset.canvas = "off";
+        return;
+      }
+
+      function random() {
+        seed = (seed * 16807) % 2147483647;
+        return (seed - 1) / 2147483646;
+      }
+
+      function motionIsReduced() {
+        return reducedMotion.matches || document.documentElement.dataset.motion === "reduce";
+      }
+
+      function syncStatus(frameState) {
+        canvas.dataset.enabled = String(enabled);
+        canvas.dataset.frame = frameState;
+        canvas.dataset.motion = motionIsReduced() ? "reduce" : "full";
+        canvas.dataset.points = String(points.length);
+        canvas.dataset.scene = scene;
+      }
+
+      function makePoints() {
+        seed = 84721;
+        points = [];
+        var count = width < 760 ? 26 : 42;
+        for (var index = 0; index < count; index += 1) {
+          points.push({
+            x: random(),
+            y: random(),
+            baseX: random(),
+            baseY: random(),
+            phase: random() * Math.PI * 2,
+            drift: 0.45 + random() * 0.7
+          });
+        }
+      }
+
+      function resize() {
+        var bounds = canvas.getBoundingClientRect();
+        width = Math.max(1, bounds.width);
+        height = Math.max(1, bounds.height);
+        pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        makePoints();
+        draw(performance.now(), true);
+        syncStatus(!enabled ? "stopped" : (motionIsReduced() ? "static" : (frame ? "active" : "ready")));
+      }
+
+      function palette() {
+        var styles = getComputedStyle(document.documentElement);
+        return {
+          accent: styles.getPropertyValue("--accent").trim(),
+          ink: styles.getPropertyValue("--ink").trim(),
+          line: styles.getPropertyValue("--line-strong").trim()
+        };
+      }
+
+      function sceneEnergy() {
+        if (scene === "tool") {
+          return { pull: 0.88, speed: 1.25, radius: 150 };
+        }
+        if (scene === "approval") {
+          return { pull: 0.34, speed: 0.42, radius: 118 };
+        }
+        if (scene === "final") {
+          return { pull: 0.18, speed: 0.22, radius: 178 };
+        }
+        return { pull: 0.62, speed: 0.82, radius: 138 };
+      }
+
+      function draw(time, staticFrame) {
+        context.clearRect(0, 0, width, height);
+        var colors = palette();
+        var energy = sceneEnergy();
+        var normalizedTime = staticFrame ? 0 : time * 0.00018 * energy.speed;
+        var focusX = (pointer.active ? pointer.x : 0.7) * width;
+        var focusY = (pointer.active ? pointer.y : 0.42) * height;
+
+        for (var index = 0; index < points.length; index += 1) {
+          var point = points[index];
+          var waveX = Math.sin(normalizedTime * point.drift + point.phase) * 0.026;
+          var waveY = Math.cos(normalizedTime * 0.8 * point.drift + point.phase) * 0.022;
+          var targetX = point.baseX + waveX;
+          var targetY = point.baseY + waveY;
+          var focusNX = focusX / width;
+          var focusNY = focusY / height;
+          point.x = targetX + (focusNX - targetX) * 0.055 * energy.pull;
+          point.y = targetY + (focusNY - targetY) * 0.045 * energy.pull;
+        }
+
+        context.lineWidth = 0.75;
+        context.strokeStyle = colors.line;
+
+        // ponytail: O(n^2) is bounded at 42 points; use spatial bucketing only if the point budget grows.
+        for (var left = 0; left < points.length; left += 1) {
+          for (var right = left + 1; right < points.length; right += 1) {
+            var a = points[left];
+            var b = points[right];
+            var ax = a.x * width;
+            var ay = a.y * height;
+            var bx = b.x * width;
+            var by = b.y * height;
+            var dx = ax - bx;
+            var dy = ay - by;
+            var distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance < energy.radius) {
+              context.globalAlpha = (1 - distance / energy.radius) * 0.38;
+              context.beginPath();
+              context.moveTo(ax, ay);
+              context.lineTo(bx, by);
+              context.stroke();
+            }
+          }
+        }
+
+        for (var pointIndex = 0; pointIndex < points.length; pointIndex += 1) {
+          var current = points[pointIndex];
+          var x = current.x * width;
+          var y = current.y * height;
+          var focusDistance = Math.hypot(x - focusX, y - focusY);
+          context.globalAlpha = focusDistance < 230 ? 0.72 : 0.24;
+          context.fillStyle = focusDistance < 230 ? colors.accent : colors.ink;
+          context.beginPath();
+          context.arc(x, y, focusDistance < 230 ? 1.7 : 1.05, 0, Math.PI * 2);
+          context.fill();
+        }
+
+        context.globalAlpha = 0.7;
+        context.strokeStyle = colors.accent;
+        context.lineWidth = 1;
+        context.beginPath();
+        context.arc(focusX, focusY, 20 + energy.pull * 16, 0, Math.PI * 2);
+        context.stroke();
+        context.globalAlpha = 1;
+      }
+
+      function tick(time) {
+        if (!enabled || document.hidden || motionIsReduced()) {
+          frame = 0;
+          syncStatus(motionIsReduced() ? "static" : "stopped");
+          return;
+        }
+        var delta = Math.min(32, time - (lastTime || time));
+        lastTime = time;
+        draw(time + delta, false);
+        frame = requestAnimationFrame(tick);
+      }
+
+      function start() {
+        if (!enabled || document.hidden || motionIsReduced() || frame) {
+          draw(performance.now(), true);
+          syncStatus(motionIsReduced() ? "static" : (frame ? "active" : "stopped"));
+          return;
+        }
+        lastTime = performance.now();
+        frame = requestAnimationFrame(tick);
+        syncStatus("active");
+      }
+
+      function stop() {
+        if (frame) {
+          cancelAnimationFrame(frame);
+          frame = 0;
+        }
+        syncStatus("stopped");
+      }
+
+      window.addEventListener("pointermove", function (event) {
+        pointer.x = event.clientX / Math.max(1, width);
+        pointer.y = event.clientY / Math.max(1, height);
+        pointer.active = true;
+      }, { passive: true });
+
+      window.addEventListener("pointerleave", function () {
+        pointer.active = false;
+      });
+
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden) {
+          stop();
+        } else {
+          start();
+        }
+      });
+
+      reducedMotion.addEventListener("change", function () {
+        stop();
+        draw(performance.now(), true);
+        start();
+      });
+
+      observer = new ResizeObserver(resize);
+      observer.observe(canvas);
+      resize();
+      start();
+
+      window.contextFieldController = {
+        setScene: function (nextScene) {
+          scene = nextScene;
+          syncStatus(motionIsReduced() ? "static" : (frame ? "active" : "stopped"));
+          if (motionIsReduced()) {
+            draw(performance.now(), true);
+          }
+        },
+        setEnabled: function (nextEnabled) {
+          enabled = nextEnabled;
+          if (enabled) {
+            start();
+          } else {
+            stop();
+          }
+        },
+        refresh: function () {
+          draw(performance.now(), true);
+        },
+        getStatus: function () {
+          return {
+            enabled: enabled,
+            frameActive: Boolean(frame),
+            pointCount: points.length,
+            reduced: motionIsReduced(),
+            scene: scene
+          };
+        },
+        destroy: function () {
+          stop();
+          observer.disconnect();
+        }
+      };
+    })();
+  </script>
+</body>
+</html>
