@@ -1,0 +1,18 @@
+{
+  "known_events": [
+    "chat_started",
+    "model_call_start",
+    "model_stream_start",
+    "model_stream_chunk",
+    "action_parsed",
+    "tool_start",
+    "approval_required",
+    "approval_granted",
+    "approval_denied",
+    "approval_timed_out",
+    "observation",
+    "capability_warning",
+    "final",
+    "error"
+  ]
+}

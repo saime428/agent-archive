@@ -1,7 +1,8 @@
 # 设计：Frontend vNext 阶段 1 —— App Shell 与 Chat 纵切
 
 - 日期：2026-07-23
-- 状态：草案（已双轴审查与视觉增补修订，待实施）
+- 状态：已实施（2026-07-24，`/preview/` 并行预览；旧 `/` 保持回退）
+- 验证：[Frontend vNext Phase 1 验收记录](../../verification/frontend-vnext-phase1.md)
 - 上位方向：[Frontend vNext 总方向](../../frontend-vnext-direction.md)
 - 阶段 0 基线（本 spec 的事实来源，不重复其内容）：
   - [HTTP/SSE Interface 契约清单](../../frontend-vnext-phase0-interface-inventory.md)
@@ -13,7 +14,7 @@
 
 ## 背景
 
-阶段 0 已交付：19 个端点与 13 个 SSE 事件的契约清单、34 项功能等价矩阵、
+阶段 0 已交付：19 个端点与 14 个已知 SSE 事件的契约清单、34 项功能等价矩阵、
 视觉方向决议。旧静态 Workbench（`src/agent/web/static/`）继续作为现网基线
 与回退路径。本阶段目标：用真实纵切证明新架构能跑完整任务——
 发起 → 流式输出 → 工具过程 → 审批 → final——不是搭一个空壳。
@@ -61,7 +62,7 @@
 1. **CSP 冲突（原 CRITICAL）**：现有 `style-src 'self'` 无 `unsafe-inline`，
    会拦掉 React 与 Radix 运行时注入的 inline style。决策：放宽 `style-src`
    加 `'unsafe-inline'`（仅样式），`script-src` 保持严格 `'self'`。这是本
-   阶段**唯一**允许的后端改动（见 §2b），不改任何 API/业务/数据。
+   阶段允许的三处静态交付改动之一（见 §2b），不改任何 API/业务/数据。
 2. **SPA 深链 404（原 HIGH）**：`_send_static` 只对 `/` 兜底 index.html。
    采用 **hash 路由**规避，零后端路由改动（§4）。
 3. **dev proxy 写保护（原 HIGH）**：`_origin_matches_host` 要求 origin 端口
@@ -86,8 +87,8 @@
    刷新重建、未知事件宽容。
 5. 数据访问收敛为一个 Adapter Module：页面不散落 `fetch`、事件游标与错误
    转换（上位方向的前后端 seam 要求）。
-6. 旧前端零改动；新前端经**临时预览入口**并行访问。后端仅放宽一处 CSP
-   头（§2b），不动任何路由、API、业务逻辑或数据。
+6. 旧前端零改动；新前端经**临时预览入口**并行访问。后端只做三处静态交付
+   调整（§2b），不动任何 API、业务逻辑或数据。
 7. 图标系统只使用 `lucide-react`：全界面零 emoji、零 Unicode 图形符号代替
    图标、零手写 SVG、零第二图标库。
 8. 浏览器作为统一交互画布：用一层原生 Canvas 2D 生成式"上下文场"连接导航、
@@ -132,14 +133,24 @@
   - 断线自动重连一次，仍失败则转入"从持久化重建"路径；
   - job TTL 过期（unknown job）→ 回退 `GET /api/chats/<id>` 重建 UI；
   - 未知事件名忽略（`capability_warning` 等透传为通用提示行）。
-- `types.ts`：端点 payload 与 13 个 SSE 事件的 TS 类型，字段名以后端为准；
+- `types.ts`：端点 payload 与 14 个已知 SSE 事件的 TS 类型，字段名以后端为准；
   阶段 1 只精确化 Chat 纵切用到的事件，其余 `unknown` 兜底。
 
-### 2b. CSP 放宽（唯一后端改动）
+### 2b. 静态交付调整（三处后端改动）
 
 `src/agent/web/server.py::_send_security_headers` 的 CSP 中，`style-src 'self'`
 改为 `style-src 'self' 'unsafe-inline'`。其余指令**全部不动**，尤其
 `script-src 'self'` 保持严格。
+
+`_send_static` 当前只为根 `/` 解析 `index.html`，因此 `/preview/` 会把目录当
+文件并返回 404。对所有以 `/` 结尾的静态路径安全追加 `index.html`，再继续走
+既有 `static_file_path` containment 检查。该调整只补静态目录索引，不增加 API
+route 或 history SPA fallback。
+
+实施期 Lighthouse 发现 Python 静态服务未压缩 429 KB 的 JavaScript，移动模拟
+LCP 为 3.67s。`_send_static` 因此对大于等于 1 KiB 的 text/JavaScript/JSON 静态
+资源按 `Accept-Encoding` 协商标准库 gzip，并返回 `Vary: Accept-Encoding`；
+不压缩 API/SSE，不新增缓存层。最终构建复测移动 LCP 为 2.16s。
 
 安全论证：inline **style** 无法执行脚本，不是 XSS 的执行向量；XSS 的主要
 执行面是 inline **script**，由保持严格的 `script-src 'self'` 挡住。放宽
@@ -147,7 +158,7 @@ style 是业界对 React/Radix 这类运行时定位样式的常见妥协，风�
 script。Radix 的无障碍（键盘/焦点/ARIA）依赖其 inline 定位，保留它比自建
 无障碍组件更可靠（方向文档硬性要求 a11y）。
 
-- 这是本阶段唯一后端改动；改一行响应头，不碰路由、API、业务、数据。
+- 这是本阶段仅有的三处后端改动；都限于静态交付，不碰 API、业务、数据。
 - 回归：旧前端在放宽后的 CSP 下行为不变（它本就不违反 style-src）；
   `tests/test_web.py` / `test_ui.py` 若断言 CSP 原文需同步更新（实施时核对）。
 - 记录：本决策的理由写入 CHANGELOG 与本 spec，不埋在代码注释里。
@@ -202,8 +213,8 @@ script。Radix 的无障碍（键盘/焦点/ARIA）依赖其 inline 定位，保
   stage：会话导航是可展开的左缘轨道，Chat 是有明确阅读锚点但可随上下文偏移的
   主舞台，阶段 2 工作台位置以右缘 reveal handle 预留。区域变化使用弹性边界，
   仍满足 S1 的可折叠与可调宽语义。
-- 顶部状态信息压缩成单行 command spine：workspace、分支（`/api/health`
-  有则显示）、provider/model、key 状态、主题/模式切换。不可用的设置入口不渲染；
+- 顶部状态信息压缩成单行 command spine：workspace、provider/model、key 状态、
+  主题/模式切换。当前 `/api/health` 不提供 Git branch，不从原型或本地猜测；不可用的设置入口不渲染；
   所有状态图标用 Lucide 并附文字或 accessible name。
 - 左缘轨道：新任务、会话搜索（本地过滤）、按日分组会话、重命名/删除。展开时
   显示完整信息，收起时只保留可识别 Lucide 动作与当前会话锚点；409 类错误用
@@ -251,7 +262,7 @@ script。Radix 的无障碍（键盘/焦点/ARIA）依赖其 inline 定位，保
 | `action_parsed` / `tool_start` | 工具行（名称、参数摘要、状态） |
 | `approval_required` | 审批卡：action 详情、批准/拒绝、剩余时间倒计时（前端本地推算，以后端超时结果为准） |
 | `approval_granted/denied/timed_out` | 审批卡定格为终局态 |
-| `final` | 终态块：结果、changed_files、下一步提示 |
+| `final` | 终态块：结果、status/process/error 等现有 payload 字段；当前 Interface 不单独提供 changed_files/next_steps，不猜测 |
 | `error` | 错误块 + "从会话历史重建"入口 |
 
 - 发送路径只用异步对（`POST /api/chat/start` + SSE）；同步 `/api/chat/turn`
@@ -308,7 +319,7 @@ script。Radix 的无障碍（键盘/焦点/ARIA）依赖其 inline 定位，保
 
 - Monaco、多标签编辑器、文件树、diff、runs/review 页面（阶段 2/3）。
 - 设置中心与 config 写 UI；`/api/config` POST 不接入。
-- 除 §2b 的一处 CSP `style-src` 放宽外，后端任何路由、API、业务或数据变更
+- 除 §2b 的三处静态交付调整外，后端任何 API、业务或数据变更
   （含 SSE 批量粒度、分页、Last-Event-ID 续传、SPA history fallback）；需要
   时另写后端 spec。
 - 桌面壳、安装包、远程访问、Marketplace。
@@ -321,8 +332,8 @@ script。Radix 的无障碍（键盘/焦点/ARIA）依赖其 inline 定位，保
 
 ## 兼容与迁移
 
-- Python 代码仅 §2b 一处 CSP 头放宽（`style-src` 加 `'unsafe-inline'`），
-  无路由/API/业务/数据改动；`src/agent/web/static/preview/` 是新增静态目录。
+- Python 代码仅 §2b 的目录 index、CSP style 与静态 gzip 交付调整，无 API/业务/数据改动；
+  `src/agent/web/static/preview/` 是新增静态目录。
 - 旧前端行为、`/` 入口、全部 API 契约不变；放宽后的 CSP 不影响旧前端
   （它本就不违反 style-src）。
 - 新前端可整体删除而不影响现网（回滚 = 删目录）。

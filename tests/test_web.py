@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import subprocess
@@ -132,7 +133,11 @@ def test_workbench_applies_security_headers_to_success_and_error_responses(tmp_p
         assert response_headers["x-content-type-options"] == "nosniff"
         assert response_headers["x-frame-options"] == "DENY"
         assert response_headers["referrer-policy"] == "no-referrer"
-        assert "default-src 'self'" in response_headers["content-security-policy"]
+        csp = response_headers["content-security-policy"]
+        assert "default-src 'self'" in csp
+        assert "style-src 'self' 'unsafe-inline'" in csp
+        script_src = next(part.strip() for part in csp.split(";") if part.strip().startswith("script-src"))
+        assert script_src == "script-src 'self'"
 
 
 def _done_response(final: str = "ok") -> dict[str, object]:
@@ -612,6 +617,59 @@ def test_workbench_static_fallback_and_unknown_post(tmp_path) -> None:
     assert headers["content-type"].startswith("text/html")
     assert unknown_status == 404
     assert json.loads(unknown_response) == {"error": "Unknown endpoint: /api/unknown"}
+
+
+def test_workbench_serves_nested_directory_index(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    static_root = tmp_path / "static"
+    (static_root / "preview").mkdir(parents=True)
+    (static_root / "index.html").write_text("legacy", encoding="utf-8")
+    (static_root / "preview" / "index.html").write_text("preview", encoding="utf-8")
+    monkeypatch.setattr(server, "STATIC_ROOT", static_root.resolve())
+
+    root_status, _root_headers, root_response = _http_request(workspace, "GET", "/")
+    preview_status, _preview_headers, preview_response = _http_request(workspace, "GET", "/preview/")
+    missing_status, _missing_headers, _missing_response = _http_request(workspace, "GET", "/preview/missing/")
+
+    assert (root_status, root_response) == (200, b"legacy")
+    assert (preview_status, preview_response) == (200, b"preview")
+    assert missing_status == 404
+
+
+def test_workbench_negotiates_gzip_for_large_static_assets(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    static_root = tmp_path / "static"
+    static_root.mkdir()
+    source = b"const payload = 'spatial';\n" * 100
+    (static_root / "app.js").write_bytes(source)
+    monkeypatch.setattr(server, "STATIC_ROOT", static_root.resolve())
+
+    status, headers, response = _http_request(
+        workspace,
+        "GET",
+        "/app.js",
+        request_headers={"Accept-Encoding": "br, gzip"},
+    )
+
+    assert status == 200
+    assert headers["content-encoding"] == "gzip"
+    assert headers["vary"] == "Accept-Encoding"
+    assert int(headers["content-length"]) == len(response)
+    assert gzip.decompress(response) == source
+
+    plain_status, plain_headers, plain_response = _http_request(
+        workspace,
+        "GET",
+        "/app.js",
+        request_headers={"Accept-Encoding": "gzip;q=0, *;q=1"},
+    )
+
+    assert plain_status == 200
+    assert "content-encoding" not in plain_headers
+    assert plain_headers["vary"] == "Accept-Encoding"
+    assert plain_response == source
 
 
 @pytest.mark.parametrize(

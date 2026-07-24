@@ -318,6 +318,30 @@ provider smoke, terminal chat, and the Workbench read this file before checking
 key presence. A real environment variable still wins if both are set.
 Do not put API keys in `.agent/config.toml`.
 
+## Frontend vNext Phase 1 Preview
+
+The React/Vite App Shell and Chat vertical slice runs beside the legacy
+Workbench. Build and stage it into the Python server's ignored static preview
+directory:
+
+```powershell
+Set-Location frontend
+npm ci
+npm run build:preview
+Set-Location ..
+agent start --cwd . --port 8767
+```
+
+Open `http://127.0.0.1:8767/preview/` for the vNext preview. The legacy
+Workbench remains at `/` as the rollback path. The preview uses the existing
+REST/SSE backend, supports all three themes in dark and light modes, and keeps
+product icons Lucide-only. Node.js is needed only to develop or stage the
+assets; the staged preview is served by Python at runtime.
+
+Run the complete frontend gate from `frontend/` with `npm run check`. The
+reviewed evidence and known Phase 2 boundary are recorded in
+`docs/verification/frontend-vnext-phase1.md`.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

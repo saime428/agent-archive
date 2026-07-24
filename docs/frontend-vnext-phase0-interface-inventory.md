@@ -82,11 +82,15 @@ data: <JSON，含 event/sequence/elapsed_ms 及事件负载>
 | `model_stream_chunk` | `kind`（thinking/content/args）、`text`、`chunk_chars`；**按 64 字符批量合并**（`STREAM_EVENT_BATCH_CHARS`），kind 切换强制 flush | 流式路径 |
 | `action_parsed` | 解析出的 action | 每 action |
 | `tool_start` | 工具执行开始 | 工具路径 |
+| `observation` | 工具结果的 `status`、`summary` 与 action 摘要 | 工具路径 |
 | `approval_required` | 待审批 action 详情；**触发服务端 300s 审批倒计时** | 风险动作 |
 | `approval_granted` / `approval_denied` / `approval_timed_out` | 审批结局 | 风险动作 |
 | `capability_warning` | `requested`、`fallback`（native_tools 降级）；**不在旧前端 sse.js 目录内**——未知事件必须被忽略而非报错，新 Adapter 保持此宽容 | 能力不匹配 |
 | `final` | turn 结果 payload | 终态 |
 | `error` | `error` 字符串 | 终态 |
+
+旧前端显式注册 13 个消费者事件；后端另发 `capability_warning`，所以当前已知
+后端事件总数为 14。真正未知的事件仍必须被宽容忽略。
 
 ### 生命周期与恢复语义（新 Adapter 必须遵守）
 

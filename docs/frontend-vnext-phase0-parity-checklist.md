@@ -78,3 +78,18 @@
 3. 异常路径也在清单内：断线、刷新、unknown job、审批超时、保存失败、
    后端不可用（对应验收护栏），在阶段 2 完成前逐项打勾。
 4. 本清单只增不删；实际实现发现的旧能力遗漏补录进来，而不是默默丢弃。
+
+## 阶段 1 验收结果（2026-07-24）
+
+| 能力 | 结果 | 证据 |
+| --- | --- | --- |
+| C1-C9 | 已完成 | 会话 CRUD、typed REST Adapter、14 事件 SSE 解析、sequence 去重、一次重连、历史恢复、审批与终态 E2E |
+| H1（精简） | 已完成 | command spine 显示真实 workspace/provider/model/key/session 状态，不猜测 Git branch |
+| H2 | 已完成 | Provider Notice 直接消费 `/api/health.provider_notice` |
+| S1 | 已完成 | 桌面会话轨道可拖拽并支持键盘方向键/Home/End；移动端变为 modal sheet |
+| S2 | 已完成 | A/B/C 三主题各自深浅模式，自动模式与手动选择持久化 |
+| S5 | 已完成 | 焦点、ARIA/tooltip、键盘审批、320 px 布局、reduced-motion 静态 Canvas 均有自动或浏览器证据 |
+
+阶段 2 项（F1-F5、R1-R8、H3-H7、S3-S4）继续由旧 `/` Workbench 承载；
+阶段 1 没有渲染假入口，也没有切换默认入口。完整证据见
+[`verification/frontend-vnext-phase1.md`](verification/frontend-vnext-phase1.md)。

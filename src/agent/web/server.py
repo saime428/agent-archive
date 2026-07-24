@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import mimetypes
 import threading
@@ -276,15 +277,32 @@ def create_workbench_handler(
             self.wfile.write(body)
 
         def _send_static(self, path: str) -> None:
-            relative_path = "index.html" if path in {"", "/"} else path.lstrip("/")
+            relative_path = path.lstrip("/")
+            if not relative_path or path.endswith("/"):
+                relative_path = f"{relative_path}index.html"
             file_path = static_file_path(relative_path)
             if not file_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
                 return
             content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
             body = file_path.read_bytes()
+            compressible = content_type.startswith("text/") or content_type in {
+                "application/javascript",
+                "application/json",
+            }
+            use_gzip = (
+                compressible
+                and len(body) >= 1024
+                and _accepts_gzip(self.headers.get("Accept-Encoding"))
+            )
+            if use_gzip:
+                body = gzip.compress(body, compresslevel=6, mtime=0)
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
+            if compressible:
+                self.send_header("Vary", "Accept-Encoding")
+            if use_gzip:
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -324,11 +342,31 @@ def create_workbench_handler(
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; img-src 'self' data:; connect-src 'self'; "
-                "script-src 'self'; style-src 'self'; frame-ancestors 'none'; "
+                "script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; "
                 "base-uri 'none'; form-action 'self'",
             )
 
     return WorkbenchHandler
+
+
+def _accepts_gzip(value: str | None) -> bool:
+    wildcard_quality: float | None = None
+    for item in (value or "").casefold().split(","):
+        coding, *parameters = item.split(";")
+        if coding.strip() not in {"gzip", "*"}:
+            continue
+        quality = 1.0
+        for parameter in parameters:
+            name, separator, raw_value = parameter.partition("=")
+            if separator and name.strip() == "q":
+                try:
+                    quality = float(raw_value.strip())
+                except ValueError:
+                    quality = 0.0
+        if coding.strip() == "gzip":
+            return quality > 0
+        wildcard_quality = quality
+    return wildcard_quality is not None and wildcard_quality > 0
 
 
 def _query_value(query: str, key: str) -> str | None:

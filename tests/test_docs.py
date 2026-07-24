@@ -783,7 +783,8 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
     assert "Full Project vNext ecosystem | In progress" in roadmap
     assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
-    assert "Next Project vNext slice: Frontend vNext phase 0 or a Phase 3 productivity" in roadmap
+    assert "Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice" in roadmap
+    assert "Next Project vNext slice: Frontend vNext Phase 2 functional parity or a Phase 3" in roadmap
 
     assert "Provider 能力声明（均已完成）" in direction
     assert "2026-07-18-managed-extension-lifecycle-design.md" in direction

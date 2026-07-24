@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 Status update (2026-07-18): this file keeps the completed local-baseline
 milestones and records completed Project vNext slices separately. The
@@ -34,7 +34,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | --- | --- | --- |
 | Phase 1: stdio MCP dynamic Tools | Complete | User-only config, SDK lifecycle, unified catalog/safety chain, and real CLI/Chat/Workbench acceptance |
 | Phase 2 slice 1: managed MCP and Skills lifecycle | Complete | Managed MCP fragments/state with a live `mcp doctor`, user Skill install/update/package/remove, one shared user-store transaction layer, and crash-recovery evidence |
-| Full Project vNext ecosystem | In progress | The Phase 2 backend management surface is complete (managed lifecycle, provider capabilities, hooks/mcp show/doctor/config write closeout); later phases still cover the frontend, productivity, distribution, remote, and community loops |
+| Frontend vNext Phase 1: App Shell + Chat | Complete in preview | React/Vite `/preview/` vertical slice covers C1-C9, H1/H2, S1/S2/S5 with real REST/SSE adapters, themes, responsive spatial shell, approval paths, Canvas, and regression evidence; legacy `/` remains the rollback path |
+| Full Project vNext ecosystem | In progress | The backend management surface and Frontend vNext Phase 1 are complete; Frontend Phase 2 still owns files, runs, settings readiness, workspace risk, memory review, and resource surfaces, while later phases cover productivity, distribution, remote, and community loops |
 
 ## Completed Milestones
 
@@ -53,6 +54,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | post-v1.0 | Polish and local secrets | Ordered polish backlog, copy pass, manual smoke, accessibility, local secret flow |
 | v2.0 | Tokenicode Workbench | Tokenicode-style visual refresh, SSE browser chat, dark theme, resizable columns, conversation tabs, resource detail panels |
 | vNext Phase 1 slice | Open extension kernel | Local stdio MCP dynamic Tools share the built-in Tool catalog, approval, observation, redaction, trace, and composition-root lifecycle |
+| Frontend vNext Phase 1 | Spatial App Shell + Chat | Parallel React preview, typed REST/SSE seam, real chat/approval/history flow, six theme-mode sets, responsive rail, one state-driven Canvas, and Lucide-only accessible product chrome |
 
 ## Active v0.6 Plan
 
@@ -315,16 +317,20 @@ Completed slice: Project vNext Phase 2 extension management closeout (hook
 warnings and `hooks list`, `mcp show`, doctor extension summaries, and the
 shared `config set/unset` write path).
 
-Next Project vNext slice: Frontend vNext phase 0 or a Phase 3 productivity
-slice, chosen by its own spec. Marketplace, registry, remote sources, Workbench
-write interfaces, and automatic reconnect stay out of scope until a later slice
-has its own spec.
+Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice at
+`/preview/`, with the legacy `/` entry preserved for rollback.
+
+Next Project vNext slice: Frontend vNext Phase 2 functional parity or a Phase 3
+productivity slice, chosen by its own spec. Marketplace, registry, remote
+sources, default-entry cutover, and automatic reconnect stay out of scope until
+a later slice has its own spec.
 
 ## Guardrails
 
 - Keep secrets in environment variables or `.agent/secrets.env`, not repo files.
 - Keep `docs/main.pdf` as untracked user reference material unless explicitly
   requested otherwise.
-- Prefer stdlib/static UI until the existing approach hurts.
+- Keep the stdlib Python server and legacy `/` rollback while the React preview
+  advances through parity; do not require Node.js at product runtime.
 - Do not weaken sandbox, approval, redaction, snapshot, or durable log behavior
   for visual convenience.

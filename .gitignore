@@ -14,3 +14,10 @@ pytest-tmp/
 docs/main.pdf
 else/
 pytest-*.txt
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+frontend/.vite/
+src/agent/web/static/preview/
