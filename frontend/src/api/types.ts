@@ -1,11 +1,188 @@
+export interface SettingsReadiness {
+  mode: string;
+  status: string;
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key_env: string | null;
+  api_key_present: boolean;
+  api_key_required: boolean;
+  native_tools: boolean;
+  loaded_files: string[];
+  warnings: string[];
+  checks: string[];
+}
+
+export interface WorkspaceRisk {
+  mode: string;
+  risk_level: string;
+  summary: string;
+  signals: { uncommitted_files: number; failed_runs: number; snapshots: number };
+  uncommitted_files: string[];
+  checks: string[];
+}
+
+// memory_review 的候选/生效项结构在 SettingsView 用到时细化；此处只固定 mode 只读契约。
+export interface MemoryReview {
+  mode: string;
+  [key: string]: unknown;
+}
+
 export interface HealthPayload {
   status: string;
+  app: string;
   workspace: string;
   provider: string;
   model: string;
+  mode: string;
+  deepseek_api_key_env: string;
+  deepseek_api_key_present: boolean;
+  base_url: string;
+  api_key_env: string | null;
   api_key_present: boolean;
   api_key_required: boolean;
+  native_tools: boolean;
   provider_notice: string;
+  settings_readiness: SettingsReadiness;
+  workspace_risk: WorkspaceRisk;
+  memory_review: MemoryReview;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file";
+  size: number | null;
+}
+
+export interface FilesPayload {
+  path: string;
+  entries: FileEntry[];
+}
+
+export interface FilePayload {
+  path: string;
+  content: string;
+  truncated: boolean;
+  size: number;
+}
+
+export interface SaveFilePayload {
+  status: "ok";
+  run_id: string;
+  path: string;
+  bytes_written: number;
+  snapshot_path: string;
+  restore_hint: string;
+}
+
+export interface DiffPayload {
+  path: string;
+  snapshot_path: string;
+  diff: string;
+  truncated: boolean;
+  current_exists: boolean;
+  snapshot_missing: boolean;
+}
+
+export interface RestorePayload {
+  status: "ok";
+  action: "restored" | "deleted";
+  path: string;
+  snapshot_path: string;
+}
+
+export interface RunListItem {
+  run_id: string;
+  status: string;
+  risk_level: string;
+  created_at: string;
+  updated_at: string;
+  run_dir: string;
+  summary_path: string;
+  tool_calls_path: string;
+}
+
+export interface RunsPayload {
+  workspace: string;
+  runs: RunListItem[];
+}
+
+// 复杂只读诊断对象只在 RunsView 用到的字段处细化；契约层固定顶层键存在。
+export interface RunDetailPayload {
+  run_id: string;
+  run_dir: string;
+  summary: string;
+  tool_calls: unknown[];
+  snapshots: Array<Record<string, unknown>>;
+  review: Record<string, unknown>;
+  workflow: Record<string, unknown>;
+  failure: Record<string, unknown>;
+  patch_review: Record<string, unknown>;
+  recovery: Record<string, unknown>;
+  replay: Record<string, unknown>;
+}
+
+// AgentConfig 全键；写入白名单只是其中一部分（SettingsView 强制）。
+export interface AgentConfigRecord {
+  provider: string;
+  model: string;
+  mode: string;
+  sandbox: string;
+  approval: string;
+  dry_run: boolean;
+  web_search_enabled: boolean;
+  computer_read_enabled: boolean;
+  native_tools: boolean;
+  default_skills: string[];
+  allowed_commands: string[];
+  base_url: string;
+  deepseek_api_key_env: string;
+  api_key_env: string;
+  enabled_hooks: string[];
+  blocking_hooks: string[];
+  memory_auto_write: boolean;
+  memory_max_items: number;
+  max_consecutive_errors: number;
+}
+
+export interface ConfigDiagnostics {
+  global_config_path: string;
+  project_config_path: string;
+  loaded_files: string[];
+  warnings: string[];
+}
+
+export interface ConfigPayload {
+  workspace: string;
+  config: AgentConfigRecord;
+  diagnostics: ConfigDiagnostics;
+  status?: "ok";
+}
+
+// 浏览器写入白名单：与后端 _validated_config_updates 一致的可写键子集。
+export interface ConfigUpdates {
+  provider: string;
+  model: string;
+  mode: string;
+  sandbox: string;
+  approval: string;
+  dry_run: boolean;
+  web_search_enabled: boolean;
+  computer_read_enabled: boolean;
+  native_tools: boolean;
+  default_skills: string[];
+}
+
+export interface ToolInfo {
+  name: string;
+  category: string;
+  dry_run: string;
+  description: string;
+}
+
+export interface ToolsPayload {
+  tools: ToolInfo[];
 }
 
 export interface ChatSummary {

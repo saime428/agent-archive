@@ -1,0 +1,38 @@
+{
+  "comment": "Phase 2 HTTP contract fixture. required = keys the frontend Adapter and views depend on; read_only_sections = health sub-objects that must carry mode=read-only. Guarded by tests/test_frontend_contract.py against the real Python payload builders. Keep in sync when a builder changes.",
+  "files": {
+    "required": ["path", "entries"],
+    "entry_keys": ["name", "path", "kind", "size"]
+  },
+  "file": {
+    "required": ["path", "content", "truncated", "size"]
+  },
+  "save_file": {
+    "required": ["status", "run_id", "path", "bytes_written", "snapshot_path", "restore_hint"]
+  },
+  "diff": {
+    "required": ["path", "snapshot_path", "diff", "truncated", "current_exists", "snapshot_missing"]
+  },
+  "restore": {
+    "required": ["status", "action", "path", "snapshot_path"]
+  },
+  "runs": {
+    "required": ["workspace", "runs"],
+    "item_keys": ["run_id", "status", "risk_level", "created_at", "updated_at"]
+  },
+  "run_detail": {
+    "required": ["run_id", "summary", "tool_calls", "snapshots", "review", "workflow", "failure", "patch_review", "recovery", "replay"]
+  },
+  "health": {
+    "required": ["status", "workspace", "provider", "model", "provider_notice", "settings_readiness", "workspace_risk", "memory_review"],
+    "read_only_sections": ["settings_readiness", "workspace_risk", "memory_review"]
+  },
+  "config": {
+    "required": ["workspace", "config", "diagnostics"],
+    "diagnostics_keys": ["global_config_path", "project_config_path", "loaded_files", "warnings"]
+  },
+  "tools": {
+    "required": ["tools"],
+    "tool_keys": ["name", "category", "dry_run", "description"]
+  }
+}

@@ -3,8 +3,27 @@ import type {
   ChatPayload,
   ChatStartPayload,
   ChatsPayload,
+  ConfigPayload,
+  ConfigUpdates,
+  DiffPayload,
+  FilePayload,
+  FilesPayload,
   HealthPayload,
+  RestorePayload,
+  RunDetailPayload,
+  RunsPayload,
+  SaveFilePayload,
+  ToolsPayload,
 } from "./types";
+
+// 后端 _query_value 用 unquote()（不把 "+" 还原为空格），因此查询值必须用
+// encodeURIComponent（空格 → %20），不能用 URLSearchParams（空格 → "+"）。
+function queryString(params: Record<string, string | undefined>): string {
+  const parts = Object.entries(params)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
 
 export class ApiError extends Error {
   constructor(
@@ -64,6 +83,19 @@ export function createApiClient(fetcher: typeof fetch = globalThis.fetch.bind(gl
       }),
     deleteChat: (sessionId: string) =>
       post<{ status: "ok"; session_id: string; deleted: true }>("/api/chat/delete", { session_id: sessionId }),
+    listFiles: (path?: string) => request<FilesPayload>(`/api/files${queryString({ path })}`),
+    getFile: (path: string) => request<FilePayload>(`/api/file${queryString({ path })}`),
+    saveFile: (path: string, content: string) =>
+      post<SaveFilePayload>("/api/file/save", { path, content }),
+    getDiff: (path: string, snapshot: string) =>
+      request<DiffPayload>(`/api/diff${queryString({ path, snapshot })}`),
+    restoreSnapshot: (path: string, snapshotPath: string) =>
+      post<RestorePayload>("/api/snapshot/restore", { path, snapshot_path: snapshotPath }),
+    listRuns: () => request<RunsPayload>("/api/runs"),
+    getRun: (runId: string) => request<RunDetailPayload>(`/api/runs/${encodeURIComponent(runId)}`),
+    getConfig: () => request<ConfigPayload>("/api/config"),
+    saveConfig: (updates: Partial<ConfigUpdates>) => post<ConfigPayload>("/api/config", updates),
+    listTools: () => request<ToolsPayload>("/api/tools"),
   };
 }
 
