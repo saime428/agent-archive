@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { WorkspacePanel } from "./workspace/WorkspacePanel";
 import {
   Activity,
   Bot,
@@ -161,11 +162,13 @@ function StatusMark({ health }: { health: HealthPayload | null }) {
 function CommandSpine({
   health,
   onOpenSessions,
+  onOpenWorkspace,
   canvasEnabled,
   onToggleCanvas,
 }: {
   health: HealthPayload | null;
   onOpenSessions: () => void;
+  onOpenWorkspace: (event: React.MouseEvent<HTMLButtonElement>) => void;
   canvasEnabled: boolean;
   onToggleCanvas: () => void;
 }) {
@@ -177,6 +180,9 @@ function CommandSpine({
       <div className="command-brand">
         <IconButton label="打开会话" className="mobile-only" onClick={onOpenSessions}>
           <Menu aria-hidden="true" />
+        </IconButton>
+        <IconButton label="打开工作台" className="mobile-only" onClick={onOpenWorkspace}>
+          <PanelRightOpen aria-hidden="true" />
         </IconButton>
         <Command aria-hidden="true" />
         <span>AGENT</span>
@@ -603,7 +609,9 @@ export function App() {
   const [railOpen, setRailOpen] = useState(true);
   const [railWidth, setRailWidth] = useState(326);
   const [mobileSessions, setMobileSessions] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [canvasEnabled, setCanvasEnabled] = useState(true);
+  const workspaceOpenerRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [sessionAction, setSessionAction] = useState<SessionAction>(null);
@@ -614,6 +622,23 @@ export function App() {
   const refreshChats = useCallback(async () => {
     const payload = await api.listChats();
     setChats(payload.chats);
+  }, []);
+
+  // Remember which button opened the workspace so focus can return to it on close.
+  const openWorkspace = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    workspaceOpenerRef.current = event.currentTarget;
+    setWorkspaceOpen(true);
+  }, []);
+
+  // Global refresh for the workspace panel's 10s tick and manual refresh; best-effort.
+  const refreshGlobal = useCallback(async () => {
+    try {
+      const [healthPayload, chatsPayload] = await Promise.all([api.getHealth(), api.listChats()]);
+      setHealth(healthPayload);
+      setChats(chatsPayload.chats);
+    } catch {
+      // keep the last snapshot on error.
+    }
   }, []);
 
   const loadChat = useCallback(async (id: string) => {
@@ -836,7 +861,7 @@ export function App() {
     <Tooltip.Provider delayDuration={350}>
       <div className="app-shell" data-phase={phase}>
         <ContextField phase={phase} themeKey={`${theme}-${resolvedMode}`} enabled={canvasEnabled} />
-        <CommandSpine health={health} onOpenSessions={() => setMobileSessions(true)} canvasEnabled={canvasEnabled} onToggleCanvas={() => setCanvasEnabled((value) => !value)} />
+        <CommandSpine health={health} onOpenSessions={() => setMobileSessions(true)} onOpenWorkspace={openWorkspace} canvasEnabled={canvasEnabled} onToggleCanvas={() => setCanvasEnabled((value) => !value)} />
 
         <motion.aside className="session-rail desktop-only" data-expanded={railOpen} animate={{ width: railOpen ? railWidth : 76 }} transition={spring}>
           <div className="rail-cap">
@@ -914,10 +939,24 @@ export function App() {
           <Composer value={message} disabled={Boolean(activeJob)} onChange={setMessage} onSubmit={send} />
         </main>
 
-        <div className="workspace-reveal desktop-only" aria-hidden="true">
-          <PanelRightOpen />
-          <span>PHASE 02 / WORKSPACE</span>
-        </div>
+        <button
+          type="button"
+          className="workspace-reveal desktop-only"
+          aria-label="打开工作台"
+          onClick={openWorkspace}
+        >
+          <PanelRightOpen aria-hidden="true" />
+          <span>WORKSPACE</span>
+        </button>
+
+        <WorkspacePanel
+          open={workspaceOpen}
+          onOpenChange={setWorkspaceOpen}
+          health={health}
+          chats={chats}
+          onGlobalRefresh={refreshGlobal}
+          openerRef={workspaceOpenerRef}
+        />
 
         <Dialog.Root open={mobileSessions} onOpenChange={setMobileSessions}>
           <Dialog.Portal>

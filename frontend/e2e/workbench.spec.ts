@@ -42,14 +42,30 @@ async function installWorkbenchMocks(page: Page) {
     });
 
     if (path === "/api/health") {
+      await json(healthFixture());
+      return;
+    }
+    if (path === "/api/config") {
+      await json(configFixture());
+      return;
+    }
+    if (path === "/api/tools") {
+      await json({ tools: [{ name: "read_file", category: "filesystem", dry_run: "safe", description: "Read a file." }] });
+      return;
+    }
+    if (path === "/api/runs") {
       await json({
-        status: "ok",
         workspace: "F:\\projects\\spatial-demo",
-        provider: "fake",
-        model: "fixture-v1",
-        api_key_present: true,
-        api_key_required: false,
-        provider_notice: "FakeLLM ready.",
+        runs: [{
+          run_id: "run_e2e",
+          status: "completed",
+          risk_level: "low",
+          created_at: "2026-07-24T00:00:00Z",
+          updated_at: "2026-07-24T00:01:00Z",
+          run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_e2e",
+          summary_path: "summary.md",
+          tool_calls_path: "tool_calls.jsonl",
+        }],
       });
       return;
     }
@@ -95,6 +111,81 @@ async function emit(page: Page, name: string, payload: object) {
     },
     { eventName: name, eventPayload: payload },
   );
+}
+
+function healthFixture() {
+  return {
+    status: "ok",
+    app: "agent-workbench",
+    workspace: "F:\\projects\\spatial-demo",
+    provider: "fake",
+    model: "fixture-v1",
+    mode: "guided",
+    deepseek_api_key_env: "DEEPSEEK_API_KEY",
+    deepseek_api_key_present: false,
+    base_url: "",
+    api_key_env: null,
+    api_key_present: true,
+    api_key_required: false,
+    native_tools: false,
+    provider_notice: "FakeLLM ready.",
+    settings_readiness: {
+      mode: "read-only",
+      status: "ready",
+      provider: "fake",
+      model: "fixture-v1",
+      base_url: "",
+      api_key_env: null,
+      api_key_present: true,
+      api_key_required: false,
+      native_tools: false,
+      loaded_files: [],
+      warnings: [],
+      checks: ["Settings are readable."],
+    },
+    workspace_risk: {
+      mode: "read-only",
+      risk_level: "low",
+      summary: "No failed recent runs, uncommitted files, or snapshots detected.",
+      signals: { uncommitted_files: 0, failed_runs: 0, snapshots: 0 },
+      uncommitted_files: [],
+      checks: ["No workspace risk action needed."],
+    },
+    memory_review: { mode: "read-only", pending: [], active: [] },
+  };
+}
+
+function configFixture() {
+  return {
+    workspace: "F:\\projects\\spatial-demo",
+    config: {
+      provider: "fake",
+      model: "fixture-v1",
+      mode: "guided",
+      sandbox: "workspace-write",
+      approval: "risky-confirm",
+      dry_run: false,
+      web_search_enabled: false,
+      computer_read_enabled: false,
+      native_tools: false,
+      default_skills: ["code-dev"],
+      allowed_commands: [],
+      base_url: "",
+      deepseek_api_key_env: "DEEPSEEK_API_KEY",
+      api_key_env: "OPENAI_API_KEY",
+      enabled_hooks: [],
+      blocking_hooks: [],
+      memory_auto_write: false,
+      memory_max_items: 5,
+      max_consecutive_errors: 3,
+    },
+    diagnostics: {
+      global_config_path: "C:\\Users\\demo\\.agent\\config.toml",
+      project_config_path: "F:\\projects\\spatial-demo\\.agent\\config.toml",
+      loaded_files: [],
+      warnings: [],
+    },
+  };
 }
 
 function finalEvent(sequence: number, final = "E2E final result.") {
@@ -191,6 +282,43 @@ for (const decision of [
     await expect(page.getByText(decision.final, { exact: true })).toBeVisible();
   });
 }
+
+test.describe("workspace shell", () => {
+  test("opens the workspace plane with three entries and returns focus on close", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+
+    const openButton = page.getByRole("button", { name: "打开工作台", exact: true });
+    await expect(openButton).toBeVisible();
+    await openButton.click();
+
+    await expect(page.getByRole("button", { name: "System", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Files", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Runs", exact: true })).toBeVisible();
+    // Default view is System Overview with real health-derived signals.
+    await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
+    await expect(page.getByText("FakeLLM ready.", { exact: true })).toBeVisible();
+    // No PHASE 02 placeholder text once the real entry exists.
+    await expect(page.getByText("PHASE 02 / WORKSPACE")).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "System", exact: true })).toHaveCount(0);
+    await expect(openButton).toBeFocused();
+  });
+
+  test("uses a full-height modal sheet on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("./#/new");
+
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    const sheet = page.getByRole("dialog", { name: "工作台", exact: true });
+    await expect(sheet).toBeVisible();
+    await expect(page.getByRole("button", { name: "System", exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "关闭工作台", exact: true }).click();
+    await expect(sheet).toHaveCount(0);
+  });
+});
 
 const visualVariants = [
   { name: "b-dark-desktop", width: 1440, height: 900, theme: "b", mode: "dark" },
