@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { FolderTree, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-react";
 
 import { api } from "../api/client";
@@ -47,6 +48,9 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
   const [config, setConfig] = useState<Resource<ConfigPayload>>(idleResource);
   const [tools, setTools] = useState<Resource<ToolsPayload>>(idleResource);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const reducedMotion = useReducedMotion();
+  // Same spring as the desktop session rail so both planes move with one motion language.
+  const spring = reducedMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 320, damping: 32, mass: 0.8 };
   const filesRef = useRef<FilesViewHandle>(null);
   const [pendingNav, setPendingNav] = useState<{ kind: "view"; view: WorkspaceView } | { kind: "close" } | null>(null);
 
@@ -121,19 +125,37 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="workspace-overlay" />
-        <Dialog.Content
-          className="workspace-plane"
-          aria-describedby={undefined}
-          onCloseAutoFocus={(event) => {
-            // Controlled Dialog has no Trigger; return focus to whichever button opened it.
-            if (openerRef.current) {
-              event.preventDefault();
-              openerRef.current.focus();
-            }
-          }}
-        >
+      <AnimatePresence>
+        {open ? (
+        <Dialog.Portal forceMount>
+          <Dialog.Overlay asChild forceMount>
+            <motion.div
+              className="workspace-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={reducedMotion ? { duration: 0 } : { duration: 0.18 }}
+            />
+          </Dialog.Overlay>
+          <Dialog.Content
+            asChild
+            forceMount
+            aria-describedby={undefined}
+            onCloseAutoFocus={(event) => {
+              // Controlled Dialog has no Trigger; return focus to whichever button opened it.
+              if (openerRef.current) {
+                event.preventDefault();
+                openerRef.current.focus();
+              }
+            }}
+          >
+            <motion.div
+              className="workspace-plane"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={spring}
+            >
           <header className="workspace-head">
             <Dialog.Title className="workspace-title">工作台</Dialog.Title>
             <nav className="workspace-tabs" aria-label="工作台视图">
@@ -167,13 +189,23 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
           </header>
 
           <div className="workspace-body">
-            {view === "system" ? (
-              <SystemOverview health={health} chats={chats} runs={runs} config={config} tools={tools} />
-            ) : view === "runs" ? (
-              <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} />
-            ) : (
-              <FilesView ref={filesRef} />
-            )}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={view}
+                initial={reducedMotion ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -6 }}
+                transition={reducedMotion ? { duration: 0 } : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {view === "system" ? (
+                  <SystemOverview health={health} chats={chats} runs={runs} config={config} tools={tools} />
+                ) : view === "runs" ? (
+                  <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} />
+                ) : (
+                  <FilesView ref={filesRef} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
 
           <ConfirmDialog
@@ -189,8 +221,11 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
               {pendingNav?.kind === "close" ? "关闭工作台" : "切换视图"}？
             </p>
           </ConfirmDialog>
-        </Dialog.Content>
-      </Dialog.Portal>
+            </motion.div>
+          </Dialog.Content>
+        </Dialog.Portal>
+        ) : null}
+      </AnimatePresence>
     </Dialog.Root>
   );
 }
