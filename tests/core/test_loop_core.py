@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.core.actions import ErrorCode, RECOVERABLE_ERROR_CODES
+from agent.core.actions import ErrorCode, RECOVERABLE_ERROR_CODES, make_observation
 from agent.core.budget import ContextBudget
 from agent.core.loop import run_once
 from agent.core.run_control import RunControl
@@ -274,6 +274,42 @@ def test_run_once_records_completed_tool_before_terminal_cancel(tmp_path) -> Non
     assert result.observation.error.code == ErrorCode.CANCELLED
     records = [json.loads(line) for line in result.tool_calls_path.read_text(encoding="utf-8").splitlines()]
     assert [record["action"]["action"]["name"] for record in records] == ["list_dir", "run_control"]
+
+
+def test_run_once_forwards_control_to_run_command(monkeypatch, tmp_path) -> None:
+    control = RunControl()
+    captured: list[RunControl | None] = []
+
+    def fake_execute(action, _context, _sandbox, *, observation_index, allowed_commands, control):
+        captured.append(control)
+        return make_observation(
+            action,
+            observation_index=observation_index,
+            summary="Command exited with code 0.",
+            data={"exit_code": 0, "allowed_commands": list(allowed_commands)},
+        )
+
+    monkeypatch.setattr("agent.core.loop.execute_run_command", fake_execute)
+    result = run_once(
+        "run",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Run.",
+                    "action": {
+                        "name": "run_command",
+                        "args": {"argv": [sys.executable, "-c", "print('ok')"], "timeout_seconds": 5},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        control=control,
+        approval_handler=lambda _action: True,
+    )
+
+    assert result.observation.status == "ok"
+    assert captured == [control]
 
 
 def test_run_once_cancelled_during_approval_does_not_execute_tool(tmp_path) -> None:

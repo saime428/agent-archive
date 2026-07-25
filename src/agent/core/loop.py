@@ -1009,6 +1009,7 @@ def _tool_observation(
                 sandbox,
                 observation_index=observation_index,
                 allowed_commands=config.allowed_commands,
+                control=control,
             ),
             0,
         )
