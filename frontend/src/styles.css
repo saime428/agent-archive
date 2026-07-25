@@ -2020,3 +2020,102 @@ select {
   .files-layout { grid-template-columns: 1fr; }
   .files-track { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
 }
+
+/* ===== Phase 2 runs view ===== */
+.runs-layout { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: 14px; }
+.runs-index-track { display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--border); padding-right: 12px; }
+.runs-filters { display: flex; gap: 6px; }
+.runs-filter { flex: 1; min-width: 0; }
+.runs-filter select {
+  width: 100%;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.runs-index-button {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+.runs-index-button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.runs-detail { display: flex; flex-direction: column; min-width: 0; }
+.runs-detail-body { display: flex; flex-direction: column; gap: 14px; }
+.run-section { display: flex; flex-direction: column; gap: 6px; }
+.run-section-title {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+.runs-pre {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-code);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diff-body { max-height: 320px; overflow: auto; }
+.run-key-row { display: flex; gap: 10px; font-size: 13px; }
+.run-key { flex: none; min-width: 76px; color: var(--text-dim); }
+.run-value { color: var(--text); word-break: break-word; }
+.run-list-block { display: flex; flex-direction: column; gap: 4px; }
+.run-plain-list { margin: 0; padding-left: 18px; display: grid; gap: 2px; font-size: 13px; color: var(--text-dim); }
+.command-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.command-row { display: flex; align-items: center; gap: 8px; }
+.command-text {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  background: var(--chip-bg);
+  border-radius: var(--radius-code);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.replay-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-filter {
+  flex: 1;
+  min-width: 120px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.replay-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; counter-reset: step; }
+.replay-step { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.replay-action { font-family: var(--font-mono); color: var(--text); }
+.replay-summary { flex: 1; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replay-terminal { font-size: 11px; color: var(--accent); }
+.snapshot-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.snapshot-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.snapshot-path { font-family: var(--font-mono); font-size: 13px; color: var(--text); }
+.snapshot-src { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+.diff-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trace-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.trace-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.trace-line { font-family: var(--font-mono); color: var(--text-dim); }
+.trace-error { color: #e5576f; }
+
+@media (max-width: 767px) {
+  .runs-layout { grid-template-columns: 1fr; }
+  .runs-index-track { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
+}

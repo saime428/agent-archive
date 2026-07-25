@@ -5,6 +5,7 @@ import { FolderTree, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-re
 import { api } from "../api/client";
 import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPayload } from "../api/types";
 import { FilesView } from "./FilesView";
+import { RunsView } from "./RunsView";
 
 type WorkspaceView = "files" | "runs" | "system";
 
@@ -146,7 +147,7 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
             {view === "system" ? (
               <SystemOverview health={health} chats={chats} runs={runs} config={config} tools={tools} />
             ) : view === "runs" ? (
-              <RunsPreview runs={runs} />
+              <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} />
             ) : (
               <FilesView />
             )}
@@ -239,29 +240,6 @@ function SystemOverview({
           )}
         </article>
       </div>
-    </section>
-  );
-}
-
-// Task 4 会把 RunsView 详情/diff/restore 挂到这里；当前先展示真实 run 索引。
-function RunsPreview({ runs }: { runs: Resource<RunsPayload> }) {
-  return (
-    <section className="workspace-section" aria-labelledby="runs-heading">
-      <h2 id="runs-heading" className="workspace-section-title">Runs</h2>
-      {runs.error ? <p className="overview-error">{runs.error}</p> : null}
-      {runs.data && runs.data.runs.length > 0 ? (
-        <ul className="runs-index">
-          {runs.data.runs.map((run) => (
-            <li key={run.run_id} className="runs-index-item" data-payload>
-              <span className="runs-index-id">{run.run_id}</span>
-              <span className="overview-tag" data-tone={run.risk_level === "low" ? "ok" : "warning"}>{run.risk_level}</span>
-              <span className="runs-index-status">{run.status}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="overview-note">{runs.data === null && !runs.error ? "加载中。" : "暂无运行记录。"}</p>
-      )}
     </section>
   );
 }

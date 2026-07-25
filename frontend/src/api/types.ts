@@ -108,19 +108,90 @@ export interface RunsPayload {
   runs: RunListItem[];
 }
 
-// 复杂只读诊断对象只在 RunsView 用到的字段处细化；契约层固定顶层键存在。
+export interface ReviewInfo {
+  latest_action: string;
+  last_observation_summary: string;
+  changed_files: string[];
+  snapshot_count: number;
+  manual_checks: string[];
+}
+
+export interface WorkflowInfo {
+  mode: string;
+  verification_commands: string[];
+  review_steps: string[];
+}
+
+export interface FailureInfo {
+  status: string;
+  failure_count: number;
+  latest_failure: Record<string, unknown> | null;
+  next_checks: string[];
+}
+
+export interface PatchReviewInfo {
+  mode: string;
+  risk_level: string;
+  summary: string;
+  checks: string[];
+  verification_commands: string[];
+  next_action: string;
+}
+
+export interface RecoveryInfo {
+  mode: string;
+  status: string;
+  rollback_available: boolean;
+  summary: string;
+  latest_failure: Record<string, unknown> | null;
+  steps: string[];
+  checks: string[];
+  verification_commands: string[];
+  next_action: string;
+}
+
+export interface ReplayStep {
+  line_number: number;
+  phase: string;
+  action: string;
+  status: string;
+  summary: string;
+  terminal: boolean;
+  policy_decision: string;
+}
+
+export interface ReplayInfo {
+  mode: string;
+  step_count: number;
+  steps: ReplayStep[];
+}
+
+export interface RunSnapshot {
+  path: string;
+  snapshot_path: string;
+  [key: string]: unknown;
+}
+
+export interface ToolCall {
+  line_number: number;
+  valid: boolean;
+  raw: string;
+  data: unknown;
+  error: string | null;
+}
+
 export interface RunDetailPayload {
   run_id: string;
   run_dir: string;
   summary: string;
-  tool_calls: unknown[];
-  snapshots: Array<Record<string, unknown>>;
-  review: Record<string, unknown>;
-  workflow: Record<string, unknown>;
-  failure: Record<string, unknown>;
-  patch_review: Record<string, unknown>;
-  recovery: Record<string, unknown>;
-  replay: Record<string, unknown>;
+  tool_calls: ToolCall[];
+  snapshots: RunSnapshot[];
+  review: ReviewInfo;
+  workflow: WorkflowInfo;
+  failure: FailureInfo;
+  patch_review: PatchReviewInfo;
+  recovery: RecoveryInfo;
+  replay: ReplayInfo;
 }
 
 // AgentConfig 全键；写入白名单只是其中一部分（SettingsView 强制）。

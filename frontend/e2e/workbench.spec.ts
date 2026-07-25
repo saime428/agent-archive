@@ -56,17 +56,53 @@ async function installWorkbenchMocks(page: Page) {
     if (path === "/api/runs") {
       await json({
         workspace: "F:\\projects\\spatial-demo",
-        runs: [{
-          run_id: "run_e2e",
-          status: "completed",
-          risk_level: "low",
-          created_at: "2026-07-24T00:00:00Z",
-          updated_at: "2026-07-24T00:01:00Z",
-          run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_e2e",
-          summary_path: "summary.md",
-          tool_calls_path: "tool_calls.jsonl",
-        }],
+        runs: [
+          {
+            run_id: "run_e2e",
+            status: "completed",
+            risk_level: "low",
+            created_at: "2026-07-24T00:00:00Z",
+            updated_at: "2026-07-24T00:01:00Z",
+            run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_e2e",
+            summary_path: "summary.md",
+            tool_calls_path: "tool_calls.jsonl",
+          },
+          {
+            run_id: "run_attn",
+            status: "failed",
+            risk_level: "attention",
+            created_at: "2026-07-24T00:02:00Z",
+            updated_at: "2026-07-24T00:03:00Z",
+            run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_attn",
+            summary_path: "summary.md",
+            tool_calls_path: "tool_calls.jsonl",
+          },
+        ],
       });
+      return;
+    }
+    if (path === "/api/runs/run_e2e") {
+      await json(runDetailFixture());
+      return;
+    }
+    if (path === "/api/runs/run_missing") {
+      await json({ error: "Run not found: run_missing" }, 404);
+      return;
+    }
+    if (path === "/api/diff") {
+      await json({
+        path: "README.md",
+        snapshot_path: "snap_readme_1",
+        diff: "--- snapshot/README.md\n+++ current/README.md\n@@\n-old\n+new",
+        truncated: false,
+        current_exists: true,
+        snapshot_missing: false,
+      });
+      return;
+    }
+    if (path === "/api/snapshot/restore" && request.method() === "POST") {
+      const body = JSON.parse(request.postData() || "{}") as { path?: string; snapshot_path?: string };
+      await json({ status: "ok", action: "restored", path: body.path, snapshot_path: body.snapshot_path });
       return;
     }
     if (path === "/api/files") {
@@ -224,6 +260,56 @@ function configFixture() {
       project_config_path: "F:\\projects\\spatial-demo\\.agent\\config.toml",
       loaded_files: [],
       warnings: [],
+    },
+  };
+}
+
+function runDetailFixture() {
+  return {
+    run_id: "run_e2e",
+    run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_e2e",
+    summary: "Edited README and saved a snapshot.",
+    tool_calls: [{ line_number: 1, valid: true, raw: "{}", data: {}, error: null }],
+    snapshots: [{ path: "README.md", snapshot_path: "snap_readme_1" }],
+    review: {
+      latest_action: "write_file",
+      last_observation_summary: "Saved 20 bytes.",
+      changed_files: ["README.md"],
+      snapshot_count: 1,
+      manual_checks: ["Open the changed files and review the saved summary."],
+    },
+    workflow: {
+      mode: "read-only",
+      verification_commands: ["python -m pytest tests/test_docs.py -q", "git diff --check"],
+      review_steps: ["Open changed files from Task Review."],
+    },
+    failure: { status: "clear", failure_count: 0, latest_failure: null, next_checks: ["No failed observations recorded for this run."] },
+    patch_review: {
+      mode: "read-only",
+      risk_level: "medium",
+      summary: "1 changed file(s), 1 snapshot(s), no failed observations.",
+      checks: ["Open changed files from Task Review."],
+      verification_commands: ["git diff --check"],
+      next_action: "Review changes and run suggested verification commands from a terminal.",
+    },
+    recovery: {
+      mode: "read-only",
+      status: "snapshot-review",
+      rollback_available: true,
+      summary: "1 snapshot(s) are available for manual review.",
+      latest_failure: null,
+      steps: ["Open Snapshots and use Show diff before any restore."],
+      checks: ["Restore only after confirming the diff."],
+      verification_commands: ["git diff --check"],
+      next_action: "Review snapshots before making further file changes.",
+    },
+    replay: {
+      mode: "read-only",
+      step_count: 2,
+      steps: [
+        { line_number: 1, phase: "action", action: "write_file", status: "ok", summary: "Saved README.", terminal: false, policy_decision: "" },
+        { line_number: 2, phase: "action", action: "done", status: "ok", summary: "Completed.", terminal: true, policy_decision: "" },
+      ],
     },
   };
 }
@@ -413,6 +499,62 @@ test.describe("files", () => {
     await page.getByRole("button", { name: "missing.txt", exact: true }).click();
 
     await expect(page.getByText("File not found: missing.txt", { exact: false })).toBeVisible();
+  });
+});
+
+test.describe("runs", () => {
+  async function openRuns(page: Page) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Runs", exact: true }).click();
+  }
+
+  test("opens detail and renders review, replay and snapshots", async ({ page }) => {
+    await openRuns(page);
+    await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+
+    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Replay", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Snapshots", exact: true })).toBeVisible();
+    await expect(page.getByText("只读", { exact: true }).first()).toBeVisible();
+  });
+
+  test("replay filters by terminal state", async ({ page }) => {
+    await openRuns(page);
+    await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+
+    const steps = page.locator(".replay-steps");
+    await expect(steps.getByText("write_file", { exact: true })).toBeVisible();
+    await page.getByLabel("终态过滤", { exact: true }).selectOption("terminal");
+    await expect(steps.getByText("write_file", { exact: true })).toHaveCount(0);
+    await expect(steps.getByText("done", { exact: true })).toBeVisible();
+  });
+
+  test("shows diff and confirms snapshot restore", async ({ page }) => {
+    await openRuns(page);
+    await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+
+    await page.getByRole("button", { name: "查看 diff", exact: true }).click();
+    await expect(page.getByText("+new", { exact: false })).toBeVisible();
+
+    await page.getByRole("button", { name: "恢复", exact: true }).click();
+    const confirm = page.getByRole("dialog", { name: "确认恢复", exact: true });
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByText("snap_readme_1", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "确认恢复", exact: true }).click();
+
+    await expect(page.getByText("已恢复", { exact: false })).toBeVisible();
+  });
+
+  test("filters the run index by status", async ({ page }) => {
+    await openRuns(page);
+    const index = page.locator(".runs-index");
+    await expect(index.getByRole("button", { name: "run_e2e", exact: true })).toBeVisible();
+
+    await page.getByLabel("状态过滤", { exact: true }).selectOption("failed");
+    await expect(index.getByRole("button", { name: "run_e2e", exact: true })).toHaveCount(0);
+    await expect(index.getByRole("button", { name: "run_attn", exact: true })).toBeVisible();
   });
 });
 
