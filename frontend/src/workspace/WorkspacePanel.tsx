@@ -4,6 +4,7 @@ import { FolderTree, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-re
 
 import { api } from "../api/client";
 import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPayload } from "../api/types";
+import { FilesView } from "./FilesView";
 
 type WorkspaceView = "files" | "runs" | "system";
 
@@ -147,7 +148,7 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
             ) : view === "runs" ? (
               <RunsPreview runs={runs} />
             ) : (
-              <FilesPreview health={health} />
+              <FilesView />
             )}
           </div>
         </Dialog.Content>
@@ -238,17 +239,6 @@ function SystemOverview({
           )}
         </article>
       </div>
-    </section>
-  );
-}
-
-// Task 3 会把 FilesView 完整浏览/编辑挂到这里；当前先展示真实 workspace 定位。
-function FilesPreview({ health }: { health: HealthPayload | null }) {
-  return (
-    <section className="workspace-section" aria-labelledby="files-heading">
-      <h2 id="files-heading" className="workspace-section-title">Files</h2>
-      <p className="overview-note" data-payload>{health?.workspace ?? "加载 workspace 中。"}</p>
-      <p className="overview-note">文件浏览与安全编辑将在此工作区加载。</p>
     </section>
   );
 }

@@ -1905,3 +1905,118 @@ select {
   .workspace-plane,
   .workspace-overlay { animation: none; }
 }
+
+/* ===== Phase 2 files view ===== */
+.files-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 14px;
+}
+.files-track {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+.files-path { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); word-break: break-all; }
+.files-controls { display: flex; flex-direction: column; gap: 6px; }
+.files-up {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.files-up svg { width: 14px; height: 14px; }
+.files-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.files-search svg { width: 14px; height: 14px; color: var(--text-faint); }
+.files-search input { flex: 1; min-width: 0; font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 0; outline: none; }
+.files-entries { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; display: grid; gap: 2px; }
+.files-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-code);
+  cursor: pointer;
+  text-align: left;
+}
+.files-entry:hover { background: var(--panel-2); }
+.files-entry[aria-current="true"] { background: var(--accent-soft); color: var(--accent); }
+.files-entry svg { width: 15px; height: 15px; flex: none; color: var(--text-dim); }
+.files-entry[data-kind="dir"] svg { color: var(--accent); }
+.files-entry-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-entry-size { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+.files-detail { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.files-detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.files-detail-path { font-family: var(--font-mono); font-size: 13px; color: var(--text); word-break: break-all; }
+.files-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.files-action svg { width: 14px; height: 14px; }
+.files-action:disabled { opacity: .5; cursor: not-allowed; }
+.files-action.primary { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.files-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.files-saved { margin: 0; font-size: 12px; color: var(--accent); }
+.files-preview,
+.files-editor {
+  min-height: 240px;
+  margin: 0;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-code);
+  overflow: auto;
+}
+.files-preview { white-space: pre-wrap; word-break: break-word; }
+.files-editor { resize: vertical; width: 100%; outline: none; }
+.files-editor:focus-visible { border-color: var(--accent); }
+.files-error { display: grid; gap: 6px; }
+.files-confirm {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-panel);
+}
+.files-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.6; color: var(--text); }
+.files-confirm-actions { display: flex; gap: 8px; }
+
+@media (max-width: 767px) {
+  .files-layout { grid-template-columns: 1fr; }
+  .files-track { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
+}

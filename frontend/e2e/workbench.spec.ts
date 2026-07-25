@@ -69,6 +69,46 @@ async function installWorkbenchMocks(page: Page) {
       });
       return;
     }
+    if (path === "/api/files") {
+      const requested = new URL(request.url()).searchParams.get("path");
+      if (requested === "src") {
+        await json({ path: "src", entries: [{ name: "app.py", path: "src/app.py", kind: "file", size: 120 }] });
+      } else {
+        await json({
+          path: ".",
+          entries: [
+            { name: "src", path: "src", kind: "dir", size: null },
+            { name: "README.md", path: "README.md", kind: "file", size: 64 },
+            { name: "big.txt", path: "big.txt", kind: "file", size: 99999 },
+            { name: "missing.txt", path: "missing.txt", kind: "file", size: 10 },
+          ],
+        });
+      }
+      return;
+    }
+    if (path === "/api/file") {
+      const requested = new URL(request.url()).searchParams.get("path");
+      if (requested === "big.txt") {
+        await json({ path: "big.txt", content: "截断内容预览。", truncated: true, size: 99999 });
+      } else if (requested === "missing.txt") {
+        await json({ error: "File not found: missing.txt" }, 400);
+      } else {
+        await json({ path: requested, content: "# Readme\nHello", truncated: false, size: 14 });
+      }
+      return;
+    }
+    if (path === "/api/file/save" && request.method() === "POST") {
+      const body = JSON.parse(request.postData() || "{}") as { path?: string; content?: string };
+      await json({
+        status: "ok",
+        run_id: "run_save",
+        path: body.path,
+        bytes_written: (body.content || "").length,
+        snapshot_path: "snap_readme_1",
+        restore_hint: "agent restore snap_readme_1",
+      });
+      return;
+    }
     if (path === "/api/chats") {
       await json({ workspace: "F:\\projects\\spatial-demo", chats: [] });
       return;
@@ -317,6 +357,62 @@ test.describe("workspace shell", () => {
 
     await page.getByRole("button", { name: "关闭工作台", exact: true }).click();
     await expect(sheet).toHaveCount(0);
+  });
+});
+
+test.describe("files", () => {
+  async function openFiles(page: Page) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+  }
+
+  test("browses directories and previews a text file", async ({ page }) => {
+    await openFiles(page);
+
+    await expect(page.getByRole("button", { name: "src", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "src", exact: true }).click();
+    await expect(page.getByRole("button", { name: "app.py", exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "返回上级", exact: true }).click();
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await expect(page.getByText("Hello", { exact: false })).toBeVisible();
+  });
+
+  test("edits and saves through snapshot confirmation", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+
+    const editor = page.getByRole("textbox", { name: "文件编辑器", exact: true });
+    await editor.fill("# Readme\nHello world");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+
+    // Confirmation must spell out path, byte count and snapshot before writing.
+    const confirm = page.getByRole("dialog", { name: "确认保存", exact: true });
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByText("README.md", { exact: false })).toBeVisible();
+    await expect(confirm.getByText("将创建 snapshot", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "确认保存", exact: true }).click();
+
+    await expect(page.getByText("已保存", { exact: false })).toBeVisible();
+  });
+
+  test("keeps truncated files read-only", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "big.txt", exact: true }).click();
+
+    await expect(page.getByText("文件已截断", { exact: false })).toBeVisible();
+    // A truncated file must never expose an edit or save affordance.
+    await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
+  });
+
+  test("surfaces backend errors when a file cannot be opened", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "missing.txt", exact: true }).click();
+
+    await expect(page.getByText("File not found: missing.txt", { exact: false })).toBeVisible();
   });
 });
 
