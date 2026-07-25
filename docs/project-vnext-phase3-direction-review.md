@@ -109,5 +109,6 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 4. 安全：禁止 Tool 自动重放、无人值守 approval bypass、Terminal 假清理和浏览器 secrets 持久化。
 5. 性能：个人工具默认单 workspace slot；event 采用 append/cursor，搜索和输出必须有界。
 
-审查结论：通过，无未解决 finding。下一步只为 3A Lifecycle 写 spec；不得同时修改 Memory、
-Automation、eval 或前端开发工作区。
+审查结论：通过，无未解决 finding。3A Lifecycle 进入
+[独立设计](superpowers/specs/2026-07-25-phase3-recoverable-task-lifecycle-design.md)；不得同时修改
+Memory、Automation、eval 或前端开发工作区。
