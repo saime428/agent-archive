@@ -36,7 +36,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -301,7 +301,8 @@ function SessionPanel({
   );
 }
 
-function HistoryTurn({ turn, index }: { turn: ChatTurn; index: number }) {
+function HistoryTurn({ turn, index, originalThinking }: { turn: ChatTurn; index: number; originalThinking?: string }) {
+  const thinking = originalThinking || turn.thinking_text;
   return (
     <section className="turn" aria-label={`历史回合 ${index + 1}`}>
       <div className="utterance user-utterance">
@@ -310,10 +311,10 @@ function HistoryTurn({ turn, index }: { turn: ChatTurn; index: number }) {
       </div>
       <div className="utterance agent-utterance">
         <span className="utterance-label"><Bot aria-hidden="true" /> AGENT / ARCHIVED</span>
-        {turn.thinking_text ? (
+        {thinking ? (
           <details className="thinking-block">
-            <summary>查看公开工作过程</summary>
-            <pre data-payload>{turn.thinking_text}</pre>
+            <summary>{originalThinking ? "查看思维链" : "查看公开工作过程"}</summary>
+            <pre data-payload>{thinking}</pre>
           </details>
         ) : null}
         {turn.process.length ? (
@@ -618,6 +619,11 @@ export function App() {
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const railResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
+  // Preserve the raw streamed thinking per run so a finished turn can still expand it,
+  // instead of only the backend's rebuilt "public work log".
+  const [thinkingCache, setThinkingCache] = useState<Record<string, string>>({});
+  const streamThinkingRef = useRef("");
+  const stickToBottomRef = useRef(true);
 
   const refreshChats = useCallback(async () => {
     const payload = await api.listChats();
@@ -715,8 +721,17 @@ export function App() {
       sessionId: activeJob.sessionId,
       onStatus: setStreamStatus,
       onEvent(event) {
+        if (event.event === "chat_started") streamThinkingRef.current = "";
+        else if (event.event === "model_stream_chunk" && event.kind === "thinking") {
+          streamThinkingRef.current += event.text;
+        }
         setLive((state) => chatReducer(state, event));
         if (event.event !== "final" && event.event !== "error") return;
+        if (event.event === "final" && streamThinkingRef.current && event.run_id) {
+          const captured = streamThinkingRef.current;
+          setThinkingCache((cache) => ({ ...cache, [event.run_id]: captured }));
+        }
+        streamThinkingRef.current = "";
         void settleJob();
       },
       onRecover(id) {
@@ -727,11 +742,17 @@ export function App() {
     return stop;
   }, [activeJob, loadChat, refreshChats]);
 
-  useEffect(() => {
+  // Follow new content while the user is parked at the bottom; stop nagging once they scroll up.
+  const handleTranscriptScroll = useCallback(() => {
     const element = transcriptRef.current;
     if (!element) return;
-    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
-    if (remaining < 240) element.scrollTo({ top: element.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
+    stickToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+  }, []);
+
+  useEffect(() => {
+    const element = transcriptRef.current;
+    if (!element || !stickToBottomRef.current) return;
+    element.scrollTo({ top: element.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
   }, [chat, live, pendingUser, reducedMotion]);
 
   const newSession = () => {
@@ -914,16 +935,14 @@ export function App() {
             </div>
           ) : null}
 
-          <div className="transcript" ref={transcriptRef} aria-busy={loadingChat}>
+          <div className="transcript" ref={transcriptRef} aria-busy={loadingChat} onScroll={handleTranscriptScroll}>
             {loadingChat ? <div className="loading-state"><LoaderCircle className="spin" aria-hidden="true" /> 正在读取会话历史</div> : null}
             {!loadingChat && !hasTranscript ? <EmptyStage phase={phase} /> : null}
-            <AnimatePresence initial={false}>
-              {chat?.turns.map((turn, index) => (
-                <motion.div key={turn.run_id || index} initial={reducedMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={spring}>
-                  <HistoryTurn turn={turn} index={index} />
-                </motion.div>
-              ))}
-            </AnimatePresence>
+            {chat?.turns.map((turn, index) => (
+              <div key={turn.run_id || index}>
+                <HistoryTurn turn={turn} index={index} originalThinking={thinkingCache[turn.run_id]} />
+              </div>
+            ))}
             {showLive || pendingUser ? (
               <LiveTurn
                 live={live}
