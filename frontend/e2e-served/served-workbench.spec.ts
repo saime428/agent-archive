@@ -7,7 +7,10 @@ import { basename, dirname, join, resolve } from "node:path";
 
 const FIXTURE_MARKERS = ["[served-approval]", "[served-command]", "[served-restart]", "[served-resume]"];
 const REPOSITORY = resolve(process.cwd(), "..");
-const PYTHON = resolve(REPOSITORY, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+const PYTHON = resolve(
+  process.env.AGENT_TEST_PYTHON
+    || resolve(REPOSITORY, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+);
 let providerServer: Server;
 let providerBaseUrl = "";
 const providerCalls = new Map<string, number>();
