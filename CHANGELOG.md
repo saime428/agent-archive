@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- 修复异步新会话首次详情读取竞态：`ChatRuntime.start()` 现在只对尚未持久化的 session 在发布 ID 前走既有原子保存路径，避免 React 紧接着读取 `/api/chats/<id>` 时因 `session.json` 尚未生成而短暂返回 500。
 - Frontend vNext 默认入口切换就绪。React `/preview/` 已成为候选 Git tree 与 Python wheel 均携带的完整运行时资产，新增稳定 `/legacy/` 回滚入口及 Python 实服、端口冲突、wheel 字节闭包和候选树重建门禁；根 `/` 仍是旧 Workbench，旧资源未删除，Cutover 仍需再次明确授权。
 - Frontend vNext 阶段 2 核心功能等价：`/preview/` React 工作台从单页聊天扩展为真实工作台，覆盖 Files（浏览、预览、截断只读、snapshot-backed 编辑保存）、Runs（列表过滤、Review/Workflow/Failure/Patch Review/Recovery/Replay 只读详情、diff、二次确认恢复）、System（readiness、workspace risk、memory review 只读，config 白名单受控写，Tool 目录，资源详情跨视图跳转），并加入 10 秒安全刷新与 dirty 编辑保护。后端 HTTP/SSE schema、sandbox、snapshot、run store、config write 零改动；根 `/` 仍是旧静态 Workbench，不切换默认入口、不删除旧资源。不含 Monaco、真实 terminal、递归搜索、Git 工作区与生态管理生命周期。
 

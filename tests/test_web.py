@@ -16,8 +16,9 @@ from typing import Iterator
 import pytest
 
 from agent.llm.fake import FakeLLMClient
-from agent.web import server
 from agent.web import chat_runtime
+from agent.web import chats
+from agent.web import server
 from agent.web import settings
 from agent.web.chat_runtime import ChatRuntime
 
@@ -938,6 +939,29 @@ def test_chat_runtime_does_not_prune_active_job_and_negative_timeout_is_nonblock
     assert elapsed < 0.1
     release.set()
     _wait_for_runtime_done(runtime, started["job_id"])
+
+
+@pytest.mark.parametrize("session_id", [None, "chat_requested"])
+def test_chat_runtime_makes_new_session_readable_before_async_turn_finishes(tmp_path, session_id: str | None) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingLLM:
+        def chat(self, _messages, *, temperature=None):
+            entered.set()
+            assert release.wait(2.0)
+            return _done_response()
+
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: BlockingLLM())
+    started = runtime.start(message="wait", session_id=session_id)
+    assert entered.wait(1.0)
+
+    try:
+        payload = chats.build_chat_payload(tmp_path, started["session_id"])
+        assert payload["turn_count"] == 0
+    finally:
+        release.set()
+        _wait_for_runtime_done(runtime, started["job_id"])
 
 
 def test_chat_runtime_rejects_a_second_active_turn_for_the_same_session(tmp_path) -> None:

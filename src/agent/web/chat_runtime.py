@@ -68,6 +68,8 @@ class ChatRuntime:
             if reserved_session_id is None:
                 self._claim_session(state.session_id)
                 reserved_session_id = state.session_id
+            if not (state.cwd / ".agent" / "chats" / state.session_id / "session.json").is_file():
+                state.save(config)
             job = _ChatJob(job_id=f"job_{uuid.uuid4().hex[:12]}", started_at=self._clock())
             with self._jobs_lock:
                 self._jobs[job.job_id] = job

@@ -840,6 +840,31 @@ def test_frontend_vnext_default_entry_cutover_readiness_spec_records_boundaries(
     assert "- [ ]" not in plan
 
 
+def test_async_chat_session_visibility_docs_record_contract_and_evidence() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-07-25-async-chat-session-visibility-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-25-async-chat-session-visibility.md"
+    ).read_text(encoding="utf-8")
+
+    assert "状态：已实施并验收" in spec
+    assert "成功返回时，其 `session_id` 必须已经能被现有 chat detail" in spec
+    assert "状态：已执行" in plan
+    assert "96 passed" in plan
+    assert "5 个全新隔离服务" in plan
+    assert "修复异步新会话首次详情读取竞态" in changelog
+
+
 def test_extension_management_closeout_docs_record_commands_and_status() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
