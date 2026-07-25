@@ -947,6 +947,8 @@ const workspaceVisuals = [
 
 for (const variant of workspaceVisuals) {
   test(`visual ${variant.name}`, async ({ page }) => {
+    // Masking hides the clock pixels, but only fixed time keeps its layout width deterministic.
+    await page.clock.setFixedTime(new Date("2026-07-25T12:34:56"));
     await page.setViewportSize({ width: variant.width, height: variant.height });
     await page.goto("./#/new");
     await page.getByLabel("显示模式", { exact: true }).selectOption(variant.mode);
@@ -967,7 +969,7 @@ for (const variant of workspaceVisuals) {
 
     await expect(page).toHaveScreenshot(`${variant.name}.png`, {
       animations: "disabled",
-      // The refresh clock ticks with wall time; mask it so the baseline stays deterministic.
+      // Keep wall-clock text out of the approved image.
       mask: [page.locator(".workspace-refresh-time")],
     });
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));

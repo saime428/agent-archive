@@ -164,13 +164,13 @@ def release_doctor(
         raise typer.Exit(code=1) from exc
 
     console.print("release readiness: complete")
-    console.print("route completion: 100%")
+    console.print("route completion: 100% (legacy local baseline)")
     console.print("startup command: agent start")
     console.print("config readable: true")
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     _print_provider_capabilities(config)
-    console.print("settings writes: read-only")
+    console.print("settings writes: controlled allowlist (no secrets/approval bypass)")
     console.print("packaging: deferred (not required for local release)")
     console.print("test command: python -m pytest -q")
     console.print("check command: git diff --check")

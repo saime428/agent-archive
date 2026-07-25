@@ -69,7 +69,7 @@
 | 门禁 | 结果 |
 | --- | --- |
 | `npm ci` | 干净安装，0 vulnerabilities |
-| `npm run check` | **41 passed**（typecheck + lint + check:ui + vitest + build + Playwright） |
+| `npm run check` | **41 passed，1 skipped**（typecheck + lint + check:ui + vitest + build + Playwright；30 秒性能采样按需运行） |
 | `pytest -q`（全量） | **1030 passed** |
 | `git diff --check` | 通过 |
 
@@ -77,13 +77,18 @@
 
 ## 3. 视觉基线
 
-10 张确定性快照（刷新时间戳已 mask）：
+10 张确定性快照（刷新时间固定，并继续 mask 时钟文本）：
 
 - 阶段 1 壳：`a-dark-desktop`、`b-dark-desktop`、`b-light-desktop`、`b-dark-mobile-390`、`b-dark-mobile-320`、`c-light-desktop`
 - 阶段 2 工作台：`workspace-system-dark-1440`（System readiness）、`workspace-files-light-1440`（Files 编辑态）、`workspace-runs-dark-390`（Run attention）、`workspace-system-dark-320`
 
 E2E fixture 已改为**真实长度数据**（长会话标题、`run_20260725_045603_309947` 式 run id、
 多行 summary）——短 fixture 正是早期没能测出列溢出的原因。
+
+可见 Chrome（1712×1079）已人工检查 `/preview/` 的 App Shell、System、Files、Runs、
+diff 与恢复确认对话框。恢复操作停在确认层并取消；控制台 warning/error 为 0。
+视觉用例同时固定 `Date`：仅 mask 文本会隐藏像素，却不能消除个位/两位小时带来的
+布局宽度变化。
 
 ## 4. 性能
 
@@ -104,15 +109,11 @@ E2E fixture 已改为**真实长度数据**（长会话标题、`run_20260725_04
 
 ## 6. 已知限制
 
-1. **人工视觉审查未在真实可见浏览器完成。** 本次可用的浏览器面板不合成帧
-   （`visibilityState=hidden`、`requestAnimationFrame` 不触发），motion 入场动画与
-   `mode="wait"` 视图切换在该环境下无法目视确认；已通过 Playwright（正常合成）与
-   代码审查覆盖。**建议在真实浏览器补一次人工观感确认。**
-2. `diff`、`restore`、`file/save` 未加 Python 侧契约测试（构造真实 snapshot 成本较高），
+1. `diff`、`restore`、`file/save` 未加 Python 侧契约测试（构造真实 snapshot 成本较高），
    由本次真实服务验收覆盖；后端若改这些字段，前端不会自动变红。
-3. 视觉评分仅为内部设计代理判断，**不代表** Awwwards / FWA / CSS Design Awards 的
+2. 视觉评分仅为内部设计代理判断，**不代表** Awwwards / FWA / CSS Design Awards 的
    任何真实评审结果或获奖。
-4. 递归 workspace 搜索、Monaco、真实 terminal、Git 工作区、生态管理生命周期均未实现，
+3. 递归 workspace 搜索、Monaco、真实 terminal、Git 工作区、生态管理生命周期均未实现，
    属后续阶段。
 
 ## 7. Rollback

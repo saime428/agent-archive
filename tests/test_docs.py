@@ -781,10 +781,12 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "MCP Server 故障隔离" in changelog
 
     assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
+    assert "Frontend vNext Phase 2: Core functional parity | Complete in preview" in roadmap
     assert "Full Project vNext ecosystem | In progress" in roadmap
     assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
     assert "Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice" in roadmap
-    assert "Next Project vNext slice: Frontend vNext Phase 2 functional parity or a Phase 3" in roadmap
+    assert "Completed slice: Frontend vNext Phase 2 core functional parity" in roadmap
+    assert "Next Project vNext slice: default-entry cutover readiness or a Phase 3" in roadmap
 
     assert "Provider 能力声明（均已完成）" in direction
     assert "2026-07-18-managed-extension-lifecycle-design.md" in direction

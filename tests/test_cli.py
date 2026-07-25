@@ -182,14 +182,14 @@ def test_release_doctor_reports_release_readiness(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "release readiness: complete" in result.output
-    assert "route completion: 100%" in result.output
+    assert "route completion: 100% (legacy local baseline)" in result.output
     assert "startup command: agent start" in result.output
     assert "config readable: true" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
     assert "provider adapter capabilities: streaming=false native_tools=false" in result.output
     assert "deepseek api key present:" not in result.output
-    assert "settings writes: read-only" in result.output
+    assert "settings writes: controlled allowlist (no secrets/approval bypass)" in result.output
     assert "packaging: deferred (not required for local release)" in result.output
     assert "test command: python -m pytest -q" in result.output
 

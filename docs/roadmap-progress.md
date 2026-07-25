@@ -1,6 +1,6 @@
 # Agent Roadmap Progress
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 Status update (2026-07-18): this file keeps the completed local-baseline
 milestones and records completed Project vNext slices separately. The
@@ -23,7 +23,7 @@ workflow is actually useful.
 | --- | ---: | --- |
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
-| Overall final goal | 100% | Required roadmap is complete; packaging, desktop shell, and browser settings writes are trigger-based options |
+| Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -35,7 +35,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Phase 1: stdio MCP dynamic Tools | Complete | User-only config, SDK lifecycle, unified catalog/safety chain, and real CLI/Chat/Workbench acceptance |
 | Phase 2 slice 1: managed MCP and Skills lifecycle | Complete | Managed MCP fragments/state with a live `mcp doctor`, user Skill install/update/package/remove, one shared user-store transaction layer, and crash-recovery evidence |
 | Frontend vNext Phase 1: App Shell + Chat | Complete in preview | React/Vite `/preview/` vertical slice covers C1-C9, H1/H2, S1/S2/S5 with real REST/SSE adapters, themes, responsive spatial shell, approval paths, Canvas, and regression evidence; legacy `/` remains the rollback path |
-| Full Project vNext ecosystem | In progress | The backend management surface and Frontend vNext Phase 1 are complete; Frontend Phase 2 still owns files, runs, settings readiness, workspace risk, memory review, and resource surfaces, while later phases cover productivity, distribution, remote, and community loops |
+| Frontend vNext Phase 2: Core functional parity | Complete in preview | Files, Runs, System, bounded non-secret config writes, visual baselines, and visible-browser acceptance are complete; legacy `/` remains the default rollback path |
+| Full Project vNext ecosystem | In progress | The backend management surface and Frontend vNext Phases 1-2 are complete; later phases still own productivity, default-entry cutover, distribution, remote, and community loops |
 
 ## Completed Milestones
 
@@ -55,6 +56,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | v2.0 | Tokenicode Workbench | Tokenicode-style visual refresh, SSE browser chat, dark theme, resizable columns, conversation tabs, resource detail panels |
 | vNext Phase 1 slice | Open extension kernel | Local stdio MCP dynamic Tools share the built-in Tool catalog, approval, observation, redaction, trace, and composition-root lifecycle |
 | Frontend vNext Phase 1 | Spatial App Shell + Chat | Parallel React preview, typed REST/SSE seam, real chat/approval/history flow, six theme-mode sets, responsive rail, one state-driven Canvas, and Lucide-only accessible product chrome |
+| Frontend vNext Phase 2 | Workspace functional parity | Files, Runs, System diagnostics, bounded config writes, snapshot review/restore confirmation, and deterministic responsive visual coverage |
 
 ## Active v0.6 Plan
 
@@ -302,7 +304,9 @@ local secret flow lets terminal and Workbench entries read `.agent/secrets.env`
 without committing API keys. The closeout freezes speculative polish until a
 user-directed feature needs it. Final route completion marks the required local
 visual agent roadmap as 100%; packaging, a desktop shell, and browser settings
-writes remain optional trigger-based work rather than unfinished release gates.
+writes were optional trigger-based work rather than unfinished v1.0 release gates.
+Frontend vNext Phase 2 has since added bounded non-secret browser config writes;
+secrets and approval bypasses remain excluded.
 The v2.0 Tokenicode refresh upgrades the existing static Workbench into a
 denser coding-IDE style surface with streaming browser chat, tabs, resizable
 columns, theme switching, and compact resource inspection while keeping the
@@ -320,10 +324,14 @@ shared `config set/unset` write path).
 Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice at
 `/preview/`, with the legacy `/` entry preserved for rollback.
 
-Next Project vNext slice: Frontend vNext Phase 2 functional parity or a Phase 3
-productivity slice, chosen by its own spec. Marketplace, registry, remote
-sources, default-entry cutover, and automatic reconnect stay out of scope until
-a later slice has its own spec.
+Completed slice: Frontend vNext Phase 2 core functional parity at `/preview/`,
+including Files, Runs, System, bounded non-secret config writes, visual baselines,
+and visible-browser acceptance; legacy `/` remains the default rollback path.
+
+Next Project vNext slice: default-entry cutover readiness or a Phase 3 productivity
+slice, chosen by its own spec. Marketplace, registry, remote sources, the actual
+default-entry switch, and automatic reconnect stay out of scope until a later
+slice has its own spec.
 
 ## Guardrails
 
