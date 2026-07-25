@@ -218,4 +218,5 @@
 - [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md)
 - [Provider 能力声明](superpowers/specs/2026-07-22-provider-capability-declaration-design.md)
 - [扩展管理面收尾](superpowers/specs/2026-07-23-extension-management-closeout-design.md)
+- [Phase 3 方向分析与审查](project-vnext-phase3-direction-review.md)
 - [v1.0 Packaging Decision](v1.0-packaging-decision.md)
