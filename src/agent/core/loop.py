@@ -28,6 +28,7 @@ from agent.core.project_instructions import (
     load_project_instructions,
 )
 from agent.core.redaction import redact_observation, redact_record, redact_value
+from agent.core.run_control import RunControl, StopReason
 from agent.core.skills import SkillError, SkillMetadata, build_skills_message, load_selected_skills
 from agent.core.summary import final_from_observation, render_summary
 from agent.core.tool_catalog import (
@@ -77,9 +78,16 @@ class TraceRecord:
     warning: str | None = None
 
 
-ApprovalHandler = Callable[[InternalAction], bool | Literal["timed_out"]]
+ApprovalOutcome = bool | Literal["timed_out", "cancelled", "run_timed_out"]
+ApprovalHandler = Callable[[InternalAction], ApprovalOutcome]
 RunEventHandler = Callable[[dict[str, Any]], None]
 StreamHandler = Callable[[str], None]
+
+
+class _RunStopped(RuntimeError):
+    def __init__(self, reason: StopReason) -> None:
+        self.reason = reason
+        super().__init__(reason)
 
 
 SUPPORTED_TOOL_ACTIONS = {
@@ -104,6 +112,7 @@ def run_once(
     approval_handler: ApprovalHandler | None = None,
     event_handler: RunEventHandler | None = None,
     stream_handler: StreamHandler | None = None,
+    control: RunControl | None = None,
 ) -> RunResult:
     effective_config = config or AgentConfig()
     effective_max_iterations = (
@@ -180,20 +189,54 @@ def run_once(
     consecutive_errors = 0
     budget_warning_sent = False
 
+    def record_stop(reason: StopReason, action_index: int) -> None:
+        _record_run_stop(
+            reason,
+            context=context,
+            config=effective_config,
+            tool_catalog=tool_catalog,
+            action_index=action_index,
+            actions=actions,
+            observations=observations,
+            observation_redaction_replacements=observation_redaction_replacements,
+            traces=traces,
+            event_handler=event_handler,
+        )
+
+    def record_requested_stop(action_index: int) -> bool:
+        reason = _control_stop_reason(control)
+        if reason is None:
+            return False
+        record_stop(reason, action_index)
+        return True
+
     while completed_action_iterations < effective_max_iterations:
+        if record_requested_stop(model_call_index + 1):
+            break
         model_call_index += 1
         _emit_event(
             event_handler,
             "model_call_start",
             {"run_id": context.run_id, "action_index": model_call_index},
         )
-        raw_response = _model_response(
-            llm,
-            messages,
-            event_handler=event_handler,
-            stream_handler=stream_handler,
-            native_tools_payload=native_tools_payload,
-        )
+        try:
+            raw_response = _model_response(
+                llm,
+                messages,
+                event_handler=event_handler,
+                stream_handler=stream_handler,
+                native_tools_payload=native_tools_payload,
+                control=control,
+            )
+        except KeyboardInterrupt:
+            if control is None:
+                raise
+            control.request_cancel()
+            record_stop("cancelled", model_call_index)
+            break
+        except _RunStopped as stopped:
+            record_stop(stopped.reason, model_call_index)
+            break
         trace_warning = None
         if use_native and isinstance(raw_response, dict):
             raw_response = dict(raw_response)
@@ -243,20 +286,23 @@ def run_once(
             break
 
         repair_attempt = 0
-        completed_action_iterations += 1
-        actions.append(action)
         _emit_event(
             event_handler,
             "action_parsed",
             _event_action_payload(context.run_id, model_call_index, action),
         )
-
+        if record_requested_stop(model_call_index):
+            break
         before_tool_hooks = _run_hook_event(
             "before_tool",
             effective_config,
             hooks_path,
             {"run_id": context.run_id, "action": action.action.name},
         )
+        if record_requested_stop(model_call_index):
+            break
+        completed_action_iterations += 1
+        actions.append(action)
         if before_tool_hooks.blocking_error is not None:
             observation = make_error_observation(
                 action.action_id,
@@ -307,22 +353,37 @@ def run_once(
                 "tool_start",
                 _event_action_payload(context.run_id, model_call_index, action),
             )
-            observation, adapter_redaction_replacements = _tool_observation(
-                action,
-                context,
-                sandbox,
-                effective_config,
-                definition=definition,
-                mcp_runtime=mcp_runtime,
-                skills=skills,
-                observation_index=model_call_index,
-                approval_handler=approval_handler,
-                event_handler=event_handler,
-            )
+            try:
+                observation, adapter_redaction_replacements = _tool_observation(
+                    action,
+                    context,
+                    sandbox,
+                    effective_config,
+                    definition=definition,
+                    mcp_runtime=mcp_runtime,
+                    skills=skills,
+                    observation_index=model_call_index,
+                    approval_handler=approval_handler,
+                    event_handler=event_handler,
+                    control=control,
+                )
+            except KeyboardInterrupt:
+                if control is None:
+                    raise
+                control.request_cancel()
+                observation = _run_stop_observation(
+                    action,
+                    observation_index=model_call_index,
+                    reason="cancelled",
+                )
+                adapter_redaction_replacements = 0
+                _emit_run_stop_event(event_handler, action.run_id, model_call_index, "cancelled")
+        run_stopped = _observation_stop_reason(observation) is not None
         error_recoverable = (
             observation.status == "error"
             and observation.error is not None
             and observation.error.code in RECOVERABLE_ERROR_CODES
+            and not run_stopped
         )
         if observation.status == "error":
             consecutive_errors += 1
@@ -336,6 +397,7 @@ def run_once(
             action.action.name in {"done", "ask_user"}
             or (observation.status == "error" and not error_recoverable)
             or errors_exhausted
+            or run_stopped
         )
         if errors_exhausted and observation.error is not None:
             error_details = dict(observation.error.details or {})
@@ -378,24 +440,27 @@ def run_once(
         )
         if terminal:
             break
+        if record_requested_stop(model_call_index + 1):
+            break
         messages.append(_build_observation_feedback_message(action, observation, context, native=use_native))
         remaining_iterations = effective_max_iterations - completed_action_iterations
         if remaining_iterations == 2 and not budget_warning_sent:
             messages.append(_build_iteration_warning_message(remaining_iterations))
             budget_warning_sent = True
     else:
-        action = actions[-1]
-        observation = make_error_observation(
-            action.action_id,
-            context.run_id,
-            observation_index=model_call_index + 1,
-            code=ErrorCode.TOOL_FAILED,
-            message="Run stopped after reaching the iteration limit.",
-            details={"max_iterations": effective_max_iterations},
-        )
-        observation, replacements = _prepare_observation(observation, context.budget)
-        observations.append(observation)
-        observation_redaction_replacements.append(replacements)
+        if not record_requested_stop(model_call_index + 1):
+            action = actions[-1]
+            observation = make_error_observation(
+                action.action_id,
+                context.run_id,
+                observation_index=model_call_index + 1,
+                code=ErrorCode.TOOL_FAILED,
+                message="Run stopped after reaching the iteration limit.",
+                details={"max_iterations": effective_max_iterations},
+            )
+            observation, replacements = _prepare_observation(observation, context.budget)
+            observations.append(observation)
+            observation_redaction_replacements.append(replacements)
 
     return _finalize_run(
         context=context,
@@ -472,6 +537,94 @@ def _finalize_run(
     )
 
 
+def _control_stop_reason(control: RunControl | None) -> StopReason | None:
+    return None if control is None else control.stop_reason()
+
+
+def _raise_if_stopped(control: RunControl | None) -> None:
+    reason = _control_stop_reason(control)
+    if reason is not None:
+        raise _RunStopped(reason)
+
+
+def _run_stop_observation(
+    action: InternalAction,
+    *,
+    observation_index: int,
+    reason: StopReason,
+) -> Observation:
+    code = ErrorCode.CANCELLED if reason == "cancelled" else ErrorCode.TIMEOUT
+    message = "Run cancelled." if reason == "cancelled" else "Run timed out."
+    return make_error_observation(
+        action.action_id,
+        action.run_id,
+        observation_index=observation_index,
+        code=code,
+        message=message,
+        details={"stop_reason": reason},
+    )
+
+
+def _observation_stop_reason(observation: Observation) -> StopReason | None:
+    if observation.error is None:
+        return None
+    reason = (observation.error.details or {}).get("stop_reason")
+    return reason if reason in {"cancelled", "timed_out"} else None
+
+
+def _emit_run_stop_event(
+    handler: RunEventHandler | None,
+    run_id: str,
+    action_index: int,
+    reason: StopReason,
+) -> None:
+    _emit_event(
+        handler,
+        "run_cancelled" if reason == "cancelled" else "run_timed_out",
+        {"run_id": run_id, "action_index": action_index, "stop_reason": reason},
+    )
+
+
+def _record_run_stop(
+    reason: StopReason,
+    *,
+    context: RunContext,
+    config: AgentConfig,
+    tool_catalog: ToolCatalog,
+    action_index: int,
+    actions: list[InternalAction],
+    observations: list[Observation],
+    observation_redaction_replacements: list[int],
+    traces: list[TraceRecord],
+    event_handler: RunEventHandler | None,
+) -> None:
+    action = InternalAction(
+        run_id=context.run_id,
+        action_id=format_action_id(action_index),
+        created_at=context.created_at,
+        message="Run cancelled." if reason == "cancelled" else "Run timed out.",
+        action=ActionCall(name="run_control", args={"reason": reason}),
+    )
+    observation = _run_stop_observation(action, observation_index=action_index, reason=reason)
+    observation, replacements = _prepare_observation(observation, context.budget)
+    actions.append(action)
+    observations.append(observation)
+    observation_redaction_replacements.append(replacements)
+    traces.append(
+        TraceRecord(
+            phase="control",
+            action_index=action_index,
+            observation_index=action_index,
+            repair_attempt=None,
+            terminal=True,
+            policy_decision=None,
+            policy_reason=None,
+            config=_trace_config(config, tool_catalog),
+        )
+    )
+    _emit_run_stop_event(event_handler, context.run_id, action_index, reason)
+
+
 def _emit_event(handler: RunEventHandler | None, event: str, payload: dict[str, Any]) -> None:
     if handler is None:
         return
@@ -504,18 +657,25 @@ def _model_response(
     event_handler: RunEventHandler | None,
     stream_handler: StreamHandler | None,
     native_tools_payload: list[dict] | None = None,
+    control: RunControl | None = None,
 ) -> dict | str:
+    _raise_if_stopped(control)
     if native_tools_payload is not None:
         stream_chat_tools = getattr(llm, "stream_chat_tools", None)
         if stream_handler is None or stream_chat_tools is None:
-            return llm.chat_tools(messages, native_tools_payload)
+            response = llm.chat_tools(messages, native_tools_payload)
+            _raise_if_stopped(control)
+            return response
         _emit_event(event_handler, "model_stream_start", {})
         generator = stream_chat_tools(messages, native_tools_payload)
         while True:
+            _raise_if_stopped(control)
             try:
                 chunk = next(generator)
             except StopIteration as stop:
+                _raise_if_stopped(control)
                 return stop.value if stop.value is not None else ""
+            _raise_if_stopped(control)
             kind, text = chunk if isinstance(chunk, tuple) else ("content", str(chunk))
             stream_handler(text)
             _emit_event(
@@ -525,11 +685,20 @@ def _model_response(
             )
     stream_chat = getattr(llm, "stream_chat", None)
     if stream_handler is None or stream_chat is None:
-        return llm.chat(messages)
+        response = llm.chat(messages)
+        _raise_if_stopped(control)
+        return response
 
     _emit_event(event_handler, "model_stream_start", {})
     chunks: list[str] = []
-    for chunk in stream_chat(messages):
+    generator = iter(stream_chat(messages))
+    while True:
+        _raise_if_stopped(control)
+        try:
+            chunk = next(generator)
+        except StopIteration:
+            break
+        _raise_if_stopped(control)
         text = str(chunk)
         chunks.append(text)
         stream_handler(text)
@@ -538,6 +707,7 @@ def _model_response(
             "model_stream_chunk",
             {"kind": "content", "text": text, "chunk_chars": len(text)},
         )
+    _raise_if_stopped(control)
     return "".join(chunks)
 
 
@@ -668,7 +838,16 @@ def _tool_observation(
     observation_index: int,
     approval_handler: ApprovalHandler | None = None,
     event_handler: RunEventHandler | None = None,
+    control: RunControl | None = None,
 ) -> tuple[Observation, int]:
+    stop_reason = _control_stop_reason(control)
+    if stop_reason is not None:
+        _emit_run_stop_event(event_handler, action.run_id, observation_index, stop_reason)
+        return _run_stop_observation(
+            action,
+            observation_index=observation_index,
+            reason=stop_reason,
+        ), 0
     decision = classify_action(action, config, definition)
     if decision.status == "deny":
         return (
@@ -725,6 +904,14 @@ def _tool_observation(
                 ),
             )
             approval_outcome = approval_handler(action)
+            if approval_outcome in {"cancelled", "run_timed_out"}:
+                stop_reason = "cancelled" if approval_outcome == "cancelled" else "timed_out"
+                _emit_run_stop_event(event_handler, action.run_id, observation_index, stop_reason)
+                return _run_stop_observation(
+                    action,
+                    observation_index=observation_index,
+                    reason=stop_reason,
+                ), 0
             if approval_outcome == "timed_out":
                 _emit_event(
                     event_handler,
@@ -779,6 +966,15 @@ def _tool_observation(
                 ),
                 0,
             )
+
+    stop_reason = _control_stop_reason(control)
+    if stop_reason is not None:
+        _emit_run_stop_event(event_handler, action.run_id, observation_index, stop_reason)
+        return _run_stop_observation(
+            action,
+            observation_index=observation_index,
+            reason=stop_reason,
+        ), 0
 
     if definition.source == "mcp":
         return _mcp_tool_observation(

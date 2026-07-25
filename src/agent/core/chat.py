@@ -11,9 +11,11 @@ from typing import Any, Callable
 
 from agent import _user_store
 from agent.config import AgentConfig
+from agent.core.actions import ErrorCode
 from agent.core.budget import ContextBudget, truncate_text
 from agent.core.loop import ApprovalHandler, RunResult, run_once
 from agent.core.redaction import redact_record
+from agent.core.run_control import RunControl
 from agent.llm.base import LLMClient
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
 
@@ -36,6 +38,8 @@ class ChatTurn:
     final: str
     last_action: str
     last_observation_summary: str
+    job_id: str | None = None
+    resumed_from_job_id: str | None = None
 
 
 @dataclass
@@ -107,7 +111,14 @@ class ConversationState:
             raise ValueError(f"Chat session not found: {session_id}")
         shutil.rmtree(session_dir)
 
-    def add_result(self, user: str, result: RunResult) -> None:
+    def add_result(
+        self,
+        user: str,
+        result: RunResult,
+        *,
+        job_id: str | None = None,
+        resumed_from_job_id: str | None = None,
+    ) -> None:
         self.add_turn(
             user=user,
             run_id=result.context.run_id,
@@ -117,6 +128,8 @@ class ConversationState:
             final=_final_from_result(result),
             last_action=result.action.action.name,
             last_observation_summary=result.observation.summary,
+            job_id=job_id,
+            resumed_from_job_id=resumed_from_job_id,
         )
 
     def add_turn(
@@ -130,6 +143,8 @@ class ConversationState:
         final: str,
         last_action: str,
         last_observation_summary: str,
+        job_id: str | None = None,
+        resumed_from_job_id: str | None = None,
     ) -> None:
         self.turns.append(
             ChatTurn(
@@ -141,6 +156,8 @@ class ConversationState:
                 final=final,
                 last_action=last_action,
                 last_observation_summary=last_observation_summary,
+                job_id=job_id,
+                resumed_from_job_id=resumed_from_job_id,
             )
         )
         self.updated_at = _now_iso()
@@ -212,6 +229,10 @@ class ChatSession:
         approval_handler: ApprovalHandler | None = None,
         event_handler: RunEventHandler | None = None,
         stream_handler: Callable[[str], None] | None = None,
+        run_id: str | None = None,
+        job_id: str | None = None,
+        resumed_from_job_id: str | None = None,
+        control: RunControl | None = None,
     ) -> RunResult:
         context_messages: list[dict[str, str]] = []
         history_message = self.state.build_context_message(self.budget)
@@ -222,6 +243,7 @@ class ChatSession:
             user_input,
             self.llm,
             cwd=self.cwd,
+            run_id=run_id,
             config=self.config,
             budget=self.budget,
             selected_skills=self.selected_skills,
@@ -230,8 +252,14 @@ class ChatSession:
             approval_handler=approval_handler,
             event_handler=event_handler,
             stream_handler=stream_handler,
+            control=control,
         )
-        self.state.add_result(user_input, result)
+        self.state.add_result(
+            user_input,
+            result,
+            job_id=job_id,
+            resumed_from_job_id=resumed_from_job_id,
+        )
         self.state.save(self.config)
         return result
 
@@ -364,6 +392,10 @@ def _result_terminal_reason(result: RunResult) -> str:
     error = result.observation.error
     if error is None:
         return "stopped"
+    if error.code == ErrorCode.CANCELLED:
+        return "cancelled"
+    if error.code == ErrorCode.TIMEOUT and (error.details or {}).get("stop_reason") == "timed_out":
+        return "timed_out"
     if str(error.code) == "TOOL_FAILED" and error.message == "Run stopped after reaching the iteration limit.":
         return "iteration_limit"
     return f"error:{error.code}"

@@ -5,9 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent.core.actions import ErrorCode
+import pytest
+
+from agent.core.actions import ErrorCode, RECOVERABLE_ERROR_CODES
 from agent.core.budget import ContextBudget
 from agent.core.loop import run_once
+from agent.core.run_control import RunControl
 from agent.core.skills import SkillStore
 from agent.config import AgentConfig
 from agent.llm.fake import FakeLLMClient
@@ -89,6 +92,16 @@ class ObservationFeedbackLLM:
         }
 
 
+class NoCallLLM:
+    def chat(self, _messages: list[dict], *, temperature: float | None = None) -> dict:
+        raise AssertionError("model must not be called after the run is stopped")
+
+
+class InterruptLLM:
+    def chat(self, _messages: list[dict], *, temperature: float | None = None) -> dict:
+        raise KeyboardInterrupt
+
+
 def _git(cwd, *args: str) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
@@ -125,6 +138,167 @@ def test_run_once_returns_done_action_and_writes_logs(tmp_path) -> None:
     assert "- last_action: done" in summary
     assert "- last_observation_summary: Done." in summary
     assert "FakeLLM received task: inspect project" in summary
+
+
+def test_run_once_cancelled_before_model_still_finalizes_logs_and_hooks(tmp_path) -> None:
+    control = RunControl()
+    control.request_cancel()
+
+    result = run_once(
+        "cancel now",
+        NoCallLLM(),
+        cwd=tmp_path,
+        run_id="run_cancelled",
+        control=control,
+        config=AgentConfig(enabled_hooks=("audit",)),
+    )
+
+    assert result.action.action.name == "run_control"
+    assert result.action.action.args == {"reason": "cancelled"}
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.CANCELLED
+    assert ErrorCode.CANCELLED not in RECOVERABLE_ERROR_CODES
+    assert result.tool_calls_path.is_file()
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "- terminal_reason: cancelled" in summary
+    assert "- error: CANCELLED: Run cancelled." in summary
+    hooks = (tmp_path / ".agent" / "runs" / "run_cancelled" / "hooks.jsonl").read_text(encoding="utf-8")
+    assert '"event": "before_run"' in hooks
+    assert '"event": "after_run"' in hooks
+
+
+def test_run_once_times_out_at_the_deadline_before_model(tmp_path) -> None:
+    now = [20.0]
+    control = RunControl(deadline=20.0, clock=lambda: now[0])
+
+    result = run_once("too late", NoCallLLM(), cwd=tmp_path, run_id="run_timed_out", control=control)
+
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.TIMEOUT
+    assert result.observation.error.details == {"stop_reason": "timed_out"}
+    assert "- terminal_reason: timed_out" in result.summary_path.read_text(encoding="utf-8")
+
+
+def test_run_once_converts_keyboard_interrupt_only_when_controlled(tmp_path) -> None:
+    result = run_once(
+        "interrupt",
+        InterruptLLM(),
+        cwd=tmp_path,
+        run_id="run_interrupt",
+        control=RunControl(),
+    )
+
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.CANCELLED
+    assert "- terminal_reason: cancelled" in result.summary_path.read_text(encoding="utf-8")
+
+    with pytest.raises(KeyboardInterrupt):
+        run_once("interrupt", InterruptLLM(), cwd=tmp_path / "uncontrolled")
+
+
+def test_run_once_stops_between_stream_chunks_without_emitting_later_text(tmp_path) -> None:
+    control = RunControl()
+    events: list[dict] = []
+
+    class CancellingStreamLLM:
+        def chat(self, _messages: list[dict], *, temperature: float | None = None) -> str:
+            raise AssertionError("streaming path expected")
+
+        def stream_chat(self, _messages: list[dict], *, temperature: float | None = None):
+            yield "first"
+            control.request_cancel()
+            yield "second"
+
+    result = run_once(
+        "stream",
+        CancellingStreamLLM(),
+        cwd=tmp_path,
+        run_id="run_stream_cancel",
+        control=control,
+        event_handler=events.append,
+        stream_handler=lambda _text: None,
+    )
+
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.CANCELLED
+    assert [event["text"] for event in events if event["event"] == "model_stream_chunk"] == ["first"]
+
+
+def test_run_once_stops_after_parsing_before_terminal_action(tmp_path) -> None:
+    control = RunControl()
+
+    def on_event(event: dict) -> None:
+        if event["event"] == "action_parsed":
+            control.request_cancel()
+
+    result = run_once(
+        "stop before done",
+        FakeLLMClient(),
+        cwd=tmp_path,
+        run_id="run_before_done_cancel",
+        control=control,
+        event_handler=on_event,
+    )
+
+    assert result.action.action.name == "run_control"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.CANCELLED
+
+
+def test_run_once_records_completed_tool_before_terminal_cancel(tmp_path) -> None:
+    control = RunControl()
+
+    def on_event(event: dict) -> None:
+        if event["event"] == "observation":
+            control.request_cancel()
+
+    result = run_once(
+        "list then stop",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "List.",
+                    "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 5}},
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_after_tool_cancel",
+        control=control,
+        event_handler=on_event,
+    )
+
+    assert [observation.status for observation in result.observations] == ["ok", "error"]
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.CANCELLED
+    records = [json.loads(line) for line in result.tool_calls_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["action"]["action"]["name"] for record in records] == ["list_dir", "run_control"]
+
+
+def test_run_once_cancelled_during_approval_does_not_execute_tool(tmp_path) -> None:
+    result = run_once(
+        "write then cancel",
+        FakeLLMClient(
+            actions=[
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "notes.txt", "content": "no\n", "create_parents": False},
+                    },
+                }
+            ]
+        ),
+        cwd=tmp_path,
+        run_id="run_approval_cancel",
+        control=RunControl(),
+        approval_handler=lambda _action: "cancelled",
+    )
+
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.CANCELLED
+    assert not (tmp_path / "notes.txt").exists()
 
 
 def test_run_once_routes_greeting_through_model(tmp_path) -> None:

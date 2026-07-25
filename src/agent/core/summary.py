@@ -89,6 +89,14 @@ def _terminal_reason(action: InternalAction, observation: Observation) -> str:
         return "ask_user"
     if _is_iteration_limit(observation):
         return "iteration_limit"
+    if observation.error is not None and observation.error.code == ErrorCode.CANCELLED:
+        return "cancelled"
+    if (
+        observation.error is not None
+        and observation.error.code == ErrorCode.TIMEOUT
+        and (observation.error.details or {}).get("stop_reason") == "timed_out"
+    ):
+        return "timed_out"
     if observation.error is not None:
         return f"error:{observation.error.code}"
     return "stopped"

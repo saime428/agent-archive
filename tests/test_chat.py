@@ -13,6 +13,7 @@ from agent.core.actions import ErrorCode
 from agent.core.budget import ContextBudget
 from agent.core.chat import ChatSession, ConversationState, build_reference_context_messages
 from agent.core.loop import run_once
+from agent.core.run_control import RunControl
 from agent.llm.fake import FakeLLMClient
 
 
@@ -268,6 +269,68 @@ def test_conversation_state_save_redacts_secrets_and_resume_loads_turns(tmp_path
     assert "[REDACTED]" in text
     assert loaded.session_id == "chat_secret"
     assert loaded.turns[0].final == "token [REDACTED]"
+
+
+def test_chat_state_old_turns_load_and_new_lifecycle_ids_round_trip(tmp_path) -> None:
+    state = ConversationState.create(tmp_path, session_id="chat_lifecycle")
+    state.add_turn(
+        user="old",
+        run_id="run_old",
+        status="ok",
+        completed=True,
+        terminal_reason="done",
+        final="done",
+        last_action="done",
+        last_observation_summary="Done.",
+    )
+    state.add_turn(
+        user="resume",
+        run_id="run_new",
+        status="error",
+        completed=False,
+        terminal_reason="cancelled",
+        final="",
+        last_action="run_control",
+        last_observation_summary="Run cancelled.",
+        job_id="job_new",
+        resumed_from_job_id="job_old",
+    )
+    state.save(AgentConfig())
+
+    loaded = ConversationState.load(tmp_path, "chat_lifecycle")
+
+    assert loaded.turns[0].job_id is None
+    assert loaded.turns[0].resumed_from_job_id is None
+    assert loaded.turns[1].job_id == "job_new"
+    assert loaded.turns[1].resumed_from_job_id == "job_old"
+
+
+def test_chat_session_persists_lifecycle_ids_and_cancelled_turn(tmp_path) -> None:
+    state = ConversationState.create(tmp_path, session_id="chat_runtime_lifecycle")
+    control = RunControl()
+    control.request_cancel()
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=FakeLLMClient(),
+        config=AgentConfig(default_skills=()),
+        state=state,
+    )
+
+    result = session.run_turn(
+        "stop",
+        run_id="run_lifecycle",
+        job_id="job_lifecycle",
+        resumed_from_job_id="job_previous",
+        control=control,
+    )
+    turn = ConversationState.load(tmp_path, state.session_id).turns[-1]
+
+    assert result.context.run_id == "run_lifecycle"
+    assert turn.run_id == "run_lifecycle"
+    assert turn.job_id == "job_lifecycle"
+    assert turn.resumed_from_job_id == "job_previous"
+    assert turn.terminal_reason == "cancelled"
+    assert turn.completed is False
 
 
 def test_conversation_state_save_keeps_previous_file_when_atomic_publish_fails(monkeypatch, tmp_path) -> None:
