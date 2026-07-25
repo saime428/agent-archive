@@ -1,7 +1,7 @@
 # 设计：Phase 3 可恢复任务生命周期
 
 - 日期：2026-07-25
-- 状态：设计已审查；待 implementation plan
+- 状态：设计与计划均已审查；待实施
 - 上位方向：[Phase 3 方向分析与审查](../../project-vnext-phase3-direction-review.md)
 
 ## 目标
