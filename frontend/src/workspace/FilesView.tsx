@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { ArrowLeft, FileText, FolderTree, Pencil, Save, Search } from "lucide-react";
 
 import { api } from "../api/client";
 import type { FilesPayload } from "../api/types";
+import { ConfirmDialog } from "./ConfirmDialog";
+
+// Lets WorkspacePanel query the edit buffer state before closing or switching tabs.
+export interface FilesViewHandle {
+  isDirty: () => boolean;
+}
 
 interface OpenFile {
   path: string;
@@ -24,7 +30,7 @@ function byteLength(text: string): number {
   return new TextEncoder().encode(text).length;
 }
 
-export function FilesView() {
+export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, ref) {
   const [dirPath, setDirPath] = useState(".");
   const [entries, setEntries] = useState<FilesPayload["entries"]>([]);
   const [dirError, setDirError] = useState<string | null>(null);
@@ -44,6 +50,8 @@ export function FilesView() {
   const hasReplacement = selected ? selected.content.includes("�") : false;
   const readOnly = selected ? selected.truncated || hasReplacement : false;
 
+  useImperativeHandle(ref, () => ({ isDirty: () => dirty }), [dirty]);
+
   const loadDir = useCallback(async (path: string) => {
     try {
       const payload = await api.listFiles(path === "." ? undefined : path);
@@ -56,8 +64,6 @@ export function FilesView() {
   }, []);
 
   useEffect(() => {
-    // loadDir only setState after its awaited fetch, so it cannot cascade renders here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDir(".");
   }, [loadDir]);
 
@@ -205,46 +211,39 @@ export function FilesView() {
         </div>
       </div>
 
-      {saveConfirm && selected ? (
-        <div className="files-confirm" role="dialog" aria-label="确认保存">
+      <ConfirmDialog
+        open={saveConfirm && selected !== null}
+        title="确认保存"
+        onOpenChange={(next) => !next && setSaveConfirm(false)}
+        confirmLabel="确认保存"
+        cancelLabel="取消"
+        confirmDisabled={saving}
+        onConfirm={() => void doSave()}
+      >
+        {selected ? (
           <p>
             即将保存 <strong data-payload>{selected.path}</strong>（{byteLength(buffer)} 字节，UTF-8），
             <strong>将创建 snapshot</strong> 后写入。
           </p>
-          <div className="files-confirm-actions">
-            <button type="button" className="files-action primary" disabled={saving} onClick={() => void doSave()}>
-              确认保存
-            </button>
-            <button type="button" className="files-action" disabled={saving} onClick={() => setSaveConfirm(false)}>
-              取消
-            </button>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+      </ConfirmDialog>
 
-      {discard ? (
-        <div className="files-confirm" role="dialog" aria-label="未保存修改">
-          <p>当前文件有未保存修改。丢弃修改并继续？</p>
-          <div className="files-confirm-actions">
-            <button
-              type="button"
-              className="files-action"
-              onClick={() => {
-                const run = discard.run;
-                setDiscard(null);
-                setMode("preview");
-                setBuffer(baseline);
-                run();
-              }}
-            >
-              丢弃修改
-            </button>
-            <button type="button" className="files-action primary" onClick={() => setDiscard(null)}>
-              继续编辑
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={discard !== null}
+        title="未保存修改"
+        onOpenChange={(next) => !next && setDiscard(null)}
+        confirmLabel="丢弃修改"
+        cancelLabel="继续编辑"
+        onConfirm={() => {
+          const run = discard?.run;
+          setDiscard(null);
+          setMode("preview");
+          setBuffer(baseline);
+          run?.();
+        }}
+      >
+        <p>当前文件有未保存修改。丢弃修改并继续？</p>
+      </ConfirmDialog>
     </section>
   );
-}
+});

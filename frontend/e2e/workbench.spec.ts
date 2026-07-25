@@ -500,6 +500,27 @@ test.describe("files", () => {
 
     await expect(page.getByText("File not found: missing.txt", { exact: false })).toBeVisible();
   });
+
+  test("guards unsaved edits when closing the workspace", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await page.getByRole("textbox", { name: "文件编辑器", exact: true }).fill("# Readme\nDirty edit");
+
+    // Escape should not silently discard the dirty buffer.
+    await page.keyboard.press("Escape");
+    const guard = page.getByRole("dialog", { name: "未保存修改", exact: true });
+    await expect(guard).toBeVisible();
+
+    // Continue editing keeps the workspace open with the buffer intact.
+    await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(page.getByRole("textbox", { name: "文件编辑器", exact: true })).toHaveValue("# Readme\nDirty edit");
+
+    // Discarding via the guard closes the workspace.
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "丢弃并继续", exact: true }).click();
+    await expect(page.getByRole("button", { name: "System", exact: true })).toHaveCount(0);
+  });
 });
 
 test.describe("runs", () => {

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { FolderTree, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-react";
 
 import { api } from "../api/client";
 import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPayload } from "../api/types";
-import { FilesView } from "./FilesView";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { FilesView, type FilesViewHandle } from "./FilesView";
 import { RunsView } from "./RunsView";
 
 type WorkspaceView = "files" | "runs" | "system";
@@ -46,6 +47,8 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
   const [config, setConfig] = useState<Resource<ConfigPayload>>(idleResource);
   const [tools, setTools] = useState<Resource<ToolsPayload>>(idleResource);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const filesRef = useRef<FilesViewHandle>(null);
+  const [pendingNav, setPendingNav] = useState<{ kind: "view"; view: WorkspaceView } | { kind: "close" } | null>(null);
 
   const loadAll = useCallback(async () => {
     setRuns((prev) => ({ ...prev, loading: true }));
@@ -96,8 +99,28 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
     };
   }, [open, loadAll]);
 
+  // Leaving a dirty Files edit (tab switch or panel close) must be confirmed first.
+  const leavingDirtyFiles = () => view === "files" && Boolean(filesRef.current?.isDirty());
+
+  const requestView = (next: WorkspaceView) => {
+    if (next !== "files" && leavingDirtyFiles()) setPendingNav({ kind: "view", view: next });
+    else setView(next);
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next && leavingDirtyFiles()) setPendingNav({ kind: "close" });
+    else onOpenChange(next);
+  };
+
+  const confirmPendingNav = () => {
+    if (!pendingNav) return;
+    if (pendingNav.kind === "view") setView(pendingNav.view);
+    else onOpenChange(false);
+    setPendingNav(null);
+  };
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="workspace-overlay" />
         <Dialog.Content
@@ -122,7 +145,7 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
                     type="button"
                     className="workspace-tab"
                     aria-pressed={view === tab.id}
-                    onClick={() => setView(tab.id)}
+                    onClick={() => requestView(tab.id)}
                   >
                     <Icon aria-hidden="true" />
                     {tab.label}
@@ -149,9 +172,23 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
             ) : view === "runs" ? (
               <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} />
             ) : (
-              <FilesView />
+              <FilesView ref={filesRef} />
             )}
           </div>
+
+          <ConfirmDialog
+            open={pendingNav !== null}
+            title="未保存修改"
+            onOpenChange={(next) => !next && setPendingNav(null)}
+            confirmLabel="丢弃并继续"
+            cancelLabel="继续编辑"
+            onConfirm={confirmPendingNav}
+          >
+            <p>
+              当前文件有未保存修改。丢弃修改并
+              {pendingNav?.kind === "close" ? "关闭工作台" : "切换视图"}？
+            </p>
+          </ConfirmDialog>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

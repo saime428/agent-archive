@@ -2119,3 +2119,22 @@ select {
   .runs-layout { grid-template-columns: 1fr; }
   .runs-index-track { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
 }
+
+/* ===== Phase 2 confirm dialog ===== */
+.confirm-dialog {
+  position: fixed;
+  z-index: 95;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow);
+}
+.confirm-title { margin: 0 0 10px; font-size: 15px; font-weight: 560; color: var(--text); }
+.confirm-body { margin-bottom: 14px; font-size: 13px; line-height: 1.6; color: var(--text); }
+.confirm-body p { margin: 0 0 8px; }
+.confirm-body p:last-child { margin-bottom: 0; }

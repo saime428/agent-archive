@@ -3,6 +3,7 @@ import { Copy, GitCompare, RotateCcw } from "lucide-react";
 
 import { api } from "../api/client";
 import type { DiffPayload, RunDetailPayload, RunListItem, RunSnapshot } from "../api/types";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface RunsViewProps {
   runs: RunListItem[];
@@ -280,24 +281,26 @@ export function RunsView({ runs, onGlobalRefresh }: RunsViewProps) {
         </div>
       </div>
 
-      {restoreTarget ? (
-        <div className="files-confirm" role="dialog" aria-label="确认恢复">
-          <p>
-            即将从 snapshot <strong data-payload>{restoreTarget.snapshot_path}</strong> 恢复
-            <strong data-payload>{restoreTarget.path}</strong>。
-          </p>
-          <p className="overview-note">结果可能是恢复旧内容，也可能删除由该 run 新建的文件。</p>
-          {restoreError ? <p className="overview-error" data-payload>{restoreError}</p> : null}
-          <div className="files-confirm-actions">
-            <button type="button" className="files-action primary" disabled={restoring} onClick={() => void doRestore()}>
-              确认恢复
-            </button>
-            <button type="button" className="files-action" disabled={restoring} onClick={() => setRestoreTarget(null)}>
-              取消
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        title="确认恢复"
+        onOpenChange={(next) => !next && setRestoreTarget(null)}
+        confirmLabel="确认恢复"
+        cancelLabel="取消"
+        confirmDisabled={restoring}
+        onConfirm={() => void doRestore()}
+      >
+        {restoreTarget ? (
+          <>
+            <p>
+              即将从 snapshot <strong data-payload>{restoreTarget.snapshot_path}</strong> 恢复
+              <strong data-payload>{restoreTarget.path}</strong>。
+            </p>
+            <p className="overview-note">结果可能是恢复旧内容，也可能删除由该 run 新建的文件。</p>
+            {restoreError ? <p className="overview-error" data-payload>{restoreError}</p> : null}
+          </>
+        ) : null}
+      </ConfirmDialog>
     </section>
   );
 }

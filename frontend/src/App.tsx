@@ -1,6 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { WorkspacePanel } from "./workspace/WorkspacePanel";
 import {
   Activity,
   Bot,
@@ -55,6 +54,7 @@ import { subscribeChatJob, type StreamStatus } from "./api/sse";
 import type { ChatEvent, ChatPayload, ChatSummary, ChatTurn, HealthPayload } from "./api/types";
 import { chatReducer, initialChatState, recoveringState, type ChatPhase, type ChatState } from "./chat/state";
 import { useTheme, type ModePreference, type ThemeName } from "./theme";
+import { WorkspacePanel } from "./workspace/WorkspacePanel";
 
 const ACTIVE_JOB_KEY = "agent.frontend.active-job";
 
