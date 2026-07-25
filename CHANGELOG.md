@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Frontend vNext 阶段 2 核心功能等价：`/preview/` React 工作台从单页聊天扩展为真实工作台，覆盖 Files（浏览、预览、截断只读、snapshot-backed 编辑保存）、Runs（列表过滤、Review/Workflow/Failure/Patch Review/Recovery/Replay 只读详情、diff、二次确认恢复）、System（readiness、workspace risk、memory review 只读，config 白名单受控写，Tool 目录，资源详情跨视图跳转），并加入 10 秒安全刷新与 dirty 编辑保护。后端 HTTP/SSE schema、sandbox、snapshot、run store、config write 零改动；根 `/` 仍是旧静态 Workbench，不切换默认入口、不删除旧资源。不含 Monaco、真实 terminal、递归搜索、Git 工作区与生态管理生命周期。
+
 - Frontend vNext 阶段 1：新增 `/preview/` React/Vite App Shell 与真实 Chat 纵切，覆盖三主题深浅模式、REST/SSE Adapter、工具与审批状态、历史重建、响应式会话轨道、单层状态 Canvas、reduced-motion 和 Lucide-only 门禁；静态服务安全解析目录 index、对可压缩资源协商 gzip，CSP 仅对 style 放宽 inline 支持并继续严格禁止 inline script。旧 `/` Workbench 与 HTTP/SSE Interface 不变。
 - 扩展管理面收尾：config 加载时对未知 hook 名与永不触发的 blocking hook 发警告，新增 `agent hooks list`；`agent mcp show` 静态显示单 Server 的来源、状态与解析配置（不起进程）；顶层 `agent doctor` 聚合 MCP/Skills 一行式摘要；新增 `agent config set/unset` 受控项目 config 写命令，与 Workbench 共用 `config_write` 的验证与原子发布路径，拒绝 `sandbox=danger-full-access` 与 `approval=never`。Workbench 写接口、自动重连、marketplace、registry 与远程来源仍不在范围。
 - Provider Adapter 能力声明：`ProviderCapabilities` 类级声明 + `ProviderSpec` 注册表取代 runtime getattr 散点探测与 CLI provider 名字分支；能力只描述本地 streaming/native-tools 路径，不冒充 endpoint/模型能力；auth 元数据区分必需与可选 key，`config show` 与 doctor 统一读取 workspace secrets；`native_tools = true` 而 Adapter 不支持时发 `capability_warning` 并照旧降级 JSON 协议；`provider smoke` 由注册表准入。不含 reasoning/context 等模型级声明、模型选择与 Workbench 能力暴露。

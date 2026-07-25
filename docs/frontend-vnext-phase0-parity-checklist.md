@@ -90,6 +90,25 @@
 | S2 | 已完成 | A/B/C 三主题各自深浅模式，自动模式与手动选择持久化 |
 | S5 | 已完成 | 焦点、ARIA/tooltip、键盘审批、320 px 布局、reduced-motion 静态 Canvas 均有自动或浏览器证据 |
 
-阶段 2 项（F1-F5、R1-R8、H3-H7、S3-S4）继续由旧 `/` Workbench 承载；
-阶段 1 没有渲染假入口，也没有切换默认入口。完整证据见
-[`verification/frontend-vnext-phase1.md`](verification/frontend-vnext-phase1.md)。
+完整证据见 [`verification/frontend-vnext-phase1.md`](verification/frontend-vnext-phase1.md)。
+
+## 阶段 2 验收结果（2026-07-25）
+
+| 能力 | 结果 | 证据 |
+| --- | --- | --- |
+| F1-F2 | 已完成 | 真实服务目录浏览与文件预览；截断文件强制只读、二进制与缺失文件进入可恢复错误态 |
+| F3 | 已完成 | 保存经 sandbox 路径策略 + snapshot + run 记录；确认框写明 path、UTF-8 字节数与「将创建 snapshot」；dirty 缓冲不被自动刷新覆盖，离开前必须确认 |
+| F4-F5 | 已完成 | 真实 unified diff（含 truncated / current_exists / snapshot_missing 状态）；恢复二次确认并写明可能删除新建文件，恢复后磁盘内容已核对 |
+| R1 | 已完成 | 真实 `/api/runs` 驱动的列表与 status/risk 本地过滤 |
+| R2-R7 | 已完成 | Review、Workflow、Failure、Patch Review、Recovery、Replay 全部按明确标签渲染，均标注只读，浏览器不执行 replay 或验证命令 |
+| R8 | 已完成 | trace/replay 文本过滤与 All/Terminal 终态过滤 |
+| H3-H5 | 已完成 | readiness、workspace risk、memory review 保留 signals 与 checks，未被精简为颜色点；memory 无 accept/reject 动作 |
+| H6 | 已完成 | 仅后端白名单键可写、只发送变化键、原子落盘；`approval=never` 与 `sandbox=danger-full-access` 被真实拒绝；无密钥输入框 |
+| H7 | 已完成 | Tool catalog 只读，无启用/安装/配置按钮 |
+| S3 | 已完成 | 工作台开启且页面可见时 10 秒刷新，`Promise.allSettled` 单资源失败保留其他数据；dirty 编辑器与设置草稿不被覆盖 |
+| S4 | 已完成 | 资源详情覆盖 chats/runs/memory/snapshots，点击可跳转真实会话与 Run detail 上下文 |
+
+阶段 2 完成的含义是「新前端覆盖旧 Workbench 核心能力」，**不是** Frontend vNext
+长期路线全部完成。根 `/` 仍返回旧 Workbench，`/preview/` 返回 React 工作台；
+本阶段不切换默认入口、不删除旧资源。完整证据与已知限制见
+[`verification/frontend-vnext-phase2.md`](verification/frontend-vnext-phase2.md)。
