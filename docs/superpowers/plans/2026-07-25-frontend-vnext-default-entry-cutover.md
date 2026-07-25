@@ -1,7 +1,7 @@
 # Frontend vNext 默认入口切换实施计划
 
 - 日期：2026-07-25
-- 状态：已执行，待提交后重建
+- 状态：已执行并完成提交后重建
 - 设计：[Frontend vNext 默认入口切换](../specs/2026-07-25-frontend-vnext-default-entry-cutover-design.md)
 - 前置证据：[Readiness 验收记录](../../verification/frontend-vnext-default-entry-readiness.md)
 
@@ -286,6 +286,20 @@ git commit -m "feat(web): switch frontend vNext to the default entry"
 把真实 commit、tree 与重建证据写回验收记录和 plan，另作只含文档状态的验证提交；再确认
 最终 HEAD 相对实现提交只改文档，不影响 bundle 或运行时。最终执行五轴 diff 审查、
 `git diff --check`、分支/PR 状态核对。
+
+### 实际证据
+
+- 异步 chat 生命周期纠错提交：`1c54690e`；Cutover 实现提交：
+  `43069b9e4feb553ce85cad14f527e7072ba7b530`，tree：
+  `fd267f3402d278e0b89ce1554f9d3801a968fd61`。
+- 从 Cutover 提交创建 D 盘 detached worktree，`npm ci` 与 `npm run build:preview` 通过；
+  `src/agent/web/static/preview` 相对提交无路径或字节漂移。
+- 提交树上的 `tests/test_web.py tests/test_docs.py` **138 passed**，真实 Python 实服 E2E
+  **1 passed**。
+- detached worktree 仅将根映射反向改为 `index.html` 后，health 为 200，`/` 与
+  `/legacy/` 字节一致且均为旧 Workbench，`/preview/` 仍为 React。
+- rollback 服务、4174 监听、detached worktree 与唯一 D 盘临时目录均已清理；主工作区只剩
+  两份原有未跟踪 handoff 文档。
 
 ## 完成门
 

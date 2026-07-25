@@ -1,7 +1,7 @@
 # Frontend vNext 默认入口 Cutover 验收记录
 
 - 日期：2026-07-25
-- 状态：Cutover 门禁通过，待提交后重建
+- 状态：已完成（默认入口已切换，可一行回滚）
 - 设计：[`2026-07-25-frontend-vnext-default-entry-cutover-design.md`](../superpowers/specs/2026-07-25-frontend-vnext-default-entry-cutover-design.md)
 - 计划：[`2026-07-25-frontend-vnext-default-entry-cutover.md`](../superpowers/plans/2026-07-25-frontend-vnext-default-entry-cutover.md)
 - 前置：[Readiness 验收记录](frontend-vnext-default-entry-readiness.md)
@@ -11,8 +11,7 @@
 Frontend vNext 默认入口已切换。当前工作树的根 `/` 返回 React Workbench，
 `/preview/` 返回同一 React 文档，`/legacy/` 继续返回旧 Workbench。
 
-Cutover 工作树门禁、wheel 与可见浏览器均已通过；真实提交重建与 detached rollback
-尚待完成。
+Cutover 工作树门禁、wheel、可见浏览器、真实提交重建与 detached rollback 均已通过。
 旧壳尚未退役，Frontend vNext Phase 3 与 Project vNext 核心仍未完成；Phase 4–5
 是需求触发项，不属于当前完成门槛。
 
@@ -58,6 +57,21 @@ Host/Origin 校验、sandbox、approval、snapshot、config 与持久化格式�
   页面 warning/error 日志为 0。
 - 浏览器标签、真实服务、4174 监听和 `D:\CodexScratch\agent-cutover-visible.*` 均已清理。
 
+## 真实提交重建与 Rollback 证据
+
+- 异步 chat 生命周期纠错提交：`1c54690e`；Cutover 实现提交：
+  `43069b9e4feb553ce85cad14f527e7072ba7b530`，tree：
+  `fd267f3402d278e0b89ce1554f9d3801a968fd61`。
+- 从 Cutover 提交在 `D:\CodexScratch` 创建 detached worktree；`npm ci` 与
+  `npm run build:preview` 通过，tracked preview 产物相对提交零漂移。
+- 提交树聚焦回归：`tests/test_web.py tests/test_docs.py` **138 passed**；真实 Python 实服
+  E2E **1 passed**。
+- detached worktree 只把 `_STATIC_ENTRYPOINTS["/"]` 反向改为 `index.html` 后，
+  `/api/health` 为 200，`/` 与 `/legacy/` 字节一致并返回旧 Workbench，`/preview/`
+  继续返回 React。
+- rollback 服务、4174 监听、detached worktree 与唯一 D 盘临时目录均已清理；主工作区
+  只保留两份原有未跟踪 handoff 文档。
+
 ## 审查记录
 
 - 方向审查修正总方向文档的 Phase 0/1/2 状态漂移；随后按个人生产工具定位，
@@ -72,7 +86,7 @@ Host/Origin 校验、sandbox、approval、snapshot、config 与持久化格式�
   [计划](../superpowers/plans/2026-07-25-async-chat-session-visibility.md)，在共享 lifecycle seam
   修复；确定性测试 **2 passed**、`tests/test_web.py` **96 passed**，5 个全新服务连续通过
   原始 E2E。该修复将与 Cutover 分开提交。
-- 五轴当前结论：正确性、可读性、架构、安全、性能均无未解决 finding；全量门禁后复审。
+- 五轴最终结论：正确性、可读性、架构、安全、性能均无未解决 finding。
 
 ## 环境例外
 
@@ -91,10 +105,10 @@ Host/Origin 校验、sandbox、approval、snapshot、config 与持久化格式�
 - [x] `agent release doctor`（exit 0）
 - [x] wheel 中 `server.py` 与 preview 路径/字节闭包（14 files）
 - [x] 可见浏览器根/preview/legacy 与控制台（0 warning/error）
-- [ ] 精确提交、真实提交重建、detached rollback 演练
+- [x] 精确提交、真实提交重建、detached rollback 演练
 
 ## Rollback
 
 恢复 `src/agent/web/server.py` 根映射为 `index.html` 并重启服务即可。旧 Workbench、
 React bundle、`/preview/`、`/legacy/`、会话、run、snapshot、config 和 memory 都没有删除
-或迁移。正式提交后将在 detached worktree 执行该一行反向演练。
+或迁移。该一行反向变化已在真实 Cutover 提交的 detached worktree 演练通过。

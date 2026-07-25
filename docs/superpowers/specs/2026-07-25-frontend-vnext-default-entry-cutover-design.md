@@ -1,7 +1,7 @@
 # 设计：Frontend vNext 默认入口切换
 
 - 日期：2026-07-25
-- 状态：Cutover 门禁通过；默认入口已切换
+- 状态：已完成（Cutover、真实提交重建与 detached rollback 均通过）
 - 上位方向：[Frontend vNext 总方向](../../frontend-vnext-direction.md)
 - 前置设计：[默认入口切换就绪设计](2026-07-25-frontend-vnext-default-entry-cutover-readiness-design.md)
 - 前置证据：[Readiness 验收记录](../../verification/frontend-vnext-default-entry-readiness.md)
