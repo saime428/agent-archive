@@ -633,12 +633,12 @@ def test_workbench_serves_nested_directory_index(monkeypatch, tmp_path) -> None:
     preview_status, _preview_headers, preview_response = _http_request(workspace, "GET", "/preview/")
     missing_status, _missing_headers, _missing_response = _http_request(workspace, "GET", "/preview/missing/")
 
-    assert (root_status, root_response) == (200, b"legacy")
+    assert (root_status, root_response) == (200, b"preview")
     assert (preview_status, preview_response) == (200, b"preview")
     assert missing_status == 404
 
 
-def _readiness_static_root(tmp_path: Path) -> Path:
+def _entrypoint_static_root(tmp_path: Path) -> Path:
     static_root = tmp_path / "static"
     (static_root / "preview" / "assets").mkdir(parents=True)
     (static_root / "index.html").write_text("legacy", encoding="utf-8")
@@ -647,17 +647,17 @@ def _readiness_static_root(tmp_path: Path) -> Path:
     return static_root.resolve()
 
 
-def test_workbench_serves_readiness_entrypoints(monkeypatch, tmp_path) -> None:
+def test_workbench_serves_cutover_entrypoints(monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setattr(server, "STATIC_ROOT", _readiness_static_root(tmp_path))
+    monkeypatch.setattr(server, "STATIC_ROOT", _entrypoint_static_root(tmp_path))
 
     root_status, _root_headers, root_response = _http_request(workspace, "GET", "/")
     preview_status, _preview_headers, preview_response = _http_request(workspace, "GET", "/preview/")
     legacy_status, _legacy_headers, legacy_response = _http_request(workspace, "GET", "/legacy/")
     unknown_status, _unknown_headers, _unknown_response = _http_request(workspace, "GET", "/missing/")
 
-    assert (root_status, root_response) == (200, b"legacy")
+    assert (root_status, root_response) == (200, b"preview")
     assert (preview_status, preview_response) == (200, b"preview")
     assert (legacy_status, legacy_response) == (200, b"legacy")
     assert unknown_status == 404
@@ -666,7 +666,7 @@ def test_workbench_serves_readiness_entrypoints(monkeypatch, tmp_path) -> None:
 def test_workbench_normalizes_stable_entrypoint_aliases(monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setattr(server, "STATIC_ROOT", _readiness_static_root(tmp_path))
+    monkeypatch.setattr(server, "STATIC_ROOT", _entrypoint_static_root(tmp_path))
 
     preview_status, preview_headers, preview_response = _http_request(
         workspace, "GET", "/preview?from=bookmark"
@@ -689,7 +689,7 @@ def test_workbench_normalizes_stable_entrypoint_aliases(monkeypatch, tmp_path) -
 def test_workbench_only_disables_caching_for_html_entrypoints(monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    monkeypatch.setattr(server, "STATIC_ROOT", _readiness_static_root(tmp_path))
+    monkeypatch.setattr(server, "STATIC_ROOT", _entrypoint_static_root(tmp_path))
 
     _root_status, root_headers, _root_response = _http_request(workspace, "GET", "/")
     _preview_status, preview_headers, _preview_response = _http_request(workspace, "GET", "/preview/")

@@ -1,18 +1,19 @@
 # Project vNext 总方向
 
-- 日期：2026-07-23
+- 日期：2026-07-25
 - 状态：项目级北极星，持续补充
 - 性质：总方向文档，不是版本承诺或实现 spec
 
 ## 一句话目标
 
-把当前可靠的本地 coding agent，逐步发展成一个**安全、本地优先、开放扩展、可分发、可选远程、能够形成社区生态**的完整产品。CLI、Workbench、Providers、Tools、MCP、Skills、Memory、Automation 和未来 Gateway 都应围绕同一套 Agent 核心与安全语义生长，而不是各自成为一套产品。
+把当前可靠的本地 coding agent，完成为一个**安全、本地优先、开放扩展、可验证的个人生产工具与完整作品**。CLI、Workbench、Providers、Tools、MCP、Skills、Memory 和 Automation 围绕同一套 Agent 核心与安全语义生长；分发、远程和社区能力只在真实需求触发后扩展。
 
 对标 [LiveAgent](https://github.com/Stack-Cairn/LiveAgent) 学的是能力闭环和依赖顺序，不是照搬 React + Tauri + Rust + Go 的仓库体量。
 
 ## 规划口径
 
-- 现有 v0.x 至 v3.1 工作构成“可用的本地基线”，不是完整生态的终点。
+- 现有 v0.x 至 v3.1 工作构成“可用的本地基线”；阶段 0–3 是当前核心目标。
+- 阶段 4–5 是需求触发项，不阻塞 Project vNext 核心完成，也不为未出现的需求提前搭壳。
 - 本文件决定长期方向、Module 职责、seam 和阶段依赖；每个阶段开工前仍要单独写 spec。
 - 版本号、工期、具体文件和第三方库在阶段 spec 中决定，不在总方向里虚构精度。
 - 已完成能力继续复用；没有触发条件的远期能力只记录，不提前搭壳。
@@ -26,13 +27,13 @@
 | Providers | Fake、DeepSeek、OpenAI-compatible、显式能力声明与带 auth/smoke 元数据的注册表 | 模型级能力目录、模型选择、更多协议 Adapter 与 Workbench 能力暴露 |
 | Tools 与安全 | Filesystem、Shell、Git、Web、Documents 与 stdio MCP；统一 catalog、schema 校验、sandbox、approval、redaction、snapshot、durable logs | 后续扩展仍必须无例外地接入同一安全链与 trace |
 | 扩展底座 | stdio MCP 动态 Tool 与 managed 配置/启停/live doctor、Skills 三来源与用户级 install/update/package/remove、共享用户存储事务层、Memory、Hooks、Tool catalog | 仍缺自动重连、远程来源、registry 与 Workbench 写接口 |
-| 产品入口 | CLI、Python stdlib Workbench、HTTP JSON/SSE、会话与运行记录 | 前端 vNext、真正的编辑/终端工作区、统一生态管理入口 |
+| 产品入口 | CLI、Python stdlib Workbench、HTTP JSON/SSE、会话与运行记录；Frontend vNext Phase 1/2 与 Default Entry Cutover 已完成 | 仍缺真正的编辑/终端工作区、统一生态管理入口和旧壳退役证据 |
 | 质量与运维 | pytest、doctor、release doctor、真实 Provider/Workbench 验收经验 | 稳定 eval 集、跨 Interface 契约门禁、CI 发布与安装包闭环 |
-| 分发与远程 | 本地源码/包运行、`agent start` | 尚无签名安装包、自动更新、Gateway、远程身份与社区 registry |
+| 分发与远程 | 本地源码/包运行、`agent start` | 签名安装包、自动更新、Gateway、远程身份与社区 registry 均为需求触发项 |
 
-结论：项目已经有核心和安全底座，接下来应补齐“扩展、管理、验证、分发”的闭环，不应重新造一个 Agent runtime。
+结论：项目已经有核心和安全底座，接下来先完成阶段 3 的个人生产力闭环和最终全链路缺陷清零，不应重新造一个 Agent runtime，也不应让商业化分发或社区能力阻塞核心完成。
 
-## 完整生态的六个闭环
+## 能力闭环地图
 
 1. **任务闭环**：提出任务 → 模型推理 → 工具执行 → 风险审批 → 验证 → 复盘与恢复。
 2. **扩展闭环**：发现或导入 → 校验 → 启用 → 受控运行 → 诊断 → 更新或卸载。
@@ -42,6 +43,8 @@
 6. **远程与社区闭环**：安全配对 → 远程运行/审批 → 断线恢复与审计 → 权限撤销 → 扩展分享。
 
 某个页面或命令只有进入闭环才算产品能力；只有“按钮存在”或“能调用一次”不算完成。
+前四个闭环属于阶段 0–3 的核心完成范围；分发、远程与社区闭环分别归入阶段 4–5，
+只有触发条件成立后才进入实施范围。
 
 ## 目标架构
 
@@ -131,21 +134,34 @@
 | 阶段 | 主线 | 可并行产品线 | 完成门槛 |
 | --- | --- | --- | --- |
 | 0. 契约基线 | 记录 Provider、Tool、Run Event、配置与安全不变量 | 前端视觉方向、HTTP/SSE 清单 | 当前行为有契约和真实验收基线 |
-| 1. 开放扩展内核 | stdio MCP、动态 Tool 注册、policy/approval/trace 接线（MCP 后端切片已完成） | Frontend vNext App Shell + Chat 纵切 | MCP Tool 与内置 Tool 同安全、同 trace；新前端能跑真实 turn |
-| 2. 可管理生态 | MCP 管理/诊断、Skills 本地生命周期与 Provider 能力声明（均已完成） | 前端达到当前 Workbench 功能等价并加入真实生态入口 | 安装到卸载闭环可测，旧前端才允许退役 |
+| 1. 开放扩展内核 | stdio MCP、动态 Tool 注册、policy/approval/trace 接线（MCP 后端切片已完成） | Frontend vNext App Shell + Chat 纵切（已完成） | MCP Tool 与内置 Tool 同安全、同 trace；新前端能跑真实 turn |
+| 2. 可管理生态 | MCP 管理/诊断、Skills 本地生命周期与 Provider 能力声明（均已完成） | 前端功能等价、Readiness 与 Default Entry Cutover（已完成） | 安装到卸载闭环可测；新前端为默认入口且旧入口可回滚 |
 | 3. 持久生产力 | Memory 生命周期、Automation、取消/恢复、稳定 eval | Monaco、Git/diff、Terminal、任务复盘 | 长任务可控、知识可修订、自动化可审计 |
-| 4. 分发闭环 | CI、可重复构建、安装包、签名、升级与回滚 | Onboarding、迁移与发布状态 UI | 新机器可安装、诊断、升级和回退 |
-| 5. 远程与社区 | Gateway、设备身份、远程事件/审批、registry | Remote WebUI 与生态发现 | 安全模型、断线恢复、撤销和供应链验证通过 |
+| 4. 分发闭环（需求触发） | CI、可重复构建、安装包、签名、升级与回滚 | 生态中心、Onboarding、迁移与发布状态 UI | 出现非开发者安装、多机迁移或持续发布需求后，才要求新机器可安装、诊断、升级和回退 |
+| 5. 远程与社区（需求触发） | Gateway、设备身份、远程事件/审批、registry | Remote WebUI 与生态发现 | 出现跨设备远程使用或第三方扩展分发需求后，才要求安全模型、断线恢复、撤销和供应链验证通过 |
 
 安全、兼容性、文档和 eval 是每一阶段的门禁，不是最后单独补的阶段。
 
-## 下一次正式开工的默认顺序
+## 当前执行顺序（2026-07-25 审查）
 
-1. [stdio MCP + 动态 Tool 注册 + 现有安全链](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md) 已完成；不再把它列为待实现项。
-2. [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md)、[Provider 能力声明](superpowers/specs/2026-07-22-provider-capability-declaration-design.md)和[扩展管理面收尾](superpowers/specs/2026-07-23-extension-management-closeout-design.md)均已完成；阶段 2 后端管理面就此闭合，仍不提前做 Marketplace、registry 或远程来源。
-3. 前端可并行完成阶段 0：视觉方向选稿、HTTP/SSE Interface 清单和功能等价表，并且只接入后端已存在的能力。
-
-如果当期目标明确是先获得可见的产品提升，可以先做 Frontend Chat 纵切；但不因此跳过 MCP、安全或契约主线。
+1. 阶段 0–2 已完成：契约基线、stdio MCP 动态 Tool、MCP/Skills 本地生命周期、Provider
+   能力声明、扩展管理收尾，以及 Frontend vNext App Shell、Chat、核心功能等价和默认入口
+   Readiness 均不再列为待实现项。
+2. Frontend Default Entry Cutover（已完成）：根 `/` 使用 React，`/preview/` 保持兼容，
+   `/legacy/` 保留旧 Workbench 回滚入口；旧壳删除必须等待稳定期证据并另行审查。
+3. 阶段 3 主线先收口可恢复任务生命周期：取消、超时、恢复、并发占用和 Run Event
+   契约；随后完善 Memory 修订/删除/来源、Automation 幂等/通知和稳定 eval。没有可取消、
+   可审计的任务生命周期前，不开放无人值守高风险自动化。
+4. Frontend Phase 3 按独立纵切推进：编辑器与搜索、Git/diff、真实 Terminal 与进程管理、
+   命令面板和布局持久化。每个纵切只消费已经存在且有契约的后端 Interface；缺少后端
+   语义时先写独立后端 spec。
+5. 阶段 0–3 全部闭环后运行最终测试矩阵，覆盖对话、生成、前端、后端/API、CLI、
+   打包和真实浏览器；修复全部可复现缺陷并整套复跑后，才允许宣告 Project vNext 核心完成。
+6. 阶段 4 只有在出现非开发者安装、多机迁移、签名发布、自动升级或统一生态管理的
+   真实需求时启动；届时 UI 仍不得先于后端生命周期闭环。
+7. 阶段 5 只有在出现跨设备远程使用或第三方扩展发布需求时启动。Gateway 只做认证与
+   中继，不直接执行本地 Tool、不持有工作区秘密；registry 必须先解决来源、版本、校验、
+   兼容性、撤销和下架。阶段 4–5 未触发时保留为需求池，不阻塞 Project vNext 核心完成。
 
 ## 全局护栏
 
@@ -157,20 +173,28 @@
 - 不把 roadmap、静态页面或未接线配置写成“已实现”。
 - 所有高风险外部输入、扩展安装和远程请求都在信任 seam 校验来源、权限和路径。
 
-## 长期完成标准
+## 当前核心完成标准
 
-项目接近“完整生态”时，应同时满足：
+阶段 0–3 是核心目标。只有以下条件同时满足，才可把 Project vNext 作为个人生产工具与
+完整作品标记为完成：
 
-- 用户能从安装到完成真实任务，全程有诊断、审批、恢复和升级路径；
+- 阶段 0–2 的契约、扩展内核、可管理本地生命周期、Frontend 功能等价和默认入口均有当前证据；
+- 阶段 3 的任务取消/超时/恢复/并发、Memory 修订与删除、Automation 审计、稳定 eval，
+  以及编辑器、搜索、Git/diff、Terminal、命令面板和布局持久化均形成可验收闭环；
+- 用户能从 CLI 或 Workbench 完成真实 coding 任务，全程有诊断、审批、恢复和复盘路径；
 - Provider、内置 Tools、MCP、Skills、Memory 与 Automation 共享核心安全和运行语义；
 - 扩展可以安全安装、校验、启停、更新、打包和卸载；
-- CLI、Workbench 与 Remote 只是同一能力的不同 Adapter，不产生三套业务规则；
-- 发布有自动门禁、签名产物、迁移和回滚；
-- 社区能力不会削弱本地优先、隐私与撤销能力。
+- CLI 与 Workbench 是同一能力的两个 Adapter，不产生两套业务规则；
+- 对话、生成、前端、后端/API、CLI、打包和真实浏览器测试全部通过，全部可复现缺陷已修复，
+  并在修复后完成整套复跑；
+- 旧静态壳退役，当前源码、构建产物、wheel、文档与 Git 提交证据一致。
+
+阶段 4–5 是需求触发项。未出现明确的非开发者分发、跨设备远程或第三方社区需求时，
+它们不进入当前完成定义；触发后必须另写 spec 和计划，并重新执行相应安全与发布门禁。
 
 ## 本轮非目标
 
-- 本轮已实现开放扩展内核的 stdio MCP 后端切片；其余长期能力仍由后续独立 spec 决定。
+- 本轮先完成阶段 0–3；阶段 4–5 只保留触发条件，不提前实施。
 - 不把所有阶段拆成 issue 或承诺发布日期。
 - 不立刻建设 Marketplace、Gateway、桌面壳、云服务、向量数据库或多 Agent swarm。
 - 不推翻已经通过真实验收的本地 Workbench 和 Python runtime。
@@ -191,4 +215,7 @@
 - [Frontend vNext 总方向](frontend-vnext-direction.md)
 - [stdio MCP + 动态 Tool 注册 + 现有安全链设计 spec](superpowers/specs/2026-07-17-stdio-mcp-dynamic-tools-design.md)
 - [stdio MCP + 动态 Tool 注册 implementation plan](superpowers/plans/2026-07-17-stdio-mcp-dynamic-tools.md)
+- [可管理的本地 MCP 与 Skills 生命周期](superpowers/specs/2026-07-18-managed-extension-lifecycle-design.md)
+- [Provider 能力声明](superpowers/specs/2026-07-22-provider-capability-declaration-design.md)
+- [扩展管理面收尾](superpowers/specs/2026-07-23-extension-management-closeout-design.md)
 - [v1.0 Packaging Decision](v1.0-packaging-decision.md)

@@ -372,7 +372,8 @@ def test_stdio_mcp_docs_record_config_security_scope_and_acceptance() -> None:
     assert "MCP 后端切片已完成" in direction
     assert "尚无 MCP runtime" not in direction
     assert "Project vNext Extension Track" in roadmap
-    assert "Full Project vNext ecosystem | In progress" in roadmap
+    assert "Project vNext core (Phase 0–3) | In progress" in roadmap
+    assert "Phase 4–5 demand-triggered pool | Not started by design" in roadmap
     assert "状态：已实施（自动门禁与真实本地验收通过）" in spec
     assert "实施与验收证据（2026-07-18）" in spec
     assert "不代表 Marketplace、管理 UI、远程 transport 或完整生态已经完成" in spec
@@ -781,8 +782,10 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "MCP Server 故障隔离" in changelog
 
     assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
-    assert "Frontend vNext Phase 2: Core functional parity | Complete in preview" in roadmap
-    assert "Full Project vNext ecosystem | In progress" in roadmap
+    assert "Frontend vNext Phase 2: Core functional parity | Complete" in roadmap
+    assert "Frontend vNext Default Entry Cutover | Complete" in roadmap
+    assert "Project vNext core (Phase 0–3) | In progress" in roadmap
+    assert "Phase 4–5 demand-triggered pool | Not started by design" in roadmap
     assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
     assert "Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice" in roadmap
     assert "Completed slice: Frontend vNext Phase 2 core functional parity" in roadmap
@@ -799,8 +802,6 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
 
 def test_frontend_vnext_default_entry_cutover_readiness_spec_records_boundaries() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
     verification = (
         ROOT / "docs" / "verification" / "frontend-vnext-default-entry-readiness.md"
     ).read_text(encoding="utf-8")
@@ -822,15 +823,11 @@ def test_frontend_vnext_default_entry_cutover_readiness_spec_records_boundaries(
     assert "`src/agent/web/static/preview/**` is a tracked runtime asset" in readme
     assert "The Python runtime never invokes npm" in readme
     assert "npm run build:preview" in readme
-    assert "Cutover has not happened" in readme
-    assert "Frontend vNext 默认入口切换就绪。" in changelog
-    assert "Frontend vNext 默认入口切换就绪。" in roadmap
     assert "Frontend vNext 默认入口切换就绪。" in verification
     assert "根 `/` 仍返回旧 Workbench" in verification
     assert "Cutover 仍需再次明确授权" in verification
-    for document in (changelog, roadmap, verification):
-        assert "默认入口已切换。" not in document
-        assert "旧壳已退役。" not in document
+    assert "默认入口已切换。" not in verification
+    assert "旧壳已退役。" not in verification
 
     assert "状态：Readiness 门禁通过；根 `/` 未切换" in spec
     assert "本切片结束时根 `/` **仍返回旧 Workbench**" in spec
@@ -838,6 +835,75 @@ def test_frontend_vnext_default_entry_cutover_readiness_spec_records_boundaries(
     assert "Cutover（需再次明确授权）" in spec
     assert "状态：** 已执行，仅完成 Readiness" in plan
     assert "- [ ]" not in plan
+
+
+def test_frontend_vnext_default_entry_cutover_docs_record_current_state() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    project_direction = (ROOT / "docs" / "project-vnext-direction.md").read_text(encoding="utf-8")
+    frontend_direction = (ROOT / "docs" / "frontend-vnext-direction.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-07-25-frontend-vnext-default-entry-cutover-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-25-frontend-vnext-default-entry-cutover.md"
+    ).read_text(encoding="utf-8")
+    verification_path = (
+        ROOT / "docs" / "verification" / "frontend-vnext-default-entry-cutover.md"
+    )
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "运行时代码只改一行" in spec
+    assert "真实提交重建" in plan
+    assert "| `/` | React `preview/index.html` |" in readme
+    assert "Frontend vNext 默认入口已切换。" in changelog
+    assert "Frontend vNext 默认入口已切换。" in roadmap
+    assert "Default Entry Cutover（已完成）" in project_direction
+    assert "根 `/` 已指向 React Workbench" in frontend_direction
+    assert "Frontend vNext 默认入口已切换。" in verification
+
+    for document in (
+        readme,
+        changelog,
+        roadmap,
+        project_direction,
+        frontend_direction,
+        verification,
+    ):
+        assert "旧壳已退役。" not in document
+        assert "Frontend vNext 长期路线完成。" not in document
+
+
+def test_project_vnext_completion_definition_is_core_phases_zero_to_three() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    project_direction = (ROOT / "docs" / "project-vnext-direction.md").read_text(encoding="utf-8")
+    frontend_direction = (ROOT / "docs" / "frontend-vnext-direction.md").read_text(encoding="utf-8")
+
+    assert "阶段 0–3 是当前核心目标" in project_direction
+    assert "阶段 4–5 是需求触发项" in project_direction
+    assert "不阻塞 Project vNext 核心完成" in project_direction
+    assert "对话、生成、前端、后端/API、CLI、打包和真实浏览器" in project_direction
+    assert "只有六个生态闭环和长期完成标准均有当前证据" not in project_direction
+
+    assert "阶段 3 是核心目标" in frontend_direction
+    assert "阶段 4–5 是需求触发项" in frontend_direction
+    assert "阶段 3–5 和旧壳退役仍未完成" not in frontend_direction
+
+    assert "Project vNext core (Phase 0–3)" in roadmap
+    assert "Phase 4–5 demand-triggered pool" in roadmap
+    assert "阶段 0–3 是核心目标，阶段 4–5 改为需求触发项" in changelog
 
 
 def test_async_chat_session_visibility_docs_record_contract_and_evidence() -> None:

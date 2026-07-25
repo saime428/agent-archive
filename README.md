@@ -320,11 +320,11 @@ Do not put API keys in `.agent/config.toml`.
 
 ## Frontend vNext runtime assets
 
-The React/Vite Workbench runs beside the legacy Workbench. The URL matrix is:
+The React/Vite Workbench is the default, with stable preview and legacy entries:
 
 | URL | Current runtime entry |
 | --- | --- |
-| `/` | Legacy `index.html` |
+| `/` | React `preview/index.html` |
 | `/preview/` | React `preview/index.html` |
 | `/legacy/` | Legacy `index.html` |
 
@@ -344,15 +344,15 @@ git ls-files --others --exclude-standard -- src/agent/web/static/preview
 agent start --cwd . --port 8767
 ```
 
-Commit the complete generated bundle with its source change; a clean candidate
-tree must reproduce it with `npm run build:preview` and no Git drift. Open
-`http://127.0.0.1:8767/preview/` for React. Cutover has not happened: `/`
-still serves the legacy Workbench, `/legacy/` is the explicit rollback entry,
-and changing the default entry still requires separate authorization.
+Commit the complete generated bundle with its source change; a clean tree must
+reproduce it with `npm run build:preview` and no Git drift. Open
+`http://127.0.0.1:8767/` for the default React Workbench. `/preview/` remains a
+compatible React entry and `/legacy/` remains the explicit rollback entry during
+the stability window; rolling back the default does not require rebuilding assets
+or migrating workspace data.
 
-Run the complete frontend gate from `frontend/` with `npm run check`. The
-reviewed evidence and known Phase 2 boundary are recorded in
-`docs/verification/frontend-vnext-phase1.md`.
+Run the complete frontend gate from `frontend/` with `npm run check`. The Phase 2,
+Readiness, and Cutover evidence is recorded under `docs/verification/`.
 
 ## v0.7 Product Shell Decision
 

@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-25
 
-Status update (2026-07-18): this file keeps the completed local-baseline
+Status update (2026-07-25): this file keeps the completed local-baseline
 milestones and records completed Project vNext slices separately. The
 project-wide direction lives in
 [Project vNext Direction](project-vnext-direction.md).
@@ -24,6 +24,7 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
+| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2 and default-entry cutover are complete; Phase 3 and the final full-suite bug pass remain |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -34,9 +35,11 @@ not a claim that the full Project vNext ecosystem is complete.
 | --- | --- | --- |
 | Phase 1: stdio MCP dynamic Tools | Complete | User-only config, SDK lifecycle, unified catalog/safety chain, and real CLI/Chat/Workbench acceptance |
 | Phase 2 slice 1: managed MCP and Skills lifecycle | Complete | Managed MCP fragments/state with a live `mcp doctor`, user Skill install/update/package/remove, one shared user-store transaction layer, and crash-recovery evidence |
-| Frontend vNext Phase 1: App Shell + Chat | Complete in preview | React/Vite `/preview/` vertical slice covers C1-C9, H1/H2, S1/S2/S5 with real REST/SSE adapters, themes, responsive spatial shell, approval paths, Canvas, and regression evidence; legacy `/` remains the rollback path |
-| Frontend vNext Phase 2: Core functional parity | Complete in preview | Files, Runs, System, bounded non-secret config writes, visual baselines, and visible-browser acceptance are complete; legacy `/` remains the default rollback path |
-| Full Project vNext ecosystem | In progress | The backend management surface and Frontend vNext Phases 1-2 are complete; later phases still own productivity, default-entry cutover, distribution, remote, and community loops |
+| Frontend vNext Phase 1: App Shell + Chat | Complete | React/Vite chat vertical slice covers C1-C9, H1/H2, S1/S2/S5 with real REST/SSE adapters, themes, responsive spatial shell, approval paths, Canvas, and regression evidence |
+| Frontend vNext Phase 2: Core functional parity | Complete | Files, Runs, System, bounded non-secret config writes, visual baselines, and visible-browser acceptance are complete |
+| Frontend vNext Default Entry Cutover | Complete | Root `/` serves React; `/preview/` remains compatible and `/legacy/` remains the old Workbench rollback entry |
+| Project vNext core (Phase 0–3) | In progress | The backend management surface, Frontend vNext Phases 1-2, and default-entry cutover are complete; Phase 3 productivity and the final full-suite bug pass remain |
+| Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones
 
@@ -57,6 +60,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | vNext Phase 1 slice | Open extension kernel | Local stdio MCP dynamic Tools share the built-in Tool catalog, approval, observation, redaction, trace, and composition-root lifecycle |
 | Frontend vNext Phase 1 | Spatial App Shell + Chat | Parallel React preview, typed REST/SSE seam, real chat/approval/history flow, six theme-mode sets, responsive rail, one state-driven Canvas, and Lucide-only accessible product chrome |
 | Frontend vNext Phase 2 | Workspace functional parity | Files, Runs, System diagnostics, bounded config writes, snapshot review/restore confirmation, and deterministic responsive visual coverage |
+| Frontend vNext Cutover | Default React entry | Root React Workbench with `/preview/` compatibility and `/legacy/` rollback |
 
 ## Active v0.6 Plan
 
@@ -321,12 +325,11 @@ Completed slice: Project vNext Phase 2 extension management closeout (hook
 warnings and `hooks list`, `mcp show`, doctor extension summaries, and the
 shared `config set/unset` write path).
 
-Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice at
-`/preview/`, with the legacy `/` entry preserved for rollback.
+Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice.
 
-Completed slice: Frontend vNext Phase 2 core functional parity at `/preview/`,
-including Files, Runs, System, bounded non-secret config writes, visual baselines,
-and visible-browser acceptance; legacy `/` remains the default rollback path.
+Completed slice: Frontend vNext Phase 2 core functional parity, including Files,
+Runs, System, bounded non-secret config writes, visual baselines, and visible-browser
+acceptance.
 
 Frontend vNext 默认入口切换就绪。
 
@@ -334,19 +337,26 @@ The completed Readiness slice is designed in
 [`2026-07-25-frontend-vnext-default-entry-cutover-readiness-design.md`](superpowers/specs/2026-07-25-frontend-vnext-default-entry-cutover-readiness-design.md)
 and implemented by
 [`2026-07-25-frontend-vnext-default-entry-readiness.md`](superpowers/plans/2026-07-25-frontend-vnext-default-entry-readiness.md).
-The candidate Git tree and Python wheel contain the React runtime bundle, while
-root `/` remains the legacy Workbench and `/legacy/` is the stable rollback
-entry. The actual default-entry switch is a separate change that still requires
-explicit authorization.
-Marketplace, registry, remote sources, automatic reconnect, and Phase 3 productivity
-remain separate later slices.
+The candidate Git tree and Python wheel contain the React runtime bundle.
+
+Frontend vNext 默认入口已切换。
+
+The Cutover is designed in
+[`2026-07-25-frontend-vnext-default-entry-cutover-design.md`](superpowers/specs/2026-07-25-frontend-vnext-default-entry-cutover-design.md)
+and implemented by
+[`2026-07-25-frontend-vnext-default-entry-cutover.md`](superpowers/plans/2026-07-25-frontend-vnext-default-entry-cutover.md).
+Root `/` now serves React, `/preview/` remains compatible, and `/legacy/` remains
+the old Workbench rollback entry. Old-shell retirement requires separate stability
+evidence and review.
+Phase 3 productivity remains the required next track. Marketplace, registry, remote
+sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
 
 ## Guardrails
 
 - Keep secrets in environment variables or `.agent/secrets.env`, not repo files.
 - Keep `docs/main.pdf` as untracked user reference material unless explicitly
   requested otherwise.
-- Keep the stdlib Python server and legacy `/` rollback while the React preview
-  advances through parity; do not require Node.js at product runtime.
+- Keep the stdlib Python server and `/legacy/` rollback through the stability
+  window; do not require Node.js at product runtime.
 - Do not weaken sandbox, approval, redaction, snapshot, or durable log behavior
   for visual convenience.

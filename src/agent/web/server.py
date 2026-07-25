@@ -46,10 +46,9 @@ from agent.web.settings import (
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 
-# Readiness keeps root on the legacy Workbench; the cutover commit changes only
-# the "/" value here, and "/legacy/" stays as the rollback entry either way.
+# The React Workbench is the default; "/legacy/" remains the one-line rollback entry.
 _STATIC_ENTRYPOINTS = {
-    "/": "index.html",
+    "/": "preview/index.html",
     "/preview/": "preview/index.html",
     "/legacy/": "index.html",
 }
