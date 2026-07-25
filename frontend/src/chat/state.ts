@@ -54,6 +54,14 @@ export function chatReducer(state: ChatState, event: ChatEvent): ChatState {
       return { ...next, notices: [...state.notices, `${event.requested} unavailable; using ${event.fallback}.`] };
     case "final":
       return { ...next, phase: "final", approval: null, final: event, error: null };
+    case "cancelled":
+      return { ...next, phase: "error", approval: null, final: null, error: "任务已停止。" };
+    case "timed_out":
+      return { ...next, phase: "error", approval: null, final: null, error: "任务超过整轮时限，已停止。" };
+    case "interrupted":
+      return { ...next, phase: "error", approval: null, final: null, error: "服务重启中断了本次任务。" };
+    case "failed":
+      return { ...next, phase: "error", approval: null, final: null, error: event.error };
     case "error":
       return { ...next, phase: "error", approval: null, error: event.error };
   }

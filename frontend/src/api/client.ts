@@ -1,5 +1,6 @@
 import type {
   ApprovalPayload,
+  ChatCancelPayload,
   ChatPayload,
   ChatStartPayload,
   ChatsPayload,
@@ -72,8 +73,19 @@ export function createApiClient(fetcher: typeof fetch = globalThis.fetch.bind(gl
     getHealth: () => request<HealthPayload>("/api/health"),
     listChats: () => request<ChatsPayload>("/api/chats"),
     getChat: (sessionId: string) => request<ChatPayload>(`/api/chats/${encodeURIComponent(sessionId)}`),
-    startChat: (message: string, sessionId?: string) =>
-      post<ChatStartPayload>("/api/chat/start", { message, ...(sessionId ? { session_id: sessionId } : {}) }),
+    startChat: (message: string, sessionId?: string, timeoutSeconds?: number) =>
+      post<ChatStartPayload>("/api/chat/start", {
+        message,
+        ...(sessionId ? { session_id: sessionId } : {}),
+        ...(timeoutSeconds === undefined ? {} : { timeout_seconds: timeoutSeconds }),
+      }),
+    cancelChat: (jobId: string) => post<ChatCancelPayload>("/api/chat/cancel", { job_id: jobId }),
+    resumeChat: (jobId: string, message: string, timeoutSeconds?: number) =>
+      post<ChatStartPayload>("/api/chat/resume", {
+        job_id: jobId,
+        message,
+        ...(timeoutSeconds === undefined ? {} : { timeout_seconds: timeoutSeconds }),
+      }),
     decideApproval: (jobId: string, approve: boolean) =>
       post<ApprovalPayload>("/api/chat/approval", { job_id: jobId, approve }),
     renameChat: (sessionId: string, title: string) =>

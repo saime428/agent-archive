@@ -18,6 +18,8 @@ const CONTROL_DIR = resolve(
 );
 const STOP_FILE = join(CONTROL_DIR, "stop");
 const DONE_FILE = join(CONTROL_DIR, "done");
+const RESTART_FILE = join(CONTROL_DIR, "restart");
+const RESTARTED_FILE = join(CONTROL_DIR, "restarted");
 
 function samePath(left, right) {
   return process.platform === "win32"
@@ -79,13 +81,26 @@ function executablePrefixArgs() {
   return value;
 }
 
-function startControlWatcher(finish) {
+function startControlWatcher(notify) {
   let checking = false;
+  let stopAnnounced = false;
+  let restartAnnounced = false;
   const timer = setInterval(async () => {
     if (checking) return;
     checking = true;
     try {
-      if (await fileExists(STOP_FILE)) finish({ kind: "control" });
+      const [stopRequested, restartRequested] = await Promise.all([
+        fileExists(STOP_FILE),
+        fileExists(RESTART_FILE),
+      ]);
+      if (stopRequested && !stopAnnounced) {
+        stopAnnounced = true;
+        notify({ kind: "control" });
+      } else if (restartRequested && !restartAnnounced) {
+        restartAnnounced = true;
+        notify({ kind: "restart" });
+      }
+      if (!restartRequested) restartAnnounced = false;
     } finally {
       checking = false;
     }
@@ -110,100 +125,127 @@ async function run() {
   await mkdir(CONTROL_DIR, { recursive: true });
   await rm(STOP_FILE, { force: true });
   await rm(DONE_FILE, { force: true });
+  await rm(RESTART_FILE, { force: true });
+  await rm(RESTARTED_FILE, { force: true });
 
   let workspace;
   let temporaryHome;
-  let child;
   let controlWatcher;
   let controlRequested = false;
   let exitCode = 1;
-  let finish;
   let onSigint;
   let onSigterm;
 
   try {
     workspace = await mkdtemp(join(tmpdir(), WORKSPACE_PREFIX));
     temporaryHome = await mkdtemp(join(tmpdir(), HOME_PREFIX));
-    child = spawn(
-      executable,
-      [
-        ...prefixArgs,
-        "start",
-        "--cwd",
-        workspace,
-        "--host",
-        HOST,
-        "--port",
-        String(PORT),
-        "--no-open-browser",
-      ],
-      {
-        cwd: REPOSITORY,
-        env: { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome },
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      },
-    );
-
-    let resolveClosed;
-    const closed = new Promise((resolveChildClosed) => {
-      resolveClosed = resolveChildClosed;
-    });
-    const outcome = new Promise((resolveOutcome) => {
-      let settled = false;
-      finish = (value) => {
-        if (settled) return;
-        settled = true;
-        resolveOutcome(value);
-      };
-    });
-
-    child.once("error", (error) => finish({ kind: "error", error }));
-    child.once("close", (code, signal) => {
-      resolveClosed();
-      finish({ kind: "exit", code, signal });
-    });
-
-    const forward = (stream, destination) => {
-      let rolling = "";
-      stream.on("data", (chunk) => {
-        destination.write(chunk);
-        rolling = (rolling + chunk.toString("utf8")).slice(-FALLBACK_WARNING.length * 2);
-        if (rolling.includes(FALLBACK_WARNING)) finish({ kind: "fallback" });
-      });
+    const pendingControls = [];
+    let controlWaiter;
+    const notifyControl = (value) => {
+      if (controlWaiter) {
+        const resolveWaiter = controlWaiter;
+        controlWaiter = undefined;
+        resolveWaiter(value);
+      } else {
+        pendingControls.push(value);
+      }
     };
-    forward(child.stdout, process.stdout);
-    forward(child.stderr, process.stderr);
+    const nextControl = () => pendingControls.length
+      ? Promise.resolve(pendingControls.shift())
+      : new Promise((resolveControl) => { controlWaiter = resolveControl; });
 
-    controlWatcher = startControlWatcher(finish);
-    onSigint = () => finish({ kind: "signal", signal: "SIGINT" });
-    onSigterm = () => finish({ kind: "signal", signal: "SIGTERM" });
+    const startChild = () => {
+      const nextChild = spawn(
+        executable,
+        [
+          ...prefixArgs,
+          "start",
+          "--cwd",
+          workspace,
+          "--host",
+          HOST,
+          "--port",
+          String(PORT),
+          "--no-open-browser",
+        ],
+        {
+          cwd: REPOSITORY,
+          env: { ...process.env, HOME: temporaryHome, USERPROFILE: temporaryHome },
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        },
+      );
+      let resolveClosed;
+      const closed = new Promise((resolveChildClosed) => { resolveClosed = resolveChildClosed; });
+      const outcome = new Promise((resolveOutcome) => {
+        let settled = false;
+        const finishChild = (value) => {
+          if (settled) return;
+          settled = true;
+          resolveOutcome(value);
+        };
+        nextChild.once("error", (error) => finishChild({ kind: "error", error }));
+        nextChild.once("close", (code, signal) => {
+          resolveClosed();
+          finishChild({ kind: "exit", code, signal });
+        });
+        const forward = (stream, destination) => {
+          let rolling = "";
+          stream.on("data", (chunk) => {
+            destination.write(chunk);
+            rolling = (rolling + chunk.toString("utf8")).slice(-FALLBACK_WARNING.length * 2);
+            if (rolling.includes(FALLBACK_WARNING)) finishChild({ kind: "fallback" });
+          });
+        };
+        forward(nextChild.stdout, process.stdout);
+        forward(nextChild.stderr, process.stderr);
+      });
+      return { child: nextChild, closed, outcome };
+    };
+
+    controlWatcher = startControlWatcher(notifyControl);
+    onSigint = () => notifyControl({ kind: "signal", signal: "SIGINT" });
+    onSigterm = () => notifyControl({ kind: "signal", signal: "SIGTERM" });
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
 
-    const result = await outcome;
-    controlRequested = result.kind === "control";
-    if (result.kind === "exit") {
-      exitCode = typeof result.code === "number" ? result.code : 1;
-    } else {
-      await terminateChild(child, closed);
-      if (result.kind === "fallback") {
-        process.stderr.write(`Refusing port fallback after detecting: ${FALLBACK_WARNING}\n`);
-        exitCode = 1;
-      } else if (result.kind === "error") {
-        process.stderr.write(`Could not start Agent Workbench: ${result.error.message}\n`);
-        exitCode = 1;
-      } else if (result.kind === "signal") {
-        exitCode = result.signal === "SIGINT" ? 130 : 143;
-      } else {
-        exitCode = 0;
+    let running = startChild();
+    while (true) {
+      const result = await Promise.race([running.outcome, nextControl()]);
+      if (result.kind === "restart") {
+        await terminateChild(running.child, running.closed);
+        await rm(RESTART_FILE, { force: true });
+        await rm(RESTARTED_FILE, { force: true });
+        running = startChild();
+        await writeFile(RESTARTED_FILE, "restarted\n", "utf8");
+        continue;
       }
+      controlRequested = result.kind === "control";
+      if (result.kind === "exit") {
+        exitCode = typeof result.code === "number" ? result.code : 1;
+      } else {
+        await terminateChild(running.child, running.closed);
+        if (result.kind === "fallback") {
+          process.stderr.write(`Refusing port fallback after detecting: ${FALLBACK_WARNING}\n`);
+          exitCode = 1;
+        } else if (result.kind === "error") {
+          process.stderr.write(`Could not start Agent Workbench: ${result.error.message}\n`);
+          exitCode = 1;
+        } else if (result.kind === "signal") {
+          exitCode = result.signal === "SIGINT" ? 130 : 143;
+        } else {
+          exitCode = 0;
+        }
+      }
+      break;
     }
   } finally {
     if (controlWatcher) clearInterval(controlWatcher);
     if (onSigint) process.removeListener("SIGINT", onSigint);
     if (onSigterm) process.removeListener("SIGTERM", onSigterm);
+    await rm(RESTART_FILE, { force: true });
+    await rm(RESTARTED_FILE, { force: true });
     await removeOwnedTemp(workspace, WORKSPACE_PREFIX);
     await removeOwnedTemp(temporaryHome, HOME_PREFIX);
     if (controlRequested) await writeFile(DONE_FILE, "done\n", "utf8");

@@ -1,2 +1,4 @@
 frontend/index.html -text
 src/agent/web/static/preview/** -text
+# Bundled third-party template literals contain whitespace-only lines.
+src/agent/web/static/preview/assets/*.js whitespace=-blank-at-eol

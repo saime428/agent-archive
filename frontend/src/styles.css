@@ -1305,6 +1305,11 @@ select {
   box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
+.send-button[data-action="stop"] {
+  background: var(--danger);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
 .send-button svg {
   width: 17px;
 }

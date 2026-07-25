@@ -265,6 +265,51 @@ if (process.argv.includes(FAKE_FLAG)) {
     }
   });
 
+  test("restarts the child in the same isolated workspace and home", async () => {
+    const scratch = await makeScratch();
+    const run = startWrapper(scratch, "hold");
+    try {
+      const first = await readJsonWhenReady(scratch.stateFile);
+      await writeFile(join(scratch.controlDir, "restart"), "restart", "utf8");
+      await waitFor(() => fileExists(join(scratch.controlDir, "restarted")));
+
+      let second;
+      await waitFor(async () => {
+        try {
+          const candidate = JSON.parse(await readFile(scratch.stateFile, "utf8"));
+          if (candidate.pid === first.pid) return false;
+          second = candidate;
+          return true;
+        } catch {
+          return false;
+        }
+      });
+
+      assert.equal(second.workspace, first.workspace);
+      assert.equal(second.home, first.home);
+      await waitFor(() => {
+        try {
+          process.kill(first.pid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      });
+
+      await writeFile(join(scratch.controlDir, "stop"), "stop", "utf8");
+      await waitFor(() => fileExists(join(scratch.controlDir, "done")));
+      const result = await run.result;
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(await fileExists(first.workspace), false);
+      assert.equal(await fileExists(first.home), false);
+      await assertNoWrapperTemps(scratch.root);
+      await assertPortsFree();
+    } finally {
+      await stopWrapper(run);
+      await removeScratch(scratch.root);
+    }
+  });
+
   test(
     "forwards SIGTERM and cleans the child on POSIX",
     { skip: process.platform === "win32" },

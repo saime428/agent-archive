@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Search,
   SendHorizontal,
+  Square,
   Sun,
   Terminal,
   Trash2,
@@ -50,13 +51,14 @@ import {
 } from "react";
 import { ContextField } from "./ContextField";
 import { api, ApiError } from "./api/client";
-import { subscribeChatJob, type StreamStatus } from "./api/sse";
+import { isTerminalChatEvent, subscribeChatJob, type StreamStatus } from "./api/sse";
 import type { ChatEvent, ChatPayload, ChatSummary, ChatTurn, HealthPayload } from "./api/types";
 import { chatReducer, initialChatState, recoveringState, type ChatPhase, type ChatState } from "./chat/state";
 import { useTheme, type ModePreference, type ThemeName } from "./theme";
 import { WorkspacePanel } from "./workspace/WorkspacePanel";
 
 const ACTIVE_JOB_KEY = "agent.frontend.active-job";
+const RESUMABLE_REASONS = new Set(["cancelled", "timed_out", "interrupted", "failed"]);
 
 interface ActiveJob {
   jobId: string;
@@ -482,13 +484,17 @@ function LiveTurn({
 function Composer({
   value,
   disabled,
+  stopping,
   onChange,
   onSubmit,
+  onStop,
 }: {
   value: string;
   disabled: boolean;
+  stopping: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onStop: () => void;
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const submit = (event: FormEvent) => {
@@ -521,9 +527,18 @@ function Composer({
         disabled={disabled}
         rows={1}
       />
-      <button className="send-button" type="submit" disabled={disabled || !value.trim()}>
-        {disabled ? <LoaderCircle className="spin" aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
-        <span>{disabled ? "运行中" : "发送"}</span>
+      <button
+        className="send-button"
+        type={disabled ? "button" : "submit"}
+        data-action={disabled ? "stop" : "send"}
+        disabled={disabled ? stopping : !value.trim()}
+        onClick={disabled ? onStop : undefined}
+        aria-label={disabled ? (stopping ? "正在停止当前任务" : "停止当前任务") : "发送"}
+      >
+        {disabled
+          ? stopping ? <LoaderCircle className="spin" aria-hidden="true" /> : <Square aria-hidden="true" />
+          : <SendHorizontal aria-hidden="true" />}
+        <span>{disabled ? (stopping ? "正在停止" : "停止") : "发送"}</span>
       </button>
       <span className="composer-hint">Enter 发送 / Shift + Enter 换行</span>
     </form>
@@ -615,6 +630,7 @@ export function App() {
   const workspaceOpenerRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [sessionAction, setSessionAction] = useState<SessionAction>(null);
   const [sessionActionBusy, setSessionActionBusy] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -714,6 +730,8 @@ export function App() {
         setActiveJob((current) => current?.jobId === activeJob.jobId ? null : current);
         setPendingUser("");
         setLive(initialChatState);
+        setApprovalBusy(false);
+        setCancelBusy(false);
       }
     };
     const stop = subscribeChatJob({
@@ -726,8 +744,8 @@ export function App() {
           streamThinkingRef.current += event.text;
         }
         setLive((state) => chatReducer(state, event));
-        if (event.event !== "final" && event.event !== "error") return;
-        if (event.event === "final" && streamThinkingRef.current && event.run_id) {
+        if (!isTerminalChatEvent(event)) return;
+        if (streamThinkingRef.current && "run_id" in event && event.run_id) {
           const captured = streamThinkingRef.current;
           setThinkingCache((cache) => ({ ...cache, [event.run_id]: captured }));
         }
@@ -736,7 +754,7 @@ export function App() {
       },
       onRecover(id) {
         setLive(recoveringState);
-        if (id === activeJob.sessionId) void settleJob();
+        if (id === activeJob.sessionId) void loadChat(id);
       },
     });
     return stop;
@@ -782,10 +800,17 @@ export function App() {
     setMessage("");
     setLive({ ...initialChatState, phase: "thinking" });
     try {
-      const started = await api.startChat(text, sessionId || undefined);
+      const previous = chat?.session_id === sessionId ? chat.turns.at(-1) : undefined;
+      const resumeJobId = previous?.job_id && RESUMABLE_REASONS.has(previous.terminal_reason)
+        ? previous.job_id
+        : null;
+      const started = resumeJobId
+        ? await api.resumeChat(resumeJobId, text)
+        : await api.startChat(text, sessionId || undefined);
       const next = { jobId: started.job_id, sessionId: started.session_id };
       sessionStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(next));
       setActiveJob(next);
+      setCancelBusy(false);
       setSessionHash(next.sessionId);
       setSessionId(next.sessionId);
     } catch (nextError) {
@@ -803,6 +828,17 @@ export function App() {
       setError(displayError(nextError));
     } finally {
       setApprovalBusy(false);
+    }
+  };
+
+  const cancelActiveJob = async () => {
+    if (!activeJob || cancelBusy) return;
+    setCancelBusy(true);
+    try {
+      await api.cancelChat(activeJob.jobId);
+    } catch (nextError) {
+      setCancelBusy(false);
+      setError(displayError(nextError));
     }
   };
 
@@ -955,7 +991,14 @@ export function App() {
             ) : null}
           </div>
 
-          <Composer value={message} disabled={Boolean(activeJob)} onChange={setMessage} onSubmit={send} />
+          <Composer
+            value={message}
+            disabled={Boolean(activeJob)}
+            stopping={cancelBusy}
+            onChange={setMessage}
+            onSubmit={send}
+            onStop={cancelActiveJob}
+          />
         </main>
 
         <button

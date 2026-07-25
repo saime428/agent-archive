@@ -17,6 +17,24 @@ describe("createApiClient", () => {
     );
   });
 
+  it("sends lifecycle timeout, cancel, and safe resume payloads", async () => {
+    const fetcher = vi.fn(async (...request: Parameters<typeof fetch>) => {
+      void request;
+      return new Response('{"status":"running","job_id":"job_2","session_id":"chat_1","run_id":"run_2"}');
+    });
+    const client = createApiClient(fetcher as typeof fetch);
+
+    await client.startChat("first", "chat_1", 120);
+    await client.cancelChat("job_1");
+    await client.resumeChat("job_1", "continue safely", 300);
+
+    expect(fetcher.mock.calls.map(([path, init]) => [path, init?.body])).toEqual([
+      ["/api/chat/start", JSON.stringify({ message: "first", session_id: "chat_1", timeout_seconds: 120 })],
+      ["/api/chat/cancel", JSON.stringify({ job_id: "job_1" })],
+      ["/api/chat/resume", JSON.stringify({ job_id: "job_1", message: "continue safely", timeout_seconds: 300 })],
+    ]);
+  });
+
   it("converts backend errors without retrying", async () => {
     const fetcher = vi.fn(async () => new Response('{"error":"already active"}', { status: 400 }));
     const client = createApiClient(fetcher as typeof fetch);

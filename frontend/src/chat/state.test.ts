@@ -37,4 +37,39 @@ describe("chatReducer", () => {
     expect(finished.phase).toBe("error");
     expect(finished.approval).toBeNull();
   });
+
+  it.each([
+    ["cancelled", "任务已停止。"],
+    ["timed_out", "任务超过整轮时限，已停止。"],
+    ["interrupted", "服务重启中断了本次任务。"],
+    ["failed", "worker failed"],
+  ] as const)("keeps %s distinct from a normal final", (terminal, message) => {
+    const event = {
+      event: terminal,
+      sequence: 0,
+      elapsed_ms: 1,
+      run_id: "run_1",
+      session_id: "chat_1",
+      error: "worker failed",
+      title: "Chat",
+      turn_count: 1,
+      status: "error",
+      completed: false,
+      display_status: "error",
+      terminal_reason: terminal,
+      final: "",
+      last_action: "run_control",
+      last_observation_summary: message,
+      error_code: terminal === "cancelled" ? "CANCELLED" : "TIMEOUT",
+      error_message: message,
+      process: [],
+      thinking_text: "",
+    } as ChatEvent;
+
+    const state = chatReducer(initialChatState, event);
+
+    expect(state.phase).toBe("error");
+    expect(state.final).toBeNull();
+    expect(state.error).toBe(message);
+  });
 });

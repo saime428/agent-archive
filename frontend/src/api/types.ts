@@ -296,6 +296,8 @@ export interface ChatTurn {
   last_observation_summary: string;
   thinking_text: string;
   process: string[];
+  job_id: string | null;
+  resumed_from_job_id: string | null;
 }
 
 export interface ChatsPayload {
@@ -316,6 +318,12 @@ export interface ChatStartPayload {
   status: "running";
   job_id: string;
   session_id: string;
+  run_id: string;
+}
+
+export interface ChatCancelPayload {
+  status: string;
+  job_id: string;
 }
 
 export interface ApprovalPayload {
@@ -367,7 +375,9 @@ export type ChatEvent =
   | (ActionEvent & { event: "approval_granted" | "approval_denied" | "approval_timed_out" })
   | (ActionEvent & { event: "observation"; status: string; summary: string })
   | (EventBase & { event: "capability_warning"; run_id: string; requested: string; fallback: string })
-  | (EventBase & ChatTurnResult & { event: "final" })
+  | (EventBase & ChatTurnResult & { event: "final" | "cancelled" | "timed_out" })
+  | (EventBase & { event: "interrupted"; run_id: string; session_id: string })
+  | (EventBase & { event: "failed"; run_id: string; error: string })
   | (EventBase & { event: "error"; error: string });
 
 export const CHAT_EVENT_NAMES = [
@@ -384,6 +394,10 @@ export const CHAT_EVENT_NAMES = [
   "observation",
   "capability_warning",
   "final",
+  "cancelled",
+  "timed_out",
+  "interrupted",
+  "failed",
   "error",
 ] as const;
 
@@ -443,7 +457,13 @@ export function parseChatEvent(value: unknown): ChatEvent | null {
       return isString(record.run_id) && isString(record.requested) && isString(record.fallback) ? event : null;
     case "error":
       return isString(record.error) ? event : null;
+    case "failed":
+      return isString(record.run_id) && isString(record.error) ? event : null;
+    case "interrupted":
+      return isString(record.run_id) && isString(record.session_id) ? event : null;
     case "final":
+    case "cancelled":
+    case "timed_out":
       return isString(record.session_id)
         && isString(record.title)
         && Number.isInteger(record.turn_count)

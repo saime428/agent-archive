@@ -4,6 +4,9 @@ const SESSION_ID = "session_e2e";
 const JOB_ID = "job_e2e";
 let submittedMessage = "";
 let persistedFinal: ReturnType<typeof finalEvent> | null = null;
+let cancelRequests = 0;
+let resumeRequest: Record<string, unknown> | null = null;
+let startRequests = 0;
 let savedConfigUpdates: Record<string, unknown> | null = null;
 let rejectConfigSave = false;
 const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
@@ -236,14 +239,28 @@ async function installWorkbenchMocks(page: Page) {
         last_observation_summary: persistedFinal.last_observation_summary,
         thinking_text: persistedFinal.thinking_text,
         process: persistedFinal.process,
+        job_id: JOB_ID,
+        resumed_from_job_id: null,
       }] : [];
       await json({ session_id: SESSION_ID, title: "E2E task", created_at: "", updated_at: "", turn_count: turns.length, turns });
       return;
     }
     if (path === "/api/chat/start" && request.method() === "POST") {
+      startRequests += 1;
       const body = JSON.parse(request.postData() || "{}") as { message?: string };
       submittedMessage = body.message || "";
-      await json({ status: "running", job_id: JOB_ID, session_id: SESSION_ID });
+      await json({ status: "running", job_id: JOB_ID, session_id: SESSION_ID, run_id: "run_e2e" });
+      return;
+    }
+    if (path === "/api/chat/cancel" && request.method() === "POST") {
+      cancelRequests += 1;
+      await json({ status: "cancel_requested", job_id: JOB_ID });
+      return;
+    }
+    if (path === "/api/chat/resume" && request.method() === "POST") {
+      resumeRequest = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
+      submittedMessage = String(resumeRequest.message || "");
+      await json({ status: "running", job_id: "job_resume", session_id: SESSION_ID, run_id: "run_resume" });
       return;
     }
     if (path === "/api/chat/approval" && request.method() === "POST") {
@@ -256,7 +273,7 @@ async function installWorkbenchMocks(page: Page) {
 }
 
 async function emit(page: Page, name: string, payload: object) {
-  if (name === "final") persistedFinal = payload as ReturnType<typeof finalEvent>;
+  if (["final", "cancelled", "timed_out"].includes(name)) persistedFinal = payload as ReturnType<typeof finalEvent>;
   await page.evaluate(
     ({ eventName, eventPayload }) => {
       const sources = (window as unknown as { __agentMockSources: Array<{ emit: (name: string, payload: object) => void }> }).__agentMockSources;
@@ -453,9 +470,27 @@ function finalEvent(sequence: number, final = "E2E final result.") {
   };
 }
 
+function cancelledEvent(sequence: number) {
+  return {
+    ...finalEvent(sequence, ""),
+    event: "cancelled",
+    status: "error",
+    completed: false,
+    display_status: "error",
+    terminal_reason: "cancelled",
+    last_action: "run_control",
+    last_observation_summary: "Run cancelled.",
+    error_code: "CANCELLED",
+    error_message: "Run cancelled.",
+  };
+}
+
 test.beforeEach(async ({ page }) => {
   submittedMessage = "";
   persistedFinal = null;
+  cancelRequests = 0;
+  resumeRequest = null;
+  startRequests = 0;
   savedConfigUpdates = null;
   rejectConfigSave = false;
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -488,6 +523,45 @@ test("keeps a finished background job out of the current route", async ({ page }
 
   await expect(page.getByRole("heading", { name: "New task", exact: true })).toBeVisible();
   await expect(page.getByText("Background result.", { exact: true })).toHaveCount(0);
+});
+
+test("cancels once, persists the terminal turn, and resumes with a new message", async ({ page }) => {
+  await page.goto("./#/new");
+  await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Long fixture");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+
+  const stop = page.getByRole("button", { name: "停止当前任务", exact: true });
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(page.getByRole("button", { name: "正在停止当前任务", exact: true })).toBeDisabled();
+  expect(cancelRequests).toBe(1);
+
+  await emit(page, "cancelled", cancelledEvent(0));
+  await expect(page.getByText("error / cancelled", { exact: true })).toBeVisible();
+
+  await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Continue without replaying tools");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  expect(resumeRequest).toEqual({ job_id: JOB_ID, message: "Continue without replaying tools" });
+
+  await emit(page, "final", finalEvent(0, "Resumed fixture completed."));
+  await expect(page.getByText("Resumed fixture completed.", { exact: true })).toBeVisible();
+});
+
+test("refreshes the same active job without creating a second turn", async ({ page }) => {
+  await page.goto("./#/new");
+  await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Refresh fixture");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await emit(page, "chat_started", { event: "chat_started", sequence: 0, elapsed_ms: 0, session_id: SESSION_ID });
+  expect(startRequests).toBe(1);
+
+  await page.reload();
+
+  await expect(page).toHaveURL(new RegExp(`#\\/chat\\/${SESSION_ID}$`));
+  await expect(page.getByRole("button", { name: "停止当前任务", exact: true })).toBeVisible();
+  expect(startRequests).toBe(1);
+  await emit(page, "chat_started", { event: "chat_started", sequence: 0, elapsed_ms: 0, session_id: SESSION_ID });
+  await emit(page, "cancelled", cancelledEvent(1));
+  await expect(page.getByText("error / cancelled", { exact: true })).toBeVisible();
 });
 
 for (const decision of [
