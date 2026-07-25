@@ -942,3 +942,36 @@ def test_extension_management_closeout_docs_record_commands_and_status() -> None
         assert command in readme
     assert "config set" in changelog
     assert "状态：已实施" in spec
+
+
+def test_phase3_recoverable_task_lifecycle_docs_lock_scope_and_completion_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-07-25-phase3-recoverable-task-lifecycle-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-25-phase3-recoverable-task-lifecycle.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-recoverable-task-lifecycle.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3A Lifecycle" in direction
+    assert "resume **不会重放旧 message 或任何 Tool**" in spec
+    assert "一个 workspace 同时只允许一个 Agent turn" in spec
+    assert "1–3600 秒" in spec
+    for terminal in ("cancelled", "timed_out", "interrupted"):
+        assert terminal in spec
+        assert terminal in plan
+    assert "3A Lifecycle" in verification
+    assert "Project vNext 核心仍未完成" in verification
+    assert "Phase 4–5" in verification
