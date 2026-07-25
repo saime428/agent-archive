@@ -1911,6 +1911,9 @@ select {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Grid items default to min-width:auto; without this a long file name blows the
+     column out instead of ellipsizing. */
+  min-width: 0;
   border-right: 1px solid var(--border);
   padding-right: 12px;
 }
@@ -1946,6 +1949,7 @@ select {
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   padding: 6px 8px;
   font: inherit;
   font-size: 13px;
@@ -2018,7 +2022,7 @@ select {
 
 /* ===== Phase 2 runs view ===== */
 .runs-layout { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: 14px; }
-.runs-index-track { display: flex; flex-direction: column; gap: 8px; border-right: 1px solid var(--border); padding-right: 12px; }
+.runs-index-track { display: flex; flex-direction: column; gap: 8px; min-width: 0; border-right: 1px solid var(--border); padding-right: 12px; }
 .runs-filters { display: flex; gap: 6px; }
 .runs-filter { flex: 1; min-width: 0; }
 .runs-filter select {
@@ -2209,4 +2213,19 @@ select {
   .settings-field { flex-wrap: wrap; }
   .settings-field > span:first-child { width: 100%; }
   .settings-toggles { padding-left: 0; }
+}
+
+/* Single-column grid lists default their column to auto (content) width, so a long
+   file name or run id widens the column instead of ellipsizing inside it.
+   minmax(0, 1fr) caps the column at the container width. */
+.files-entries,
+.runs-index,
+.resource-list,
+.memory-list,
+.tools-list,
+.replay-steps,
+.command-list,
+.snapshot-list,
+.trace-list {
+  grid-template-columns: minmax(0, 1fr);
 }

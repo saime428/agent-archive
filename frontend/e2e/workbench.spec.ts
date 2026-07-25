@@ -6,6 +6,7 @@ let submittedMessage = "";
 let persistedFinal: ReturnType<typeof finalEvent> | null = null;
 let savedConfigUpdates: Record<string, unknown> | null = null;
 let rejectConfigSave = false;
+const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
 
 async function installWorkbenchMocks(page: Page) {
   await page.addInitScript(() => {
@@ -98,6 +99,26 @@ async function installWorkbenchMocks(page: Page) {
       await json(runDetailFixture());
       return;
     }
+    if (path === "/api/runs/run_attn") {
+      const detail = runDetailFixture();
+      detail.run_id = "run_attn";
+      detail.summary = "Command failed while verifying the change.";
+      detail.failure = {
+        status: "failed",
+        failure_count: 1,
+        latest_failure: { action: "run_command", summary: "pytest exited with code 1." },
+        next_checks: ["Read the failed observation summary.", "Inspect the trace around the failed action."],
+      };
+      detail.patch_review = {
+        ...detail.patch_review,
+        risk_level: "attention",
+        summary: "Failed observations need review before patching.",
+        next_action: "Resolve or explain the failed observation before patching.",
+      };
+      detail.recovery = { ...detail.recovery, status: "needs-attention" };
+      await json(detail);
+      return;
+    }
     if (path === "/api/runs/run_missing") {
       await json({ error: "Run not found: run_missing" }, 404);
       return;
@@ -130,6 +151,12 @@ async function installWorkbenchMocks(page: Page) {
             { name: "README.md", path: "README.md", kind: "file", size: 64 },
             { name: "big.txt", path: "big.txt", kind: "file", size: 99999 },
             { name: "missing.txt", path: "missing.txt", kind: "file", size: 10 },
+            {
+              name: LONG_FILE_NAME,
+              path: `F:\\projects\\spatial-demo\\deeply\\nested\\windows\\path\\${LONG_FILE_NAME}`,
+              kind: "file",
+              size: 42,
+            },
           ],
         });
       }
@@ -316,7 +343,12 @@ function runDetailFixture() {
       verification_commands: ["python -m pytest tests/test_docs.py -q", "git diff --check"],
       review_steps: ["Open changed files from Task Review."],
     },
-    failure: { status: "clear", failure_count: 0, latest_failure: null, next_checks: ["No failed observations recorded for this run."] },
+    failure: {
+      status: "clear",
+      failure_count: 0,
+      latest_failure: null as Record<string, unknown> | null,
+      next_checks: ["No failed observations recorded for this run."],
+    },
     patch_review: {
       mode: "read-only",
       risk_level: "medium",
@@ -681,6 +713,119 @@ test.describe("system", () => {
   });
 });
 
+test.describe("workspace layout and a11y", () => {
+  async function openWorkspace(page: Page, view?: "Files" | "Runs" | "System") {
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    if (view) await page.getByRole("button", { name: view, exact: true }).click();
+  }
+
+  async function pageOverflows(page: Page) {
+    return page.evaluate(() => document.body.scrollWidth > window.innerWidth);
+  }
+
+  for (const width of [1440, 390, 320]) {
+    test(`keeps the workspace free of horizontal overflow at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openWorkspace(page, "System");
+      expect(await pageOverflows(page)).toBe(false);
+
+      await page.getByRole("button", { name: "Files", exact: true }).click();
+      await expect(page.getByRole("button", { name: "README.md", exact: true })).toBeVisible();
+      expect(await pageOverflows(page)).toBe(false);
+
+      await page.getByRole("button", { name: "Runs", exact: true }).click();
+      await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+      await page.getByRole("button", { name: "查看 diff", exact: true }).click();
+      await expect(page.getByText("+new", { exact: false })).toBeVisible();
+      // The diff scrolls inside its own container instead of stretching the page.
+      expect(await pageOverflows(page)).toBe(false);
+    });
+  }
+
+  test("truncates long paths but keeps the full value in title", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openWorkspace(page, "Files");
+
+    const entry = page.locator(".files-entry-name").filter({ hasText: "an-extremely-long" });
+    await expect(entry).toHaveAttribute("title", /deeply\\nested\\windows\\path/);
+    const clipped = await entry.evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(clipped).toBe(true);
+  });
+
+  test("drives the whole workspace from the keyboard", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+
+    // Open via keyboard, then reach the view tabs and the close control by tabbing.
+    const opener = page.getByRole("button", { name: "打开工作台", exact: true });
+    await opener.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Runs", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "run_e2e", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
+
+    // Escape closes the plane and focus returns to the opener.
+    await page.keyboard.press("Escape");
+    await expect(opener).toBeFocused();
+  });
+
+  test("gives every workspace icon button an accessible name", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openWorkspace(page);
+
+    const unnamed = await page.locator(".workspace-plane button").evaluateAll((buttons) =>
+      buttons.filter((button) => !(button.getAttribute("aria-label") || button.textContent || "").trim()).length,
+    );
+    expect(unnamed).toBe(0);
+  });
+
+  test("drops the plane spring under reduced motion", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openWorkspace(page);
+
+    const plane = page.locator(".workspace-plane");
+    await expect(plane).toBeVisible();
+    // reduced-motion is enabled in beforeEach: the plane must already be settled at x=0.
+    const transform = await plane.evaluate((el) => getComputedStyle(el).transform);
+    expect(transform === "none" || transform.endsWith(", 0, 0)")).toBe(true);
+    // Status text is never reduced along with motion.
+    await expect(page.getByText("FakeLLM ready.", { exact: false })).toBeVisible();
+  });
+
+  test("keeps workspace interactions inside the long-task budget", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+
+    await page.evaluate(() => {
+      const store: number[] = [];
+      (window as unknown as { __longTasks: number[] }).__longTasks = store;
+      const Observer = window.PerformanceObserver;
+      if (Observer && Observer.supportedEntryTypes.includes("longtask")) {
+        new Observer((list) => list.getEntries().forEach((entry) => store.push(entry.duration)))
+          .observe({ entryTypes: ["longtask"] });
+      }
+    });
+
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Runs", exact: true }).click();
+    await page.getByLabel("状态过滤", { exact: true }).selectOption("failed");
+    await page.getByLabel("状态过滤", { exact: true }).selectOption("");
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await page.getByRole("button", { name: "System", exact: true }).click();
+
+    const longest = await page.evaluate(() => {
+      const tasks = (window as unknown as { __longTasks: number[] }).__longTasks;
+      return tasks.length ? Math.max(...tasks) : 0;
+    });
+    expect(longest).toBeLessThan(100);
+  });
+});
+
 const visualVariants = [
   { name: "b-dark-desktop", width: 1440, height: 900, theme: "b", mode: "dark" },
   { name: "b-light-desktop", width: 1440, height: 900, theme: "b", mode: "light" },
@@ -698,6 +843,44 @@ for (const variant of visualVariants) {
     await page.getByLabel("显示模式", { exact: true }).selectOption(variant.mode);
     await expect(page).toHaveScreenshot(`${variant.name}.png`, { animations: "disabled" });
 
+    const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
+    expect(dimensions.scrollWidth).toBe(dimensions.width);
+  });
+}
+
+// Deterministic baselines for the workspace plane: three states across four viewports.
+const workspaceVisuals = [
+  { name: "workspace-system-dark-1440", width: 1440, height: 900, mode: "dark", state: "system" },
+  { name: "workspace-files-light-1440", width: 1440, height: 900, mode: "light", state: "files" },
+  { name: "workspace-runs-dark-390", width: 390, height: 844, mode: "dark", state: "run-attention" },
+  { name: "workspace-system-dark-320", width: 320, height: 568, mode: "dark", state: "system" },
+] as const;
+
+for (const variant of workspaceVisuals) {
+  test(`visual ${variant.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: variant.width, height: variant.height });
+    await page.goto("./#/new");
+    await page.getByLabel("显示模式", { exact: true }).selectOption(variant.mode);
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+
+    if (variant.state === "files") {
+      await page.getByRole("button", { name: "Files", exact: true }).click();
+      await page.getByRole("button", { name: "README.md", exact: true }).click();
+      await page.getByRole("button", { name: "编辑", exact: true }).click();
+      await expect(page.getByRole("textbox", { name: "文件编辑器", exact: true })).toBeVisible();
+    } else if (variant.state === "run-attention") {
+      await page.getByRole("button", { name: "Runs", exact: true }).click();
+      await page.getByRole("button", { name: "run_attn", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Failure", exact: true })).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { name: "Settings readiness", exact: true })).toBeVisible();
+    }
+
+    await expect(page).toHaveScreenshot(`${variant.name}.png`, {
+      animations: "disabled",
+      // The refresh clock ticks with wall time; mask it so the baseline stays deterministic.
+      mask: [page.locator(".workspace-refresh-time")],
+    });
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
     expect(dimensions.scrollWidth).toBe(dimensions.width);
   });

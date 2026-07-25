@@ -155,7 +155,7 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
                   }
                 >
                   {entry.kind === "dir" ? <FolderTree aria-hidden="true" /> : <FileText aria-hidden="true" />}
-                  <span className="files-entry-name">{entry.name}</span>
+                  <span className="files-entry-name" title={entry.path}>{entry.name}</span>
                   {entry.size !== null ? <span className="files-entry-size">{entry.size}</span> : null}
                 </button>
               </li>

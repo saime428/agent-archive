@@ -343,7 +343,7 @@ export function SettingsView({
               {chats.slice(0, 8).map((chat) => (
                 <li key={chat.session_id}>
                   <button type="button" className="resource-link" onClick={() => onOpenSession(chat.session_id)}>
-                    <span data-payload>{chat.title || chat.session_id}</span>
+                    <span data-payload title={chat.title || chat.session_id}>{chat.title || chat.session_id}</span>
                     <span className="resource-meta">{chat.turn_count} 轮</span>
                   </button>
                 </li>
@@ -356,7 +356,7 @@ export function SettingsView({
               {runs.slice(0, 8).map((run) => (
                 <li key={run.run_id}>
                   <button type="button" className="resource-link" onClick={() => onOpenRun(run.run_id)}>
-                    <span data-payload>{run.run_id}</span>
+                    <span data-payload title={run.run_id}>{run.run_id}</span>
                     <span className="resource-meta">{run.status}</span>
                   </button>
                 </li>

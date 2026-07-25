@@ -144,7 +144,7 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
                     aria-current={selectedId === run.run_id || undefined}
                     onClick={() => void openRun(run.run_id)}
                   >
-                    <span className="runs-index-id">{run.run_id}</span>
+                    <span className="runs-index-id" title={run.run_id}>{run.run_id}</span>
                     <span className="overview-tag" data-tone={run.risk_level === "low" ? "ok" : "warning"}>{run.risk_level}</span>
                     <span className="runs-index-status">{run.status}</span>
                   </button>
@@ -245,8 +245,8 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
                   <ul className="snapshot-list">
                     {detail.snapshots.map((snapshot) => (
                       <li key={snapshot.snapshot_path} className="snapshot-item" data-payload>
-                        <span className="snapshot-path">{snapshot.path}</span>
-                        <span className="snapshot-src">{snapshot.snapshot_path}</span>
+                        <span className="snapshot-path" title={snapshot.path}>{snapshot.path}</span>
+                        <span className="snapshot-src" title={snapshot.snapshot_path}>{snapshot.snapshot_path}</span>
                         <button type="button" className="files-action" onClick={() => void showDiff(snapshot)}>
                           <GitCompare aria-hidden="true" /> 查看 diff
                         </button>
