@@ -1880,7 +1880,17 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius-code);
 }
-.runs-index-id { font-family: var(--font-mono); font-size: 13px; color: var(--text); }
+.runs-index-id {
+  /* Real run ids (run_20260725_045603_309947) are long enough to widen the whole
+     index column; clip inside the row and keep the full id in title. */
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .runs-index-status { margin-left: auto; font-size: 12px; color: var(--text-dim); }
 
 @media (max-width: 767px) {
@@ -2106,8 +2116,8 @@ select {
 .replay-terminal { font-size: 11px; color: var(--accent); }
 .snapshot-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .snapshot-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.snapshot-path { font-family: var(--font-mono); font-size: 13px; color: var(--text); }
-.snapshot-src { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+.snapshot-path { min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: 13px; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.snapshot-src { min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); text-overflow: ellipsis; white-space: nowrap; }
 .diff-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .trace-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 .trace-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }

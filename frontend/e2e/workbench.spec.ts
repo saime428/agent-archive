@@ -82,6 +82,17 @@ async function installWorkbenchMocks(page: Page) {
             tool_calls_path: "tool_calls.jsonl",
           },
           {
+            // Real run ids are this long; short ids hid the index-column blowout.
+            run_id: "run_20260725_045603_309947",
+            status: "completed",
+            risk_level: "low",
+            created_at: "2026-07-25T04:56:03Z",
+            updated_at: "2026-07-25T04:57:10Z",
+            run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_20260725_045603_309947",
+            summary_path: "summary.md",
+            tool_calls_path: "tool_calls.jsonl",
+          },
+          {
             run_id: "run_attn",
             status: "failed",
             risk_level: "attention",
@@ -95,8 +106,10 @@ async function installWorkbenchMocks(page: Page) {
       });
       return;
     }
-    if (path === "/api/runs/run_e2e") {
-      await json(runDetailFixture());
+    if (path === "/api/runs/run_e2e" || path === "/api/runs/run_20260725_045603_309947") {
+      const detail = runDetailFixture();
+      detail.run_id = path.split("/").pop() as string;
+      await json(detail);
       return;
     }
     if (path === "/api/runs/run_attn") {
@@ -186,7 +199,31 @@ async function installWorkbenchMocks(page: Page) {
       return;
     }
     if (path === "/api/chats") {
-      await json({ workspace: "F:\\projects\\spatial-demo", chats: [] });
+      // Realistic titles: real sessions are long prompts, which is what exposes
+      // grid blowout and text overlap between the resource columns.
+      await json({
+        workspace: "F:\\projects\\spatial-demo",
+        chats: [
+          {
+            session_id: "chat_long_1",
+            title: "请务必调用 run_command 工具执行以下无写入命令，不能凭空回答，也不要改文件",
+            turn_count: 3,
+            created_at: "2026-07-24T00:00:00Z",
+            updated_at: "2026-07-24T00:05:00Z",
+            latest_user: "请务必调用 run_command 工具执行以下无写入命令",
+            latest_final: "已完成。",
+          },
+          {
+            session_id: "chat_long_2",
+            title: "请只调用一次 run_command 工具执行以下无害命令，不要调用其他工具，不要改文件",
+            turn_count: 1,
+            created_at: "2026-07-23T00:00:00Z",
+            updated_at: "2026-07-23T00:01:00Z",
+            latest_user: "请只调用一次 run_command",
+            latest_final: "已完成。",
+          },
+        ],
+      });
       return;
     }
     if (path === `/api/chats/${SESSION_ID}`) {
@@ -328,7 +365,21 @@ function runDetailFixture() {
   return {
     run_id: "run_e2e",
     run_dir: "F:\\projects\\spatial-demo\\.agent\\runs\\run_e2e",
-    summary: "Edited README and saved a snapshot.",
+    // Real summaries are long multi-line reports with deep Windows paths.
+    summary: [
+      "- task: inspect project",
+      "- action: done",
+      "- status: ok",
+      "",
+      "## Project Instructions",
+      "- project_instructions_path: F:\\projects\\spatial-demo\\AGENTS.md",
+      "- project_instructions_loaded: false",
+      "",
+      "## Config",
+      "- config_provider: deepseek",
+      "- config_model: deepseek-v4-flash",
+      "- config_sandbox: workspace-write",
+    ].join("\n"),
     tool_calls: [{ line_number: 1, valid: true, raw: "{}", data: {}, error: null }],
     snapshots: [{ path: "README.md", snapshot_path: "snap_readme_1" }],
     review: {
@@ -742,6 +793,44 @@ test.describe("workspace layout and a11y", () => {
       expect(await pageOverflows(page)).toBe(false);
     });
   }
+
+  // The user-reported defect: with realistic long titles / run ids the column content
+  // painted over the neighbouring column instead of ellipsizing inside its own box.
+  test("never paints one column's text over its neighbour", async ({ page }) => {
+    await page.setViewportSize({ width: 1712, height: 1080 });
+    await openWorkspace(page, "System");
+    await page.getByRole("heading", { name: "Resources", exact: true }).scrollIntoViewIfNeeded();
+
+    const resourceOverlap = await page.evaluate(() => {
+      const grid = document.querySelector(".resource-grid");
+      if (!grid) return "missing";
+      const columns = [...grid.children].map((column) => column.getBoundingClientRect());
+      const columnsOverlap = columns.some((box, index) =>
+        columns.slice(index + 1).some((other) => box.right > other.left && box.left < other.right),
+      );
+      // Any text wider than its own box must be clipped, never painted outside it.
+      const spillingText = [...grid.querySelectorAll<HTMLElement>(".resource-link > span:first-child")]
+        .filter((span) => span.scrollWidth > span.clientWidth && getComputedStyle(span).overflow === "visible");
+      return { columnsOverlap, spilling: spillingText.length };
+    });
+    expect(resourceOverlap).toEqual({ columnsOverlap: false, spilling: 0 });
+
+    await page.getByRole("button", { name: "Runs", exact: true }).click();
+    await page.getByRole("button", { name: "run_20260725_045603_309947", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
+
+    const runsOverlap = await page.evaluate(() => {
+      const track = document.querySelector(".runs-index-track")?.getBoundingClientRect();
+      const detail = document.querySelector(".runs-detail")?.getBoundingClientRect();
+      if (!track || !detail) return "missing";
+      return {
+        columnsOverlap: track.right > detail.left,
+        indexBlownOut: (document.querySelector(".runs-index") as HTMLElement).scrollWidth
+          > (document.querySelector(".runs-index") as HTMLElement).clientWidth,
+      };
+    });
+    expect(runsOverlap).toEqual({ columnsOverlap: false, indexBlownOut: false });
+  });
 
   test("truncates long paths but keeps the full value in title", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
