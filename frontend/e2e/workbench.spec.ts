@@ -551,7 +551,8 @@ test("refreshes the same active job without creating a second turn", async ({ pa
   await page.goto("./#/new");
   await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Refresh fixture");
   await page.getByRole("button", { name: "发送", exact: true }).click();
-  await emit(page, "chat_started", { event: "chat_started", sequence: 0, elapsed_ms: 0, session_id: SESSION_ID });
+  await expect(page).toHaveURL(new RegExp(`#\\/chat\\/${SESSION_ID}$`));
+  await expect(page.getByRole("button", { name: "停止当前任务", exact: true })).toBeVisible();
   expect(startRequests).toBe(1);
 
   await page.reload();
