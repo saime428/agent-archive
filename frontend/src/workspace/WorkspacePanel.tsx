@@ -8,6 +8,7 @@ import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPaylo
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FilesView, type FilesViewHandle } from "./FilesView";
 import { RunsView } from "./RunsView";
+import { SettingsView } from "./SettingsView";
 
 type WorkspaceView = "files" | "runs" | "system";
 
@@ -30,6 +31,7 @@ interface WorkspacePanelProps {
   chats: ChatSummary[];
   onGlobalRefresh: () => void | Promise<void>;
   openerRef: RefObject<HTMLButtonElement | null>;
+  onOpenSession: (sessionId: string) => void;
 }
 
 const VIEW_TABS: Array<{ id: WorkspaceView; label: string; icon: typeof FolderTree }> = [
@@ -42,7 +44,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败。";
 }
 
-export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefresh, openerRef }: WorkspacePanelProps) {
+export function WorkspacePanel({
+  open,
+  onOpenChange,
+  health,
+  chats,
+  onGlobalRefresh,
+  openerRef,
+  onOpenSession,
+}: WorkspacePanelProps) {
   const [view, setView] = useState<WorkspaceView>("system");
   const [runs, setRuns] = useState<Resource<RunsPayload>>(idleResource);
   const [config, setConfig] = useState<Resource<ConfigPayload>>(idleResource);
@@ -53,6 +63,13 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
   const spring = reducedMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 320, damping: 32, mass: 0.8 };
   const filesRef = useRef<FilesViewHandle>(null);
   const [pendingNav, setPendingNav] = useState<{ kind: "view"; view: WorkspaceView } | { kind: "close" } | null>(null);
+  const [focusRunId, setFocusRunId] = useState<string | undefined>(undefined);
+
+  // Resource / memory entries jump into the Runs detail for that run.
+  const openRunFromResource = useCallback((runId: string) => {
+    setFocusRunId(runId);
+    setView("runs");
+  }, []);
 
   const loadAll = useCallback(async () => {
     setRuns((prev) => ({ ...prev, loading: true }));
@@ -198,9 +215,28 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
                 transition={reducedMotion ? { duration: 0 } : { duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               >
                 {view === "system" ? (
-                  <SystemOverview health={health} chats={chats} runs={runs} config={config} tools={tools} />
+                  <>
+                    <SystemOverview health={health} chats={chats} runs={runs} tools={tools} />
+                    <SettingsView
+                      health={health}
+                      config={config.data}
+                      configError={config.error}
+                      tools={tools.data}
+                      chats={chats}
+                      runs={runs.data?.runs ?? []}
+                      onSaved={(payload) => {
+                        setConfig({ data: payload, error: null, loading: false });
+                        void onGlobalRefresh();
+                      }}
+                      onOpenSession={(sessionId) => {
+                        onOpenSession(sessionId);
+                        onOpenChange(false);
+                      }}
+                      onOpenRun={openRunFromResource}
+                    />
+                  </>
                 ) : view === "runs" ? (
-                  <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} />
+                  <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} focusRunId={focusRunId} />
                 ) : (
                   <FilesView ref={filesRef} />
                 )}
@@ -230,20 +266,19 @@ export function WorkspacePanel({ open, onOpenChange, health, chats, onGlobalRefr
   );
 }
 
+// At-a-glance strip only; readiness / risk / memory / settings / tools detail lives in
+// SettingsView below it so the System view stays one continuous surface, not a card wall.
 function SystemOverview({
   health,
   chats,
   runs,
-  config,
   tools,
 }: {
   health: HealthPayload | null;
   chats: ChatSummary[];
   runs: Resource<RunsPayload>;
-  config: Resource<ConfigPayload>;
   tools: Resource<ToolsPayload>;
 }) {
-  const risk = health?.workspace_risk;
   const readiness = health?.settings_readiness;
   return (
     <section className="workspace-section" aria-labelledby="system-overview-heading">
@@ -268,27 +303,6 @@ function SystemOverview({
         </article>
 
         <article className="overview-card">
-          <h3>Workspace risk</h3>
-          {risk ? (
-            <>
-              <p className="overview-tag" data-tone={risk.risk_level === "low" ? "ok" : "warning"}>
-                {risk.risk_level}
-              </p>
-              <p className="overview-note" data-payload>
-                {risk.summary}
-              </p>
-              <dl className="overview-signals">
-                <div><dt>uncommitted</dt><dd>{risk.signals.uncommitted_files}</dd></div>
-                <div><dt>failed runs</dt><dd>{risk.signals.failed_runs}</dd></div>
-                <div><dt>snapshots</dt><dd>{risk.signals.snapshots}</dd></div>
-              </dl>
-            </>
-          ) : (
-            <p className="overview-note">加载中。</p>
-          )}
-        </article>
-
-        <article className="overview-card">
           <h3>Activity</h3>
           <dl className="overview-signals">
             <div><dt>chats</dt><dd>{chats.length}</dd></div>
@@ -297,19 +311,6 @@ function SystemOverview({
           </dl>
           {runs.error ? <p className="overview-error">runs: {runs.error}</p> : null}
           {tools.error ? <p className="overview-error">tools: {tools.error}</p> : null}
-        </article>
-
-        <article className="overview-card">
-          <h3>Settings</h3>
-          {config.data ? (
-            <dl className="overview-signals">
-              <div><dt>mode</dt><dd data-payload>{config.data.config.mode}</dd></div>
-              <div><dt>sandbox</dt><dd data-payload>{config.data.config.sandbox}</dd></div>
-              <div><dt>approval</dt><dd data-payload>{config.data.config.approval}</dd></div>
-            </dl>
-          ) : (
-            <p className="overview-note">{config.error ?? "加载中。"}</p>
-          )}
         </article>
       </div>
     </section>

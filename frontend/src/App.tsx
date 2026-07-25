@@ -975,6 +975,7 @@ export function App() {
           chats={chats}
           onGlobalRefresh={refreshGlobal}
           openerRef={workspaceOpenerRef}
+          onOpenSession={selectSession}
         />
 
         <Dialog.Root open={mobileSessions} onOpenChange={setMobileSessions}>

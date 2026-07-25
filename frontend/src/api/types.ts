@@ -22,10 +22,30 @@ export interface WorkspaceRisk {
   checks: string[];
 }
 
-// memory_review 的候选/生效项结构在 SettingsView 用到时细化；此处只固定 mode 只读契约。
+export interface MemoryCandidate {
+  candidate_id: string;
+  source_run_id: string;
+  source_excerpt: string;
+  created_at: string;
+  status: string;
+}
+
+export interface MemoryEntry {
+  entry_id: string;
+  source_run_id: string;
+  source_excerpt: string;
+  created_at: string;
+  status: string;
+  supersedes: string | null;
+}
+
 export interface MemoryReview {
   mode: string;
-  [key: string]: unknown;
+  pending_count: number;
+  active_count: number;
+  candidates: MemoryCandidate[];
+  entries: MemoryEntry[];
+  checks: string[];
 }
 
 export interface HealthPayload {

@@ -4,6 +4,8 @@ const SESSION_ID = "session_e2e";
 const JOB_ID = "job_e2e";
 let submittedMessage = "";
 let persistedFinal: ReturnType<typeof finalEvent> | null = null;
+let savedConfigUpdates: Record<string, unknown> | null = null;
+let rejectConfigSave = false;
 
 async function installWorkbenchMocks(page: Page) {
   await page.addInitScript(() => {
@@ -43,6 +45,17 @@ async function installWorkbenchMocks(page: Page) {
 
     if (path === "/api/health") {
       await json(healthFixture());
+      return;
+    }
+    if (path === "/api/config" && request.method() === "POST") {
+      savedConfigUpdates = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
+      if (rejectConfigSave) {
+        await json({ error: "mode must be step, guided, auto, or plan-first." }, 400);
+        return;
+      }
+      const payload = configFixture();
+      Object.assign(payload.config, savedConfigUpdates);
+      await json({ ...payload, status: "ok" });
       return;
     }
     if (path === "/api/config") {
@@ -227,7 +240,27 @@ function healthFixture() {
       uncommitted_files: [],
       checks: ["No workspace risk action needed."],
     },
-    memory_review: { mode: "read-only", pending: [], active: [] },
+    memory_review: {
+      mode: "read-only",
+      pending_count: 1,
+      active_count: 1,
+      candidates: [{
+        candidate_id: "cand_1",
+        source_run_id: "run_e2e",
+        source_excerpt: "候选记忆：项目使用 pytest。",
+        created_at: "2026-07-24T00:00:00Z",
+        status: "pending",
+      }],
+      entries: [{
+        entry_id: "mem_1",
+        source_run_id: "run_e2e",
+        source_excerpt: "生效记忆：前端在 frontend/ 目录。",
+        created_at: "2026-07-24T00:00:00Z",
+        status: "active",
+        supersedes: null,
+      }],
+      checks: ["Review pending memory candidates"],
+    },
   };
 }
 
@@ -340,6 +373,8 @@ function finalEvent(sequence: number, final = "E2E final result.") {
 test.beforeEach(async ({ page }) => {
   submittedMessage = "";
   persistedFinal = null;
+  savedConfigUpdates = null;
+  rejectConfigSave = false;
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installWorkbenchMocks(page);
 });
@@ -576,6 +611,73 @@ test.describe("runs", () => {
     await page.getByLabel("状态过滤", { exact: true }).selectOption("failed");
     await expect(index.getByRole("button", { name: "run_e2e", exact: true })).toHaveCount(0);
     await expect(index.getByRole("button", { name: "run_attn", exact: true })).toBeVisible();
+  });
+});
+
+test.describe("system", () => {
+  async function openSystem(page: Page) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+  }
+
+  test("renders readiness, risk, memory and tools as readable detail", async ({ page }) => {
+    await openSystem(page);
+
+    await expect(page.getByRole("heading", { name: "Settings readiness", exact: true })).toBeVisible();
+    await expect(page.getByText("Settings are readable.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspace risk", exact: true })).toBeVisible();
+
+    // Memory stays read-only: entries are visible, no accept/reject controls exist.
+    await expect(page.getByRole("heading", { name: "Memory review", exact: true })).toBeVisible();
+    await expect(page.getByText("候选记忆：项目使用 pytest。", { exact: false })).toBeVisible();
+    await expect(page.getByRole("button", { name: "接受", exact: true })).toHaveCount(0);
+
+    await expect(page.getByRole("heading", { name: "Tools", exact: true })).toBeVisible();
+    await expect(page.getByText("read_file", { exact: false }).first()).toBeVisible();
+  });
+
+  test("keeps secrets and non-whitelisted keys out of the settings form", async ({ page }) => {
+    await openSystem(page);
+
+    await expect(page.getByLabel("model", { exact: true })).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByLabel("allowed_commands", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("base_url", { exact: true })).toHaveCount(0);
+    // sandbox must not offer the danger value the backend rejects.
+    await expect(page.getByLabel("sandbox", { exact: true }).locator("option")).toHaveText(["read-only", "workspace-write"]);
+    await expect(page.getByLabel("approval", { exact: true }).locator("option")).toHaveText(["risky-confirm", "always"]);
+  });
+
+  test("saves only the changed whitelist keys", async ({ page }) => {
+    await openSystem(page);
+
+    await page.getByLabel("mode", { exact: true }).selectOption("auto");
+    await page.getByRole("button", { name: "保存设置", exact: true }).click();
+
+    await expect(page.getByText("设置已保存。", { exact: true })).toBeVisible();
+    expect(savedConfigUpdates).toEqual({ mode: "auto" });
+  });
+
+  test("keeps the dirty draft when the server rejects the save", async ({ page }) => {
+    await openSystem(page);
+    rejectConfigSave = true;
+
+    await page.getByLabel("model", { exact: true }).fill("bogus-model");
+    await page.getByRole("button", { name: "保存设置", exact: true }).click();
+
+    await expect(page.getByText("mode must be step, guided, auto, or plan-first.", { exact: false })).toBeVisible();
+    await expect(page.getByLabel("model", { exact: true })).toHaveValue("bogus-model");
+  });
+
+  test("opens a run detail from the resource list", async ({ page }) => {
+    await openSystem(page);
+
+    await page.getByRole("heading", { name: "Resources", exact: true }).scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: /run_e2e/ }).last().click();
+
+    // Cross-view jump lands on the Runs detail for that run.
+    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
   });
 });
 

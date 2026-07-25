@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Copy, GitCompare, RotateCcw } from "lucide-react";
 
 import { api } from "../api/client";
@@ -8,6 +8,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 interface RunsViewProps {
   runs: RunListItem[];
   onGlobalRefresh: () => void | Promise<void>;
+  // Set when another view (resources, memory) asks to open a specific run.
+  focusRunId?: string;
 }
 
 function errorMessage(error: unknown): string {
@@ -18,7 +20,7 @@ function copyText(value: string): void {
   void navigator.clipboard?.writeText(value);
 }
 
-export function RunsView({ runs, onGlobalRefresh }: RunsViewProps) {
+export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
   const [statusFilter, setStatusFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -47,6 +49,14 @@ export function RunsView({ runs, onGlobalRefresh }: RunsViewProps) {
       setDetailError(errorMessage(error));
     }
   }, []);
+
+  useEffect(() => {
+    if (!focusRunId) return;
+    // Imperative focus request from another view; the first setState is the selection
+    // highlight for a user-initiated jump, not a render cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void openRun(focusRunId);
+  }, [focusRunId, openRun]);
 
   const showDiff = useCallback(async (snapshot: RunSnapshot) => {
     setDiffError(null);
