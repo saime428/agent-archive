@@ -20,4 +20,3 @@ frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
 frontend/.vite/
-src/agent/web/static/preview/

@@ -318,25 +318,37 @@ provider smoke, terminal chat, and the Workbench read this file before checking
 key presence. A real environment variable still wins if both are set.
 Do not put API keys in `.agent/config.toml`.
 
-## Frontend vNext Phase 1 Preview
+## Frontend vNext runtime assets
 
-The React/Vite App Shell and Chat vertical slice runs beside the legacy
-Workbench. Build and stage it into the Python server's ignored static preview
-directory:
+The React/Vite Workbench runs beside the legacy Workbench. The URL matrix is:
+
+| URL | Current runtime entry |
+| --- | --- |
+| `/` | Legacy `index.html` |
+| `/preview/` | React `preview/index.html` |
+| `/legacy/` | Legacy `index.html` |
+
+`src/agent/web/static/preview/**` is a tracked runtime asset. Node.js belongs
+only to development and build workflows. The Python runtime never invokes npm
+and serves the packaged files directly.
+
+After changing frontend source, rebuild and verify the complete bundle:
 
 ```powershell
 Set-Location frontend
 npm ci
 npm run build:preview
 Set-Location ..
+git diff --exit-code -- src/agent/web/static/preview
+git ls-files --others --exclude-standard -- src/agent/web/static/preview
 agent start --cwd . --port 8767
 ```
 
-Open `http://127.0.0.1:8767/preview/` for the vNext preview. The legacy
-Workbench remains at `/` as the rollback path. The preview uses the existing
-REST/SSE backend, supports all three themes in dark and light modes, and keeps
-product icons Lucide-only. Node.js is needed only to develop or stage the
-assets; the staged preview is served by Python at runtime.
+Commit the complete generated bundle with its source change; a clean candidate
+tree must reproduce it with `npm run build:preview` and no Git drift. Open
+`http://127.0.0.1:8767/preview/` for React. Cutover has not happened: `/`
+still serves the legacy Workbench, `/legacy/` is the explicit rollback entry,
+and changing the default entry still requires separate authorization.
 
 Run the complete frontend gate from `frontend/` with `npm run check`. The
 reviewed evidence and known Phase 2 boundary are recorded in

@@ -46,6 +46,15 @@ from agent.web.settings import (
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 
+# Readiness keeps root on the legacy Workbench; the cutover commit changes only
+# the "/" value here, and "/legacy/" stays as the rollback entry either way.
+_STATIC_ENTRYPOINTS = {
+    "/": "index.html",
+    "/preview/": "preview/index.html",
+    "/legacy/": "index.html",
+}
+_ENTRYPOINT_ALIASES = {"/preview": "/preview/", "/legacy": "/legacy/"}
+
 
 def static_file_path(relative_path: str) -> Path:
     candidate = (STATIC_ROOT / relative_path).resolve()
@@ -98,6 +107,12 @@ def create_workbench_handler(
     class WorkbenchHandler(BaseHTTPRequestHandler):
         server_version = "AgentWorkbench/0.1"
 
+        def handle(self) -> None:
+            try:
+                super().handle()
+            except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+                return
+
         def do_GET(self) -> None:  # noqa: N802
             if not self._authorize_request(state_change=False):
                 return
@@ -144,6 +159,10 @@ def create_workbench_handler(
                 if path.startswith("/api/runs/"):
                     run_id = path.rsplit("/", 1)[-1]
                     self._send_json(_build_run_detail_payload(root, run_id))
+                    return
+                alias_target = _ENTRYPOINT_ALIASES.get(path)
+                if alias_target is not None:
+                    self._send_entrypoint_redirect(alias_target, parsed.query)
                     return
                 self._send_static(path)
             except ConfigError as exc:
@@ -276,10 +295,21 @@ def create_workbench_handler(
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_entrypoint_redirect(self, target: str, query: str) -> None:
+            location = f"{target}?{query}" if query else target
+            self.send_response(HTTPStatus.PERMANENT_REDIRECT)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def _send_static(self, path: str) -> None:
-            relative_path = path.lstrip("/")
-            if not relative_path or path.endswith("/"):
-                relative_path = f"{relative_path}index.html"
+            entrypoint = _STATIC_ENTRYPOINTS.get(path)
+            if entrypoint is not None:
+                relative_path = entrypoint
+            else:
+                relative_path = path.lstrip("/")
+                if not relative_path or path.endswith("/"):
+                    relative_path = f"{relative_path}index.html"
             file_path = static_file_path(relative_path)
             if not file_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
@@ -303,6 +333,8 @@ def create_workbench_handler(
                 self.send_header("Vary", "Accept-Encoding")
             if use_gzip:
                 self.send_header("Content-Encoding", "gzip")
+            if content_type == "text/html":
+                self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

@@ -328,10 +328,18 @@ Completed slice: Frontend vNext Phase 2 core functional parity at `/preview/`,
 including Files, Runs, System, bounded non-secret config writes, visual baselines,
 and visible-browser acceptance; legacy `/` remains the default rollback path.
 
-Next Project vNext slice: default-entry cutover readiness or a Phase 3 productivity
-slice, chosen by its own spec. Marketplace, registry, remote sources, the actual
-default-entry switch, and automatic reconnect stay out of scope until a later
-slice has its own spec.
+Frontend vNext 默认入口切换就绪。
+
+The completed Readiness slice is designed in
+[`2026-07-25-frontend-vnext-default-entry-cutover-readiness-design.md`](superpowers/specs/2026-07-25-frontend-vnext-default-entry-cutover-readiness-design.md)
+and implemented by
+[`2026-07-25-frontend-vnext-default-entry-readiness.md`](superpowers/plans/2026-07-25-frontend-vnext-default-entry-readiness.md).
+The candidate Git tree and Python wheel contain the React runtime bundle, while
+root `/` remains the legacy Workbench and `/legacy/` is the stable rollback
+entry. The actual default-entry switch is a separate change that still requires
+explicit authorization.
+Marketplace, registry, remote sources, automatic reconnect, and Phase 3 productivity
+remain separate later slices.
 
 ## Guardrails
 

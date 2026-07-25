@@ -637,6 +637,106 @@ def test_workbench_serves_nested_directory_index(monkeypatch, tmp_path) -> None:
     assert missing_status == 404
 
 
+def _readiness_static_root(tmp_path: Path) -> Path:
+    static_root = tmp_path / "static"
+    (static_root / "preview" / "assets").mkdir(parents=True)
+    (static_root / "index.html").write_text("legacy", encoding="utf-8")
+    (static_root / "preview" / "index.html").write_text("preview", encoding="utf-8")
+    (static_root / "preview" / "assets" / "app.js").write_text("export const app = 1;\n", encoding="utf-8")
+    return static_root.resolve()
+
+
+def test_workbench_serves_readiness_entrypoints(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(server, "STATIC_ROOT", _readiness_static_root(tmp_path))
+
+    root_status, _root_headers, root_response = _http_request(workspace, "GET", "/")
+    preview_status, _preview_headers, preview_response = _http_request(workspace, "GET", "/preview/")
+    legacy_status, _legacy_headers, legacy_response = _http_request(workspace, "GET", "/legacy/")
+    unknown_status, _unknown_headers, _unknown_response = _http_request(workspace, "GET", "/missing/")
+
+    assert (root_status, root_response) == (200, b"legacy")
+    assert (preview_status, preview_response) == (200, b"preview")
+    assert (legacy_status, legacy_response) == (200, b"legacy")
+    assert unknown_status == 404
+
+
+def test_workbench_normalizes_stable_entrypoint_aliases(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(server, "STATIC_ROOT", _readiness_static_root(tmp_path))
+
+    preview_status, preview_headers, preview_response = _http_request(
+        workspace, "GET", "/preview?from=bookmark"
+    )
+    legacy_status, legacy_headers, _legacy_response = _http_request(
+        workspace, "GET", "/legacy?from=rollback"
+    )
+    bare_status, bare_headers, _bare_response = _http_request(workspace, "GET", "/preview")
+
+    assert preview_status == 308
+    assert preview_headers["location"] == "/preview/?from=bookmark"
+    assert preview_headers["content-length"] == "0"
+    assert preview_response == b""
+    assert legacy_status == 308
+    assert legacy_headers["location"] == "/legacy/?from=rollback"
+    assert bare_status == 308
+    assert bare_headers["location"] == "/preview/"
+
+
+def test_workbench_only_disables_caching_for_html_entrypoints(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(server, "STATIC_ROOT", _readiness_static_root(tmp_path))
+
+    _root_status, root_headers, _root_response = _http_request(workspace, "GET", "/")
+    _preview_status, preview_headers, _preview_response = _http_request(workspace, "GET", "/preview/")
+    _legacy_status, legacy_headers, _legacy_response = _http_request(workspace, "GET", "/legacy/")
+    asset_status, asset_headers, _asset_response = _http_request(
+        workspace, "GET", "/preview/assets/app.js"
+    )
+
+    assert root_headers["cache-control"] == "no-store"
+    assert preview_headers["cache-control"] == "no-store"
+    assert legacy_headers["cache-control"] == "no-store"
+    assert asset_status == 200
+    assert "cache-control" not in asset_headers
+
+
+def test_workbench_serves_staged_preview_assets_byte_for_byte(tmp_path) -> None:
+    preview_root = server.STATIC_ROOT / "preview"
+    assets = sorted(path for path in preview_root.rglob("*") if path.is_file())
+    assert assets, "Staged preview assets are missing. Run npm run build:preview from frontend/."
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with _running_workbench(workspace) as (host, port):
+        connection = HTTPConnection(host, port, timeout=2.0)
+        try:
+            for asset in assets:
+                url = "/" + asset.relative_to(server.STATIC_ROOT).as_posix()
+                connection.request("GET", url, headers={"Accept-Encoding": "identity"})
+                response = connection.getresponse()
+                assert response.status == 200, url
+                assert response.read() == asset.read_bytes(), url
+        finally:
+            connection.close()
+
+
+def test_workbench_returns_404_for_missing_preview_assets(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    static_root = tmp_path / "static"
+    static_root.mkdir()
+    (static_root / "index.html").write_text("legacy", encoding="utf-8")
+    monkeypatch.setattr(server, "STATIC_ROOT", static_root.resolve())
+
+    status, _headers, _response = _http_request(workspace, "GET", "/preview/")
+
+    assert status == 404
+
+
 def test_workbench_negotiates_gzip_for_large_static_assets(monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -748,6 +848,23 @@ def test_workbench_maps_handler_errors(
 
     assert status == expected_status
     assert json.loads(response) == {"error": "sentinel"}
+
+
+@pytest.mark.parametrize("disconnect_error", [BrokenPipeError, ConnectionAbortedError])
+def test_workbench_ignores_client_disconnect_at_handler_boundary(
+    monkeypatch, tmp_path, disconnect_error: type[OSError]
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    handler_type = server.create_workbench_handler(workspace)
+    handler = object.__new__(handler_type)
+
+    def disconnect(_handler) -> None:
+        raise disconnect_error("client disconnected")
+
+    monkeypatch.setattr(server.BaseHTTPRequestHandler, "handle", disconnect)
+
+    handler.handle()
 
 
 def test_chat_start_rejects_unsafe_session_id_before_llm(monkeypatch, tmp_path) -> None:

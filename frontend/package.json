@@ -16,6 +16,7 @@
     "test": "vitest",
     "test:run": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
+    "test:e2e:served": "playwright test --config playwright.served.config.ts",
     "check": "npm run typecheck && npm run lint && npm run check:ui && npm run test:run && npm run build && npm run test:e2e"
   },
   "dependencies": {

@@ -786,7 +786,6 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
     assert "Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice" in roadmap
     assert "Completed slice: Frontend vNext Phase 2 core functional parity" in roadmap
-    assert "Next Project vNext slice: default-entry cutover readiness or a Phase 3" in roadmap
 
     assert "Provider 能力声明（均已完成）" in direction
     assert "2026-07-18-managed-extension-lifecycle-design.md" in direction
@@ -796,6 +795,49 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "实施与验收证据" in spec
     assert "状态：已执行" in plan
     assert "- [ ] Step" not in plan
+
+
+def test_frontend_vnext_default_entry_cutover_readiness_spec_records_boundaries() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    verification = (
+        ROOT / "docs" / "verification" / "frontend-vnext-default-entry-readiness.md"
+    ).read_text(encoding="utf-8")
+    spec = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "specs"
+        / "2026-07-25-frontend-vnext-default-entry-cutover-readiness-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-07-25-frontend-vnext-default-entry-readiness.md"
+    ).read_text(encoding="utf-8")
+
+    assert "`src/agent/web/static/preview/**` is a tracked runtime asset" in readme
+    assert "The Python runtime never invokes npm" in readme
+    assert "npm run build:preview" in readme
+    assert "Cutover has not happened" in readme
+    assert "Frontend vNext 默认入口切换就绪。" in changelog
+    assert "Frontend vNext 默认入口切换就绪。" in roadmap
+    assert "Frontend vNext 默认入口切换就绪。" in verification
+    assert "根 `/` 仍返回旧 Workbench" in verification
+    assert "Cutover 仍需再次明确授权" in verification
+    for document in (changelog, roadmap, verification):
+        assert "默认入口已切换。" not in document
+        assert "旧壳已退役。" not in document
+
+    assert "状态：Readiness 门禁通过；根 `/` 未切换" in spec
+    assert "本切片结束时根 `/` **仍返回旧 Workbench**" in spec
+    assert "不增加运行时 feature flag" in spec
+    assert "Cutover（需再次明确授权）" in spec
+    assert "状态：** 已执行，仅完成 Readiness" in plan
+    assert "- [ ]" not in plan
 
 
 def test_extension_management_closeout_docs_record_commands_and_status() -> None:

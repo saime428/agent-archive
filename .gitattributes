@@ -1,0 +1,2 @@
+frontend/index.html -text
+src/agent/web/static/preview/** -text

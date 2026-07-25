@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Frontend vNext 默认入口切换就绪。React `/preview/` 已成为候选 Git tree 与 Python wheel 均携带的完整运行时资产，新增稳定 `/legacy/` 回滚入口及 Python 实服、端口冲突、wheel 字节闭包和候选树重建门禁；根 `/` 仍是旧 Workbench，旧资源未删除，Cutover 仍需再次明确授权。
 - Frontend vNext 阶段 2 核心功能等价：`/preview/` React 工作台从单页聊天扩展为真实工作台，覆盖 Files（浏览、预览、截断只读、snapshot-backed 编辑保存）、Runs（列表过滤、Review/Workflow/Failure/Patch Review/Recovery/Replay 只读详情、diff、二次确认恢复）、System（readiness、workspace risk、memory review 只读，config 白名单受控写，Tool 目录，资源详情跨视图跳转），并加入 10 秒安全刷新与 dirty 编辑保护。后端 HTTP/SSE schema、sandbox、snapshot、run store、config write 零改动；根 `/` 仍是旧静态 Workbench，不切换默认入口、不删除旧资源。不含 Monaco、真实 terminal、递归搜索、Git 工作区与生态管理生命周期。
 
 - Frontend vNext 阶段 1：新增 `/preview/` React/Vite App Shell 与真实 Chat 纵切，覆盖三主题深浅模式、REST/SSE Adapter、工具与审批状态、历史重建、响应式会话轨道、单层状态 Canvas、reduced-motion 和 Lucide-only 门禁；静态服务安全解析目录 index、对可压缩资源协商 gzip，CSP 仅对 style 放宽 inline 支持并继续严格禁止 inline script。旧 `/` Workbench 与 HTTP/SSE Interface 不变。
