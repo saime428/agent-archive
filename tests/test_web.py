@@ -15,6 +15,10 @@ from typing import Iterator
 
 import pytest
 
+from agent import _user_store
+from agent.config import AgentConfig
+from agent.core.chat import ConversationState
+from agent.core.run_lease import WorkspaceRunLease
 from agent.llm.fake import FakeLLMClient
 from agent.web import chat_runtime
 from agent.web import chats
@@ -205,10 +209,28 @@ def _wait_for_runtime_event(runtime: ChatRuntime, job_id: str, name: str) -> lis
             "POST",
             "/api/chat/start",
             "runtime.start",
-            {"message": "  hi  ", "session_id": ""},
+            {"message": "  hi  ", "session_id": "", "timeout_seconds": 30},
             (),
-            {"message": "hi", "session_id": ""},
+            {"message": "hi", "session_id": "", "timeout_seconds": 30},
             id="start",
+        ),
+        pytest.param(
+            "POST",
+            "/api/chat/cancel",
+            "runtime.cancel",
+            {"job_id": "job_0123456789ab"},
+            ("job_0123456789ab",),
+            {},
+            id="cancel",
+        ),
+        pytest.param(
+            "POST",
+            "/api/chat/resume",
+            "runtime.resume",
+            {"job_id": "job_0123456789ab", "message": "  next  ", "timeout_seconds": 45},
+            (),
+            {"job_id": "job_0123456789ab", "message": "next", "timeout_seconds": 45},
+            id="resume",
         ),
         pytest.param(
             "POST",
@@ -262,14 +284,24 @@ def test_workbench_routes_dispatch_to_expected_builder(
         def __init__(self, _workspace: Path) -> None:
             pass
 
-        def start(self, *, message: str, session_id: str | None) -> dict[str, str]:
-            return sentinel(message=message, session_id=session_id)
+        def start(self, *, message: str, session_id: str | None, timeout_seconds=None) -> dict[str, str]:
+            return sentinel(message=message, session_id=session_id, timeout_seconds=timeout_seconds)
+
+        def cancel(self, job_id: str) -> dict[str, str]:
+            return sentinel(job_id)
+
+        def resume(self, *, job_id: str, message: str, timeout_seconds=None) -> dict[str, str]:
+            return sentinel(job_id=job_id, message=message, timeout_seconds=timeout_seconds)
 
         def decide(self, *, job_id: str, approve: bool) -> dict[str, str]:
             return sentinel(job_id=job_id, approve=approve)
 
         @contextmanager
         def _reserve_session(self, _session_id: object):
+            yield
+
+        @contextmanager
+        def _reserve_turn(self, _session_id: object):
             yield
 
     monkeypatch.setattr(server, "ChatRuntime", FakeRuntime)
@@ -299,11 +331,15 @@ def test_workbench_sync_and_async_chat_paths_borrow_the_injected_mcp_runtime(
         def __init__(self, _workspace: Path, *, mcp_runtime) -> None:
             seen.append(("async", mcp_runtime))
 
-        def start(self, *, message: str, session_id: str | None) -> dict[str, object]:
+        def start(self, *, message: str, session_id: str | None, timeout_seconds=None) -> dict[str, object]:
             return {"status": "running", "job_id": "job_1", "session_id": session_id}
 
         @contextmanager
         def _reserve_session(self, _session_id: object):
+            yield
+
+        @contextmanager
+        def _reserve_turn(self, _session_id: object):
             yield
 
     def fake_turn(_root: Path, _request: dict[str, object], *, mcp_runtime) -> dict[str, str]:
@@ -571,6 +607,48 @@ def test_workbench_sse_route_reuses_preflight_and_closes_after_done_batch(monkey
     assert calls == [("job_1", 0, 0)]
 
 
+def test_workbench_sse_route_starts_from_requested_cursor(monkeypatch, tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls: list[tuple[str, int, float]] = []
+    event = {"event": "final", "sequence": 2, "final": "ok"}
+
+    class FakeRuntime:
+        def __init__(self, _workspace: Path) -> None:
+            pass
+
+        def poll(self, job_id: str, *, after: int, timeout: float) -> dict[str, object]:
+            calls.append((job_id, after, timeout))
+            return {"job_id": job_id, "events": [event], "done": True, "next": 3}
+
+    monkeypatch.setattr(server, "ChatRuntime", FakeRuntime)
+
+    status, _headers, response = _http_request(
+        workspace,
+        "GET",
+        "/api/chat/events?job_id=job_0123456789ab&after=2",
+    )
+
+    assert status == 200
+    assert b"id: 2" in response
+    assert calls == [("job_0123456789ab", 2, 0)]
+
+
+@pytest.mark.parametrize("after", ["-1", "nope", "1.5"])
+def test_workbench_sse_route_rejects_invalid_cursor(tmp_path, after: str) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    status, _headers, response = _http_request(
+        workspace,
+        "GET",
+        f"/api/chat/events?job_id=job_0123456789ab&after={after}",
+    )
+
+    assert status == 400
+    assert json.loads(response) == {"error": "after must be a non-negative integer."}
+
+
 def test_workbench_sse_route_closes_when_later_poll_loses_job(monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -604,7 +682,7 @@ def test_workbench_sse_route_rejects_unknown_job_before_headers(tmp_path) -> Non
 
     assert status == 400
     assert headers["content-type"] == "application/json; charset=utf-8"
-    assert json.loads(response) == {"error": "Unknown chat job: job_missing"}
+    assert json.loads(response) == {"error": "chat job id is invalid."}
 
 
 def test_workbench_static_fallback_and_unknown_post(tmp_path) -> None:
@@ -779,6 +857,30 @@ def test_workbench_negotiates_gzip_for_large_static_assets(monkeypatch, tmp_path
         pytest.param("/api/config", _NO_BODY, "JSON body is required.", id="missing-body"),
         pytest.param("/api/chat/start", {"message": " "}, "message is required.", id="empty-message"),
         pytest.param(
+            "/api/chat/start",
+            {"message": "hi", "timeout_seconds": True},
+            "timeout_seconds must be an integer from 1 to 3600.",
+            id="start-timeout-bool",
+        ),
+        pytest.param(
+            "/api/chat/start",
+            {"message": "hi", "timeout_seconds": 3601},
+            "timeout_seconds must be an integer from 1 to 3600.",
+            id="start-timeout-range",
+        ),
+        pytest.param(
+            "/api/chat/cancel",
+            {},
+            "job_id is required.",
+            id="cancel-job",
+        ),
+        pytest.param(
+            "/api/chat/resume",
+            {"job_id": "job_0123456789ab", "message": " "},
+            "message is required.",
+            id="resume-message",
+        ),
+        pytest.param(
             "/api/chat/approval",
             {"job_id": "job_1", "approve": "yes"},
             "approve must be a boolean.",
@@ -898,7 +1000,7 @@ def test_chat_start_rejects_unsafe_session_id_before_llm(monkeypatch, tmp_path) 
 
 
 @pytest.mark.parametrize("entry", ["start", "poll", "decide"])
-def test_chat_runtime_prunes_completed_jobs_at_every_entry(tmp_path, entry: str) -> None:
+def test_chat_runtime_reloads_pruned_jobs_from_durable_store(tmp_path, entry: str) -> None:
     now = [100.0]
     runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient(), clock=lambda: now[0], job_ttl=10.0)
     started = runtime.start(message="old", session_id=None)
@@ -906,13 +1008,17 @@ def test_chat_runtime_prunes_completed_jobs_at_every_entry(tmp_path, entry: str)
     now[0] += 11.0
 
     if entry == "start":
-        runtime.start(message="new", session_id=None)
+        new_job = runtime.start(message="new", session_id=None)
+        _wait_for_runtime_done(runtime, new_job["job_id"])
 
-    with pytest.raises(ValueError, match=f"Unknown chat job: {started['job_id']}"):
-        if entry == "decide":
+    if entry == "decide":
+        with pytest.raises(ValueError, match="chat job is already finished"):
             runtime.decide(job_id=started["job_id"], approve=True)
-        else:
-            runtime.poll(started["job_id"], timeout=0)
+    else:
+        restored = runtime.poll(started["job_id"], timeout=0)
+        assert restored["done"] is True
+        assert restored["status"] == "completed"
+        assert restored["events"]
 
 
 def test_chat_runtime_does_not_prune_active_job_and_negative_timeout_is_nonblocking(tmp_path) -> None:
@@ -962,6 +1068,89 @@ def test_chat_runtime_makes_new_session_readable_before_async_turn_finishes(tmp_
     finally:
         release.set()
         _wait_for_runtime_done(runtime, started["job_id"])
+
+
+def test_chat_runtime_publishes_durable_job_before_start_returns(tmp_path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingLLM:
+        def chat(self, _messages, *, temperature=None):
+            entered.set()
+            assert release.wait(2.0)
+            return _done_response()
+
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: BlockingLLM())
+    started = runtime.start(message="wait", session_id="chat_durable", timeout_seconds=30)
+    assert entered.wait(1.0)
+    root = tmp_path / ".agent" / "chat-jobs"
+    metadata_path = root / f"{started['job_id']}.json"
+    events_path = root / f"{started['job_id']}.events.jsonl"
+    active_path = root / "active.json"
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    active = json.loads(active_path.read_text(encoding="utf-8"))
+
+    assert started == {
+        "status": "running",
+        "job_id": metadata["job_id"],
+        "session_id": "chat_durable",
+        "run_id": metadata["run_id"],
+    }
+    assert metadata["status"] == "running"
+    assert metadata["timeout_seconds"] == 30
+    assert metadata["message"] == "wait"
+    assert metadata["resumed_from_job_id"] is None
+    assert events[0]["event"] == "chat_started"
+    assert events[0]["sequence"] == 0
+    assert active == {"version": 1, "job_id": started["job_id"]}
+    assert (tmp_path / ".agent" / "chats" / "chat_durable" / "session.json").is_file()
+
+    release.set()
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    assert complete["done"] is True
+    assert json.loads(metadata_path.read_text(encoding="utf-8"))["status"] == "completed"
+    assert not active_path.exists()
+
+
+def test_chat_runtime_uses_one_workspace_lease_across_instances(tmp_path) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    second_called = threading.Event()
+
+    class BlockingLLM:
+        def chat(self, _messages, *, temperature=None):
+            entered.set()
+            assert release.wait(2.0)
+            return _done_response()
+
+    first = ChatRuntime(tmp_path, llm_factory=lambda _config: BlockingLLM())
+    second = ChatRuntime(
+        tmp_path,
+        llm_factory=lambda _config: (second_called.set(), FakeLLMClient())[1],
+    )
+    started = first.start(message="first", session_id="chat_first")
+    assert entered.wait(1.0)
+
+    with pytest.raises(ValueError, match="Workspace already has an active Agent turn"):
+        second.start(message="second", session_id="chat_second")
+    with pytest.raises(ValueError, match="already has an active turn"):
+        with second._reserve_session("chat_first"):
+            pass
+    with second._reserve_session("chat_second"):
+        pass
+    with pytest.raises(ValueError, match="Workspace already has an active Agent turn"):
+        with second._reserve_turn("chat_second"):
+            pass
+    assert not second_called.is_set()
+
+    release.set()
+    _wait_for_runtime_done(first, started["job_id"])
+    with second._reserve_turn("chat_second"):
+        pass
+    restarted = second.start(message="after release", session_id="chat_second")
+    _wait_for_runtime_done(second, restarted["job_id"])
 
 
 def test_chat_runtime_rejects_a_second_active_turn_for_the_same_session(tmp_path) -> None:
@@ -1038,6 +1227,8 @@ def test_workbench_blocks_chat_mutation_while_session_is_active(monkeypatch, tmp
             raise ValueError("Chat session chat_busy already has an active turn.")
             yield
 
+        _reserve_turn = _reserve_session
+
     monkeypatch.setattr(server, "ChatRuntime", ActiveRuntime)
     body = {"session_id": "chat_busy"}
     if path.endswith("turn"):
@@ -1052,8 +1243,12 @@ def test_workbench_blocks_chat_mutation_while_session_is_active(monkeypatch, tmp
 
 
 def test_chat_runtime_registry_is_instance_local(tmp_path) -> None:
-    first = ChatRuntime(tmp_path / "first", llm_factory=lambda _config: FakeLLMClient())
-    second = ChatRuntime(tmp_path / "second", llm_factory=lambda _config: FakeLLMClient())
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    first = ChatRuntime(first_root, llm_factory=lambda _config: FakeLLMClient())
+    second = ChatRuntime(second_root, llm_factory=lambda _config: FakeLLMClient())
     started = first.start(message="hi", session_id=None)
 
     with pytest.raises(ValueError, match=f"Unknown chat job: {started['job_id']}"):
@@ -1072,6 +1267,79 @@ def test_chat_runtime_poll_uses_event_offsets_and_sequence_numbers(tmp_path) -> 
     assert tail["next"] == len(events)
     with pytest.raises(ValueError, match=r"after must be non-negative\."):
         runtime.poll(started["job_id"], after=-1, timeout=0)
+
+
+def test_chat_runtime_reloads_events_and_ignores_only_partial_tail(tmp_path) -> None:
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    started = runtime.start(message="hi", session_id=None)
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    events_path = tmp_path / ".agent" / "chat-jobs" / f"{started['job_id']}.events.jsonl"
+    with events_path.open("ab") as handle:
+        handle.write(b'{"event":"partial"')
+
+    restored = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient()).poll(
+        started["job_id"],
+        timeout=0,
+    )
+
+    assert restored["done"] is True
+    assert restored["events"] == complete["events"]
+
+
+def test_chat_runtime_redacts_durable_message_and_events(tmp_path) -> None:
+    secret = "sk-test-secret-123456"
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    started = runtime.start(message=f"remember {secret}", session_id="chat_durable_secret")
+    _wait_for_runtime_done(runtime, started["job_id"])
+    root = tmp_path / ".agent"
+
+    durable_text = "\n".join(
+        [
+            (root / "chat-jobs" / f"{started['job_id']}.json").read_text(encoding="utf-8"),
+            (root / "chat-jobs" / f"{started['job_id']}.events.jsonl").read_text(encoding="utf-8"),
+            (root / "chats" / "chat_durable_secret" / "session.json").read_text(encoding="utf-8"),
+        ]
+    )
+    assert secret not in durable_text
+    assert "[REDACTED]" in durable_text
+
+
+@pytest.mark.parametrize("corruption", ["invalid_json", "sequence_gap"])
+def test_chat_runtime_rejects_complete_event_corruption(tmp_path, corruption: str) -> None:
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    started = runtime.start(message="hi", session_id=None)
+    _wait_for_runtime_done(runtime, started["job_id"])
+    events_path = tmp_path / ".agent" / "chat-jobs" / f"{started['job_id']}.events.jsonl"
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    if corruption == "invalid_json":
+        lines.insert(1, "not-json")
+    else:
+        event = json.loads(lines[1])
+        event["sequence"] = 99
+        lines[1] = json.dumps(event)
+    events_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    restored = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    with pytest.raises(ValueError, match="event"):
+        restored.poll(started["job_id"], timeout=0)
+
+
+def test_chat_runtime_rejects_redirected_event_file(tmp_path) -> None:
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    started = runtime.start(message="hi", session_id=None)
+    _wait_for_runtime_done(runtime, started["job_id"])
+    events_path = tmp_path / ".agent" / "chat-jobs" / f"{started['job_id']}.events.jsonl"
+    target = tmp_path / "redirected-events.jsonl"
+    events_path.replace(target)
+    try:
+        events_path.symlink_to(target)
+    except (NotImplementedError, OSError) as exc:
+        target.replace(events_path)
+        pytest.skip(f"file symlink creation is unavailable: {exc}")
+
+    restored = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    with pytest.raises(ValueError, match="regular file"):
+        restored.poll(started["job_id"], timeout=0)
 
 
 def test_config_update_accepts_openai_compat_provider(tmp_path) -> None:
@@ -1231,6 +1499,99 @@ def test_chat_runtime_applies_approval_decision(tmp_path, approve: bool, decisio
     assert (workspace / "notes.txt").exists() is file_exists
 
 
+def test_chat_runtime_cancel_is_idempotent_and_wakes_approval(tmp_path) -> None:
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: _write_llm())
+    started = runtime.start(message="write notes", session_id="chat_cancel", timeout_seconds=30)
+    _wait_for_runtime_event(runtime, started["job_id"], "approval_required")
+
+    first = runtime.cancel(started["job_id"])
+    second = runtime.cancel(started["job_id"])
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    names = [event["event"] for event in complete["events"]]
+
+    assert first["status"] in {"cancel_requested", "cancelled"}
+    assert second["status"] in {"cancel_requested", "cancelled"}
+    assert names.count("cancelled") == 1
+    assert "final" not in names
+    assert not (tmp_path / "notes.txt").exists()
+    metadata = json.loads(
+        (tmp_path / ".agent" / "chat-jobs" / f"{started['job_id']}.json").read_text(encoding="utf-8")
+    )
+    assert metadata["status"] == "cancelled"
+    turn = chats.build_chat_payload(tmp_path, "chat_cancel")["turns"][-1]
+    assert turn["terminal_reason"] == "cancelled"
+    assert turn["job_id"] == started["job_id"]
+
+
+def test_chat_runtime_run_timeout_is_distinct_from_approval_timeout(tmp_path) -> None:
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: _write_llm())
+    started = runtime.start(message="write notes", session_id="chat_timeout", timeout_seconds=1)
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    names = [event["event"] for event in complete["events"]]
+
+    assert complete["status"] == "timed_out"
+    assert names.count("timed_out") == 1
+    assert "approval_timed_out" not in names
+    assert "final" not in names
+    assert not (tmp_path / "notes.txt").exists()
+    metadata = json.loads(
+        (tmp_path / ".agent" / "chat-jobs" / f"{started['job_id']}.json").read_text(encoding="utf-8")
+    )
+    assert metadata["status"] == "timed_out"
+    turn = chats.build_chat_payload(tmp_path, "chat_timeout")["turns"][-1]
+    assert turn["terminal_reason"] == "timed_out"
+
+
+def test_chat_runtime_resume_uses_only_the_new_message(tmp_path) -> None:
+    class OldLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, _messages, *, temperature=None):
+            self.calls += 1
+            return {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "must-not-exist.txt", "content": "old\n", "create_parents": False},
+                },
+            }
+
+    class NewLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.messages = None
+
+        def chat(self, messages, *, temperature=None):
+            self.calls += 1
+            self.messages = messages
+            return _done_response("resumed")
+
+    old_llm = OldLLM()
+    new_llm = NewLLM()
+    clients = iter([old_llm, new_llm])
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: next(clients))
+    old = runtime.start(message="old side effect", session_id="chat_resume")
+    _wait_for_runtime_event(runtime, old["job_id"], "approval_required")
+    runtime.cancel(old["job_id"])
+    _wait_for_runtime_done(runtime, old["job_id"])
+
+    resumed = runtime.resume(job_id=old["job_id"], message="new safe message", timeout_seconds=30)
+    complete = _wait_for_runtime_done(runtime, resumed["job_id"])
+
+    assert complete["status"] == "completed"
+    assert old_llm.calls == 1
+    assert new_llm.calls == 1
+    assert new_llm.messages[-1] == {"role": "user", "content": "new safe message"}
+    assert not (tmp_path / "must-not-exist.txt").exists()
+    metadata = json.loads(
+        (tmp_path / ".agent" / "chat-jobs" / f"{resumed['job_id']}.json").read_text(encoding="utf-8")
+    )
+    assert metadata["resumed_from_job_id"] == old["job_id"]
+    turns = chats.build_chat_payload(tmp_path, "chat_resume")["turns"]
+    assert turns[-1]["resumed_from_job_id"] == old["job_id"]
+
+
 def test_chat_runtime_rejects_decision_before_pending_and_after_finish(tmp_path) -> None:
     entered = threading.Event()
     release = threading.Event()
@@ -1299,12 +1660,25 @@ def test_chat_runtime_reports_worker_errors_and_completes(tmp_path, failure: str
 
     runtime = ChatRuntime(tmp_path, llm_factory=factory)
     started = runtime.start(message="fail", session_id=None)
-    _wait_for_runtime_event(runtime, started["job_id"], "error")
+    _wait_for_runtime_event(runtime, started["job_id"], "failed")
     complete = _wait_for_runtime_done(runtime, started["job_id"])
     errors = [event["error"] for event in complete["events"] if event["event"] == "error"]
+    failed = [event for event in complete["events"] if event["event"] == "failed"]
 
     assert errors == [f"{failure} exploded"]
+    assert len(failed) == 1
     assert complete["done"] is True
+    assert complete["status"] == "failed"
+    metadata = json.loads(
+        (tmp_path / ".agent" / "chat-jobs" / f"{started['job_id']}.json").read_text(encoding="utf-8")
+    )
+    assert metadata["status"] == "failed"
+    turn = chats.build_chat_payload(tmp_path, started["session_id"])["turns"][-1]
+    assert turn["terminal_reason"] == "failed"
+    assert turn["job_id"] == started["job_id"]
+    summary = tmp_path / ".agent" / "runs" / started["run_id"] / "summary.md"
+    assert "- terminal_reason: failed" in summary.read_text(encoding="utf-8")
+    assert not (tmp_path / ".agent" / "chat-jobs" / "active.json").exists()
 
 
 def test_chat_runtime_start_failures_do_not_call_llm_factory(tmp_path) -> None:
@@ -1377,8 +1751,82 @@ def test_chat_runtime_rolls_back_job_when_thread_start_fails(monkeypatch, tmp_pa
         runtime.start(message="hi", session_id=None)
     with pytest.raises(ValueError, match="Unknown chat job: job_deadbeefcafe"):
         runtime.poll("job_deadbeefcafe", timeout=0)
+    root = tmp_path / ".agent" / "chat-jobs"
+    assert not (root / "job_deadbeefcafe.json").exists()
+    assert not (root / "job_deadbeefcafe.events.jsonl").exists()
+    assert not (root / "active.json").exists()
+    with WorkspaceRunLease.acquire(tmp_path, owner={"kind": "test"}):
+        pass
+
+
+def test_chat_runtime_rolls_back_partial_persistence_failure(monkeypatch, tmp_path) -> None:
+    real_replace = _user_store.atomic_replace_json
+
+    def fail_active(root, target, value, *, max_bytes=None):
+        if target.name == "active.json":
+            raise _user_store.UserStoreError("forced active failure")
+        return real_replace(root, target, value, max_bytes=max_bytes)
+
+    monkeypatch.setattr(chat_runtime.uuid, "uuid4", lambda: SimpleNamespace(hex="feedfacecafe0000"))
+    monkeypatch.setattr(_user_store, "atomic_replace_json", fail_active)
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+
+    with pytest.raises(chat_runtime.ChatJobStoreError, match="durable chat job"):
+        runtime.start(message="hi", session_id=None)
+
+    root = tmp_path / ".agent" / "chat-jobs"
+    assert not (root / "job_feedfacecafe.json").exists()
+    assert not (root / "job_feedfacecafe.events.jsonl").exists()
+    assert not (root / "active.json").exists()
+    with WorkspaceRunLease.acquire(tmp_path, owner={"kind": "test"}):
+        pass
+
+
+def test_chat_runtime_recovers_interrupted_job_once(tmp_path) -> None:
+    session_id = "chat_interrupted"
+    job_id = "job_0123456789ab"
+    run_id = "run_20260725_000000_000001"
+    state = ConversationState.create(tmp_path, session_id=session_id)
+    state.save(AgentConfig())
+    root = tmp_path / ".agent" / "chat-jobs"
+    root.mkdir()
+    metadata = {
+        "version": 1,
+        "job_id": job_id,
+        "session_id": session_id,
+        "run_id": run_id,
+        "status": "running",
+        "started_at": "2026-07-25T00:00:00+00:00",
+        "completed_at": None,
+        "timeout_seconds": 30,
+        "resumed_from_job_id": None,
+        "message": "recover me",
+    }
+    (root / f"{job_id}.json").write_text(json.dumps(metadata) + "\n", encoding="utf-8")
+    (root / f"{job_id}.events.jsonl").write_text(
+        json.dumps({"event": "chat_started", "session_id": session_id, "run_id": run_id, "sequence": 0, "elapsed_ms": 0})
+        + '\n{"event":"partial"',
+        encoding="utf-8",
+    )
+    (root / "active.json").write_text(json.dumps({"version": 1, "job_id": job_id}) + "\n", encoding="utf-8")
+
+    first = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    recovered = first.poll(job_id, timeout=0)
+    second = ChatRuntime(tmp_path, llm_factory=lambda _config: FakeLLMClient())
+    recovered_again = second.poll(job_id, timeout=0)
+
+    assert recovered["done"] is True
+    assert recovered["status"] == "interrupted"
+    assert [event["event"] for event in recovered["events"]].count("interrupted") == 1
+    assert recovered_again["events"] == recovered["events"]
+    assert not (root / "active.json").exists()
+    turn = chats.build_chat_payload(tmp_path, session_id)["turns"][-1]
+    assert turn["terminal_reason"] == "interrupted"
+    assert turn["job_id"] == job_id
+    summary = tmp_path / ".agent" / "runs" / run_id / "summary.md"
+    assert "- terminal_reason: interrupted" in summary.read_text(encoding="utf-8")
 
 
 def test_chat_runtime_public_surface_is_start_poll_decide_only() -> None:
     public = {name for name in vars(ChatRuntime) if not name.startswith("_")}
-    assert public == {"start", "poll", "decide"}
+    assert public == {"start", "poll", "decide", "cancel", "resume"}

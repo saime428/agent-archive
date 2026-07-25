@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from agent.config import ConfigError
+from agent.core.run_control import validate_timeout_seconds
 from agent.core.run_store import RunStoreError
 from agent.llm.deepseek import DeepSeekError
 from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
@@ -134,7 +135,10 @@ def create_workbench_handler(
                     self._send_json(_build_runs_payload(root))
                     return
                 if path == "/api/chat/events":
-                    self._send_sse(_query_value(parsed.query, "job_id"))
+                    self._send_sse(
+                        _query_value(parsed.query, "job_id"),
+                        _parse_after(_query_value(parsed.query, "after")),
+                    )
                     return
                 if path == "/api/files":
                     self._send_json(build_files_payload(root, _query_value(parsed.query, "path")))
@@ -181,7 +185,7 @@ def create_workbench_handler(
             try:
                 if path == "/api/chat/turn":
                     request = self._read_json_body()
-                    with runtime._reserve_session(request.get("session_id")):
+                    with runtime._reserve_turn(request.get("session_id")):
                         self._send_json(
                             _build_chat_turn_payload(root, request)
                             if mcp_runtime is None
@@ -198,7 +202,38 @@ def create_workbench_handler(
                     session_id = request.get("session_id")
                     if session_id is not None and not isinstance(session_id, str):
                         raise ValueError("session_id must be a string.")
-                    self._send_json(runtime.start(message=message.strip(), session_id=session_id))
+                    timeout_seconds = validate_timeout_seconds(request.get("timeout_seconds"))
+                    self._send_json(
+                        runtime.start(
+                            message=message.strip(),
+                            session_id=session_id,
+                            timeout_seconds=timeout_seconds,
+                        )
+                    )
+                    return
+                if path == "/api/chat/cancel":
+                    request = self._read_json_body()
+                    job_id = request.get("job_id")
+                    if not isinstance(job_id, str) or not job_id:
+                        raise ValueError("job_id is required.")
+                    self._send_json(runtime.cancel(job_id))
+                    return
+                if path == "/api/chat/resume":
+                    request = self._read_json_body()
+                    job_id = request.get("job_id")
+                    if not isinstance(job_id, str) or not job_id:
+                        raise ValueError("job_id is required.")
+                    message = request.get("message")
+                    if not isinstance(message, str) or not message.strip():
+                        raise ValueError("message is required.")
+                    timeout_seconds = validate_timeout_seconds(request.get("timeout_seconds"))
+                    self._send_json(
+                        runtime.resume(
+                            job_id=job_id,
+                            message=message.strip(),
+                            timeout_seconds=timeout_seconds,
+                        )
+                    )
                     return
                 if path == "/api/chat/approval":
                     request = self._read_json_body()
@@ -338,11 +373,11 @@ def create_workbench_handler(
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_sse(self, job_id: str | None) -> None:
+        def _send_sse(self, job_id: str | None, after: int) -> None:
             if not job_id:
                 self._send_json({"error": "job_id is required."}, status=HTTPStatus.BAD_REQUEST)
                 return
-            payload = runtime.poll(job_id, after=0, timeout=0)
+            payload = runtime.poll(job_id, after=after, timeout=0)
             try:
                 self.close_connection = True
                 self.send_response(HTTPStatus.OK)
@@ -408,6 +443,14 @@ def _query_value(query: str, key: str) -> str | None:
         if unquote(name) == key:
             return unquote(value)
     return None
+
+
+def _parse_after(value: str | None) -> int:
+    if value is None:
+        return 0
+    if not value or not value.isascii() or not value.isdigit():
+        raise ValueError("after must be a non-negative integer.")
+    return int(value)
 
 
 def _is_loopback_host(host: str) -> bool:

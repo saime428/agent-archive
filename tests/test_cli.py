@@ -11,6 +11,8 @@ from typer.testing import CliRunner
 from agent.cli import app
 from agent.config import AgentConfig
 from agent.core.chat import ConversationState
+from agent.core.run_control import RunControl
+from agent.core.run_lease import WorkspaceRunLease
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.fake import FakeLLMClient
 from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
@@ -211,6 +213,64 @@ def test_run_reports_fake_llm_result(tmp_path) -> None:
     assert "summary:" in result.output
 
 
+def test_run_and_chat_validate_timeout_options() -> None:
+    runner = CliRunner()
+
+    run_help = runner.invoke(app, ["run", "--help"])
+    chat_help = runner.invoke(app, ["chat", "--help"])
+    run_invalid = runner.invoke(app, ["run", "--timeout-seconds", "0", "inspect project"])
+    chat_invalid = runner.invoke(app, ["chat", "--timeout-seconds", "3601"])
+
+    assert run_help.exit_code == 0
+    assert chat_help.exit_code == 0
+    assert "--timeout-seconds" in run_help.output
+    assert "--timeout-seconds" in chat_help.output
+    assert run_invalid.exit_code == 2
+    assert chat_invalid.exit_code == 2
+
+
+def test_run_timeout_stops_before_model_call_and_releases_workspace(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    control = RunControl(deadline=0, clock=lambda: 0)
+
+    class NoCallLLM(FakeLLMClient):
+        def chat(self, *_args, **_kwargs):
+            raise AssertionError("model must not be called after the run deadline")
+
+    monkeypatch.setattr("agent.cli.RunControl.with_timeout", lambda _seconds: control)
+    monkeypatch.setattr("agent.cli._make_llm", lambda _config: NoCallLLM())
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "terminal_reason: timed_out" in result.output
+    assert "error: TIMEOUT: Run timed out." in result.output
+    with WorkspaceRunLease.acquire(workspace, owner={"kind": "test"}):
+        pass
+
+
+def test_run_rejects_busy_workspace_before_creating_model(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    model_created = False
+
+    def make_model(_config):
+        nonlocal model_created
+        model_created = True
+        return FakeLLMClient()
+
+    monkeypatch.setattr("agent.cli._make_llm", make_model)
+    with WorkspaceRunLease.acquire(workspace, owner={"kind": "test"}):
+        result = runner.invoke(app, ["run", "--cwd", str(workspace), "inspect project"])
+
+    assert result.exit_code == 1
+    assert "Workspace already has an active Agent turn." in result.output
+    assert model_created is False
+
+
 def test_run_owns_and_closes_one_mcp_runtime(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
@@ -344,6 +404,57 @@ def test_chat_reuses_one_mcp_runtime_across_turns_and_closes_on_exit(monkeypatch
     assert len(instances) == 1
     assert instances[0].discover_calls == 2
     assert instances[0].close_calls == 1
+
+
+def test_chat_timeout_persists_turn_and_continues(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    controls = iter([RunControl(deadline=0, clock=lambda: 0), RunControl()])
+    monkeypatch.setattr("agent.cli.RunControl.with_timeout", lambda _seconds: next(controls))
+
+    result = runner.invoke(
+        app,
+        ["chat", "--cwd", str(workspace)],
+        input="first\nsecond\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "terminal_reason: timed_out" in result.output
+    assert "turn: 2" in result.output
+    state = ConversationState.list(workspace)[0]
+    assert [turn.terminal_reason for turn in state.turns] == ["timed_out", "done"]
+
+
+def test_chat_execution_interrupt_persists_cancelled_turn_and_continues(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class InterruptOnceLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def chat(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            return super().chat(messages, **kwargs)
+
+    monkeypatch.setattr("agent.cli._make_llm", lambda _config: InterruptOnceLLM())
+
+    result = runner.invoke(
+        app,
+        ["chat", "--cwd", str(workspace)],
+        input="first\nsecond\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "terminal_reason: cancelled" in result.output
+    assert "turn: 2" in result.output
+    state = ConversationState.list(workspace)[0]
+    assert [turn.terminal_reason for turn in state.turns] == ["cancelled", "done"]
 
 
 def test_chat_closes_mcp_runtime_on_eof_and_ctrl_c(monkeypatch, tmp_path) -> None:

@@ -17,6 +17,13 @@ from agent.core.chat import ChatSession, ConversationState
 from agent.core.hooks import BUILTIN_HOOKS
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
+from agent.core.run_control import (
+    DEFAULT_RUN_TIMEOUT_SECONDS,
+    MAX_RUN_TIMEOUT_SECONDS,
+    MIN_RUN_TIMEOUT_SECONDS,
+    RunControl,
+)
+from agent.core.run_lease import RunLeaseError, WorkspaceRunLease
 from agent.core.run_store import RunStore, RunStoreError
 from agent.core.skills import SkillError, SkillInventoryItem, SkillStore, load_selected_skills
 from agent.core.tool_catalog import list_tool_infos
@@ -193,6 +200,13 @@ def run(
     provider: str | None = typer.Option(None, "--provider", help="LLM provider."),
     model: str | None = typer.Option(None, "--model", help="LLM model."),
     skill: list[str] | None = typer.Option(None, "--skill", help="Skill to load for this run."),
+    timeout_seconds: int = typer.Option(
+        DEFAULT_RUN_TIMEOUT_SECONDS,
+        "--timeout-seconds",
+        min=MIN_RUN_TIMEOUT_SECONDS,
+        max=MAX_RUN_TIMEOUT_SECONDS,
+        help="Whole-run timeout in seconds.",
+    ),
 ) -> None:
     """Run an agent task."""
     workspace = (cwd or Path.cwd()).resolve()
@@ -213,35 +227,42 @@ def run(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
 
-    runtime = McpStdioRuntime(workspace)
     close_error: McpRuntimeError | None = None
     try:
-        try:
-            llm = _make_llm(config)
-        except DeepSeekError as exc:
-            console.print(str(exc))
-            raise typer.Exit(code=1) from exc
+        with WorkspaceRunLease.acquire(workspace, owner={"kind": "cli-run"}):
+            control = RunControl.with_timeout(timeout_seconds)
+            runtime = McpStdioRuntime(workspace)
+            try:
+                try:
+                    llm = _make_llm(config)
+                except DeepSeekError as exc:
+                    console.print(str(exc))
+                    raise typer.Exit(code=1) from exc
 
-        selected_skills = skill if skill else None
-        try:
-            result = run_once(
-                task,
-                llm,
-                cwd=workspace,
-                config=config,
-                selected_skills=selected_skills,
-                mcp_runtime=runtime,
-                approval_handler=_chat_approval_handler,
-                event_handler=_chat_event_handler,
-            )
-        except (DeepSeekError, McpRuntimeError) as exc:
-            console.print(str(exc))
-            raise typer.Exit(code=1) from exc
-    finally:
-        try:
-            runtime.close()
-        except McpRuntimeError as exc:
-            close_error = exc
+                selected_skills = skill if skill else None
+                try:
+                    result = run_once(
+                        task,
+                        llm,
+                        cwd=workspace,
+                        config=config,
+                        selected_skills=selected_skills,
+                        mcp_runtime=runtime,
+                        approval_handler=_chat_approval_handler,
+                        event_handler=_chat_event_handler,
+                        control=control,
+                    )
+                except (DeepSeekError, McpRuntimeError) as exc:
+                    console.print(str(exc))
+                    raise typer.Exit(code=1) from exc
+            finally:
+                try:
+                    runtime.close()
+                except McpRuntimeError as exc:
+                    close_error = exc
+    except RunLeaseError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
     if close_error is not None:
         console.print(str(close_error))
         raise typer.Exit(code=1) from close_error
@@ -343,6 +364,13 @@ def chat(
     provider: str | None = typer.Option(None, "--provider", help="LLM provider."),
     model: str | None = typer.Option(None, "--model", help="LLM model."),
     skill: list[str] | None = typer.Option(None, "--skill", help="Skill to load for chat turns."),
+    timeout_seconds: int = typer.Option(
+        DEFAULT_RUN_TIMEOUT_SECONDS,
+        "--timeout-seconds",
+        min=MIN_RUN_TIMEOUT_SECONDS,
+        max=MAX_RUN_TIMEOUT_SECONDS,
+        help="Whole-turn timeout in seconds.",
+    ),
 ) -> None:
     """Start an interactive agent chat."""
     workspace = (cwd or Path.cwd()).resolve()
@@ -374,6 +402,7 @@ def chat(
                 resume=resume,
                 skill=skill,
                 mcp_runtime=runtime,
+                timeout_seconds=timeout_seconds,
             )
         except McpRuntimeError as exc:
             console.print(str(exc))
@@ -396,6 +425,7 @@ def _run_chat_repl(
     resume: str | None,
     skill: list[str] | None,
     mcp_runtime: McpStdioRuntime,
+    timeout_seconds: int,
 ) -> None:
     try:
         llm = _make_llm(config)
@@ -444,14 +474,20 @@ def _run_chat_repl(
         stream_handler, stream_was_used = _make_chat_stream_handler(
             PROVIDER_REGISTRY[config.provider].capabilities.streaming
         )
+        control = RunControl.with_timeout(timeout_seconds)
         try:
-            result = session.run_turn(
-                user_input,
-                approval_handler=_chat_approval_handler,
-                event_handler=_chat_event_handler,
-                stream_handler=stream_handler,
-            )
-        except DeepSeekError as exc:
+            with WorkspaceRunLease.acquire(
+                workspace,
+                owner={"kind": "cli-chat", "session_id": session.state.session_id},
+            ):
+                result = session.run_turn(
+                    user_input,
+                    approval_handler=_chat_approval_handler,
+                    event_handler=_chat_event_handler,
+                    stream_handler=stream_handler,
+                    control=control,
+                )
+        except (DeepSeekError, RunLeaseError) as exc:
             console.print(str(exc))
             continue
         if stream_was_used():
@@ -1168,6 +1204,9 @@ def _result_terminal_reason(result) -> str:
     error = result.observation.error
     if error is None:
         return "stopped"
+    stop_reason = (getattr(error, "details", None) or {}).get("stop_reason")
+    if stop_reason in {"cancelled", "timed_out"}:
+        return stop_reason
     if _error_code(error) == "TOOL_FAILED" and error.message == "Run stopped after reaching the iteration limit.":
         return "iteration_limit"
     return f"error:{_error_code(error)}"
