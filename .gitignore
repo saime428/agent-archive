@@ -6,6 +6,8 @@ pytest-tmp/
 .agent/runs/
 .agent/chats/
 .agent/memory/
+.agent/automations/
+.agent/evals/
 .agent/pytest-tmp/
 .agent/*.log
 .agent/secrets.env

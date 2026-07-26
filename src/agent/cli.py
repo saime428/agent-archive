@@ -17,6 +17,7 @@ from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, ConfigOver
 from agent.config_write import remove_project_config_keys, save_project_config
 from agent.core.automation import AutomationAttempt, AutomationError, AutomationStore, AutomationWorker
 from agent.core.chat import ChatSession, ConversationState
+from agent.core.eval import EvalError, run_reference_eval
 from agent.core.hooks import BUILTIN_HOOKS
 from agent.core.loop import run_once
 from agent.core.memory import MemoryError, MemoryStore
@@ -47,6 +48,7 @@ hooks_app = typer.Typer(help="Inspect run hooks.")
 skills_app = typer.Typer(help="Inspect and load agent skills.")
 memory_app = typer.Typer(help="Review and manage agent memory.")
 automation_app = typer.Typer(help="Manage explicit local automations.")
+eval_app = typer.Typer(help="Run the deterministic local evaluation gate.")
 provider_app = typer.Typer(help="Inspect and smoke-test LLM providers.")
 release_app = typer.Typer(help="Inspect release readiness.")
 app.add_typer(runs_app, name="runs")
@@ -57,6 +59,7 @@ app.add_typer(hooks_app, name="hooks")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
 app.add_typer(automation_app, name="automation")
+app.add_typer(eval_app, name="eval")
 app.add_typer(provider_app, name="provider")
 app.add_typer(release_app, name="release")
 
@@ -1359,6 +1362,36 @@ def _print_automation_attempt(attempt: AutomationAttempt) -> None:
         f"\tscheduled: {attempt.scheduled_for}\trun: {attempt.run_id}"
         f"\tsummary: {attempt.summary_path or '-'}\terror: {error}\n"
     )
+
+
+@eval_app.command("run")
+def eval_run(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for eval artifacts."),
+) -> None:
+    """Run the fixed offline FakeLLM reference set."""
+    workspace = (cwd or Path.cwd()).resolve()
+    try:
+        report = run_reference_eval(workspace)
+    except EvalError as exc:
+        console.file.write(f"{_bounded_text(str(exc))}\n")
+        raise typer.Exit(code=1) from exc
+    for case in report.cases:
+        detail = f"\tdetail: {_bounded_text(case.failure_detail)}" if case.failure_detail else ""
+        console.file.write(
+            f"{case.case_id}\tpassed: {str(case.passed).lower()}"
+            f"\tcompleted: {str(case.completed).lower()}\tterminal: {case.terminal_action or '-'}"
+            f"\tstatus: {case.terminal_status or '-'}\terror_code: {case.terminal_error or '-'}"
+            f"\ttool_calls: {case.tool_calls}\terrors: {case.errors}"
+            f"\tduration_ms: {case.duration_ms}{detail}\n"
+        )
+    console.file.write(
+        f"eval: passed: {report.passed_cases} failed: {report.failed_cases}"
+        f" completed: {report.completed_cases} tool_calls: {report.tool_calls} errors: {report.errors}"
+        f" duration_ms: {report.duration_ms}\n"
+    )
+    console.file.write(f"report: {report.report_path.relative_to(workspace).as_posix()}\n")
+    if not report.passed:
+        raise typer.Exit(code=1)
 
 
 def _make_llm(config):
