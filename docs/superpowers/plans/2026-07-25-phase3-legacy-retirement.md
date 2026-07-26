@@ -1,7 +1,7 @@
 # Phase 3I Legacy retirement 实施计划
 
 - 日期：2026-07-25
-- 状态：待实施
+- 状态：已完成
 - 设计：[Phase 3I Legacy retirement](../specs/2026-07-25-phase3-legacy-retirement-design.md)
 
 ## 固定边界

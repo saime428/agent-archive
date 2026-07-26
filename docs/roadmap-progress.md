@@ -24,7 +24,7 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
-| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A–3H 已完成；Phase 3I 和最终全量缺陷清零仍未完成 |
+| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A–3I 已完成；只剩最终全量缺陷清零 |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -37,7 +37,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | Phase 2 slice 1: managed MCP and Skills lifecycle | Complete | Managed MCP fragments/state with a live `mcp doctor`, user Skill install/update/package/remove, one shared user-store transaction layer, and crash-recovery evidence |
 | Frontend vNext Phase 1: App Shell + Chat | Complete | React/Vite chat vertical slice covers C1-C9, H1/H2, S1/S2/S5 with real REST/SSE adapters, themes, responsive spatial shell, approval paths, Canvas, and regression evidence |
 | Frontend vNext Phase 2: Core functional parity | Complete | Files, Runs, System, bounded non-secret config writes, visual baselines, and visible-browser acceptance are complete |
-| Frontend vNext Default Entry Cutover | Complete | Root `/` serves React; `/preview/` remains compatible and `/legacy/` remains the old Workbench rollback entry |
+| Frontend vNext Default Entry Cutover | Complete | Root `/` serves React and `/preview/` remains compatible; the later 3I slice retired `/legacy/` and the old shell |
 | Phase 3A: recoverable task lifecycle | Complete | CLI/HTTP/React share cancel, timeout, workspace lease, durable terminal, restart recovery and safe new-message resume; full source/wheel/browser evidence is recorded |
 | Phase 3B: auditable Memory lifecycle | Complete | Candidate accept/reject is single-terminal; revise/delete/history preserve provenance; list/retrieve/Workbench expose only current active leaves; source/wheel/real-CLI evidence is recorded |
 | Phase 3C: auditable Automation | Complete | Foreground fixed-interval worker, idempotent slot claims, shared runtime/safety chain, durable attempts/notifications, cancel/recovery and source/wheel/real-CLI evidence are complete |
@@ -46,7 +46,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Phase 3F: Git/Diff | Complete | Read-only porcelain status and staged/unstaged diff cover repository boundaries, sandboxing, bounded output, Git edge states, React/browser/source/wheel evidence |
 | Phase 3G: Terminal | Complete | Explicit enablement, shared command/path policy, structured argv, cursor output, line-mode stdin, tree stop/timeout/close, React/source/wheel/browser evidence are complete |
 | Phase 3H: Command/Layout | Complete | Nine existing actions, Ctrl/Cmd+K, bounded non-sensitive layout persistence, dirty/modal/focus safeguards, React/source/wheel/browser evidence are complete |
-| Project vNext core (Phase 0–3) | In progress | Phase 3A–3H are complete; Phase 3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
+| Phase 3I: Legacy retirement | Complete | Fourteen old static files, `/legacy/`, the synchronous chat shim and dead helpers are gone; React/source/wheel/served/browser evidence is consistent |
+| Project vNext core (Phase 0–3) | In progress | Phase 3A–3I are complete; only the final conversation/generation/frontend/backend/CLI/package/browser bug pass remains |
 | Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones
@@ -69,6 +70,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | Frontend vNext Phase 1 | Spatial App Shell + Chat | Parallel React preview, typed REST/SSE seam, real chat/approval/history flow, six theme-mode sets, responsive rail, one state-driven Canvas, and Lucide-only accessible product chrome |
 | Frontend vNext Phase 2 | Workspace functional parity | Files, Runs, System diagnostics, bounded config writes, snapshot review/restore confirmation, and deterministic responsive visual coverage |
 | Frontend vNext Cutover | Default React entry | Root React Workbench with `/preview/` compatibility and `/legacy/` rollback |
+| Frontend vNext Phase 3I | Single React runtime | Old static shell, `/legacy/`, synchronous chat compatibility and dual-frontend tests retired after independent source/wheel/browser acceptance |
 
 ## Active v0.6 Plan
 
@@ -353,22 +355,22 @@ The Cutover is designed in
 [`2026-07-25-frontend-vnext-default-entry-cutover-design.md`](superpowers/specs/2026-07-25-frontend-vnext-default-entry-cutover-design.md)
 and implemented by
 [`2026-07-25-frontend-vnext-default-entry-cutover.md`](superpowers/plans/2026-07-25-frontend-vnext-default-entry-cutover.md).
-Root `/` now serves React, `/preview/` remains compatible, and `/legacy/` remains
-the old Workbench rollback entry. Old-shell retirement requires separate stability
-evidence and review.
-Phase 3 productivity remains the required next track. Marketplace, registry, remote
-sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
+Root `/` now serves React and `/preview/` remains compatible. Phase 3I subsequently
+passed separate stability evidence and review, then removed `/legacy/`, the old shell
+and its synchronous chat compatibility route.
+The final cross-Interface defect pass remains the required next track. Marketplace,
+registry, remote sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
 
 Completed slices: Phase 3A recoverable task lifecycle, 3B auditable Memory,
-3C auditable Automation, 3D stable Eval, 3E Editor/Search, 3F Git/Diff, 3G Terminal, and 3H Command/Layout. The next
-required slice is 3I Legacy retirement; this does not declare Phase 3 or Project vNext core complete.
+3C auditable Automation, 3D stable Eval, 3E Editor/Search, 3F Git/Diff, 3G Terminal,
+3H Command/Layout, and 3I Legacy retirement. The next required step is the final
+cross-Interface defect pass; this does not yet declare Project vNext core complete.
 
 ## Guardrails
 
 - Keep secrets in environment variables or `.agent/secrets.env`, not repo files.
 - Keep `docs/main.pdf` as untracked user reference material unless explicitly
   requested otherwise.
-- Keep the stdlib Python server and `/legacy/` rollback through the stability
-  window; do not require Node.js at product runtime.
+- Keep the stdlib Python server and tracked React runtime; do not require Node.js at product runtime or restore a second frontend.
 - Do not weaken sandbox, approval, redaction, snapshot, or durable log behavior
   for visual convenience.

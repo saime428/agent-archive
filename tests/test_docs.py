@@ -1184,8 +1184,10 @@ def test_phase3_legacy_retirement_docs_lock_deletion_boundary() -> None:
     assert "POST /api/chat/turn" in spec
     assert "404" in spec
     assert "不新增 dependency" in plan
-    assert "状态：待实施与独立验收" in verification
-    assert "最终对话、生成、前端、后端、CLI" in verification
+    assert "状态：3I Legacy retirement 已完成" in verification
+    assert "1164 passed" in verification
+    assert "ac68f9ecbcab33282b6785aeaf9e83d2038a31f1ec5f1ea99edb6bd0b59581eb" in verification
+    assert "最终对话、生成、前端、后端/API、CLI" in verification
 
 
 def test_phase3_local_runtime_state_is_gitignored() -> None:

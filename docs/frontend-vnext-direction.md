@@ -5,8 +5,8 @@
 - 性质：产品体验子方向，不是项目总规划或实现 spec
 - 上级方向：[Project vNext 总方向](project-vnext-direction.md)
 
-当前迁移状态：阶段 0–2、Default Entry Readiness、Cutover 与阶段 3H Command/Layout 已完成；根 `/` 已指向 React Workbench，
-`/legacy/` 保留旧 Workbench 回滚入口。阶段 3 是核心目标：3I 与最终缺陷清零仍未完成；
+当前迁移状态：阶段 0–2、Default Entry Readiness、Cutover 与阶段 3I Legacy retirement 已完成；根 `/` 已指向 React Workbench，
+并与 `/preview/` 共用唯一运行时静态壳，旧静态壳和兼容入口已删除。阶段 3 是核心目标：最终缺陷清零仍未完成；
 阶段 4–5 是需求触发项，不阻塞 Frontend vNext 核心完成。
 
 ## 一句话目标
@@ -168,9 +168,9 @@ desktop shell 或 remote gateway 只有在出现非开发者安装、多机迁�
 - 如果要改变前后端 seam、安全责任、运行形态或阶段依赖，再更新本文件并记录原因；
 - 每个阶段结束后补实际结果和下一阶段触发条件，不把未完成能力写成已完成。
 
-阶段 0–2、默认入口 Cutover、3E Editor/Search、3F Git/Diff、3G Terminal 与 3H Command/Layout 已完成，不再重复补脚手架、功能等价、编辑器、Git 只读视图、Terminal 或命令布局。
-继续保留 `/legacy/` 完成稳定观察，并为 3I Legacy retirement 锁定 Interface、文件范围、失败语义、验证和非目标。阶段 4–5 继续留在需求池，直到
-对应触发条件成立。
+阶段 0–2、默认入口 Cutover、3E Editor/Search、3F Git/Diff、3G Terminal、3H Command/Layout 与
+3I Legacy retirement 已完成，不再重复补脚手架、功能等价、编辑器、Git 只读视图、Terminal、命令布局或
+旧壳兼容层。当前只执行最终跨 Interface 回归与缺陷清零；阶段 4–5 继续留在需求池，直到对应触发条件成立。
 
 ## 参考
 
