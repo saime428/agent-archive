@@ -1,7 +1,7 @@
 # Project vNext Phase 3 方向分析与审查
 
 - 日期：2026-07-25
-- 状态：方向已审查；进入逐切片 spec
+- 状态：3A Lifecycle 已完成；下一切片为 3B Memory
 - 上位方向：[Project vNext 总方向](project-vnext-direction.md)
 - 前端子方向：[Frontend vNext 总方向](frontend-vnext-direction.md)
 
@@ -25,6 +25,8 @@ Phase 3 不做一次性大改，固定按以下依赖推进：
 
 每一项依次经过 spec 审查、implementation plan 审查、实现、五轴审查和真实路径验收；后端
 Interface 不存在时先完成后端切片，前端不先造假入口。
+
+当前进度：3A Lifecycle 已完成并通过独立验收；3B–3I 与最终全链路缺陷清零仍未完成。
 
 ## 当前事实与真实缺口
 
@@ -109,6 +111,6 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 4. 安全：禁止 Tool 自动重放、无人值守 approval bypass、Terminal 假清理和浏览器 secrets 持久化。
 5. 性能：个人工具默认单 workspace slot；event 采用 append/cursor，搜索和输出必须有界。
 
-审查结论：通过，无未解决 finding。3A Lifecycle 进入
-[独立设计](superpowers/specs/2026-07-25-phase3-recoverable-task-lifecycle-design.md)；不得同时修改
-Memory、Automation、eval 或前端开发工作区。
+审查结论：通过，无未解决 finding。3A Lifecycle 已按
+[独立设计](superpowers/specs/2026-07-25-phase3-recoverable-task-lifecycle-design.md)完成；下一步仅进入
+3B Memory，不并行修改 Automation、eval 或前端开发工作区。

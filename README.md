@@ -475,6 +475,9 @@ the bottom input dock; each turn creates the same durable `.agent/runs` and
 Browser chat streams model output live: thinking (`reasoning_content`) and
 tool-argument fragments render into the collapsible 工作过程 area, and plain
 content streams into the reply bubble before the final answer replaces it.
+An active React chat exposes a Stop control. Cancellation and whole-turn timeout
+persist an auditable terminal turn; after refresh or service restart, the next
+user message can resume the same session without replaying the previous Tool.
 The input dock has three clickable config toggles (联网 / 电脑文件 / 原生工具)
 that write through `/api/config`, plus a 工作过程 visibility switch remembered
 in localStorage. Other status details live in the settings panel.
@@ -540,7 +543,11 @@ A completed turn shows `status`,
 ```powershell
 $env:DEEPSEEK_API_KEY="..."
 agent chat --cwd F:\agent --provider deepseek --model deepseek-v4-flash
+agent chat --cwd F:\agent --timeout-seconds 900
 ```
+
+`--timeout-seconds` accepts 1–3600 seconds. Pressing Ctrl+C during a turn cancels
+that turn, finalizes its run record, and returns to the chat prompt.
 
 Resume a saved chat session:
 

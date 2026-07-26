@@ -1,7 +1,7 @@
 # 设计：Phase 3 可恢复任务生命周期
 
 - 日期：2026-07-25
-- 状态：设计与计划均已审查；待实施
+- 状态：已实施并通过 3A 完成门
 - 上位方向：[Phase 3 方向分析与审查](../../project-vnext-phase3-direction-review.md)
 
 ## 目标
@@ -12,7 +12,7 @@
 本切片完成后，允许声明“3A Lifecycle 完成”，不允许声明 Phase 3、Frontend vNext 或
 Project vNext 核心完成。
 
-## 当前事实
+## 实施前基线
 
 - `run_once` 是唯一 Agent loop，Tool/approval/stream 事件均从这里产生，run 日志只在正常
   `_finalize_run` 时集中落盘。

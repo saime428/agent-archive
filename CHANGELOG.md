@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Phase 3A 可恢复任务生命周期完成：CLI、HTTP/SSE 与 React 共用取消、整轮超时和单 workspace lease；job/event 持久化支持服务重启后的 `interrupted` 终态，异常回合用用户新消息安全 resume 且不重放旧 Tool；受控命令取消会终止父子进程树。源码、wheel、真实服务与可见浏览器验收均已通过。
 - Project vNext 完成定义已按个人生产工具与完整作品重新收口：阶段 0–3 是核心目标，阶段 4–5 改为需求触发项；最终门禁覆盖对话、生成、前端、后端/API、CLI、打包与真实浏览器，并要求修复后整套复跑。
 - 修复异步新会话首次详情读取竞态：`ChatRuntime.start()` 现在只对尚未持久化的 session 在发布 ID 前走既有原子保存路径，避免 React 紧接着读取 `/api/chats/<id>` 时因 `session.json` 尚未生成而短暂返回 500。
 - Frontend vNext 默认入口已切换。根 `/` 与 `/preview/` 现在复用受版本控制并随 Python wheel 发布的 React runtime，`/legacy/` 继续提供旧 Workbench 回滚入口；HTTP/SSE、安全与数据语义未变，旧资源尚未删除，Frontend Phase 3 仍未完成，Phase 4–5 为需求触发项。

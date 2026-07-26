@@ -1,7 +1,7 @@
 # Phase 3 可恢复任务生命周期实施计划
 
 - 日期：2026-07-25
-- 状态：计划已审查；待实施
+- 状态：已执行并通过 3A 完成门
 - 设计：[Phase 3 可恢复任务生命周期](../specs/2026-07-25-phase3-recoverable-task-lifecycle-design.md)
 
 ## 目标与顺序

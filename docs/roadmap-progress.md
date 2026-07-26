@@ -24,7 +24,7 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
-| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2 and default-entry cutover are complete; Phase 3 and the final full-suite bug pass remain |
+| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A Lifecycle 已完成；Phase 3B–3I 和最终全量缺陷清零仍未完成 |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -38,7 +38,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Frontend vNext Phase 1: App Shell + Chat | Complete | React/Vite chat vertical slice covers C1-C9, H1/H2, S1/S2/S5 with real REST/SSE adapters, themes, responsive spatial shell, approval paths, Canvas, and regression evidence |
 | Frontend vNext Phase 2: Core functional parity | Complete | Files, Runs, System, bounded non-secret config writes, visual baselines, and visible-browser acceptance are complete |
 | Frontend vNext Default Entry Cutover | Complete | Root `/` serves React; `/preview/` remains compatible and `/legacy/` remains the old Workbench rollback entry |
-| Project vNext core (Phase 0–3) | In progress | The backend management surface, Frontend vNext Phases 1-2, and default-entry cutover are complete; Phase 3 productivity and the final full-suite bug pass remain |
+| Phase 3A: recoverable task lifecycle | Complete | CLI/HTTP/React share cancel, timeout, workspace lease, durable terminal, restart recovery and safe new-message resume; full source/wheel/browser evidence is recorded |
+| Project vNext core (Phase 0–3) | In progress | Phase 3A is complete; Phase 3B–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
 | Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones
@@ -350,6 +351,9 @@ the old Workbench rollback entry. Old-shell retirement requires separate stabili
 evidence and review.
 Phase 3 productivity remains the required next track. Marketplace, registry, remote
 sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
+
+Completed slice: Phase 3A recoverable task lifecycle. The next required slice is
+3B Memory; this does not declare Phase 3 or Project vNext core complete.
 
 ## Guardrails
 
