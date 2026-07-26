@@ -25,6 +25,9 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev,documents]"
       - run: python -m pytest -q
+        env:
+          # rich 按 80 列换行会拆散 CLI help 断言的字符串；本地终端更宽
+          COLUMNS: "200"
 
   frontend-checks:
     runs-on: ubuntu-latest
