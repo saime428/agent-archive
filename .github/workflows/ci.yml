@@ -26,7 +26,11 @@ jobs:
       - run: pip install -e ".[dev,documents]"
       - run: python -m pytest -q
         env:
-          # rich 按 80 列换行会拆散 CLI help 断言的字符串；本地终端更宽
+          # typer 检测到 GITHUB_ACTIONS 会强制 ANSI 输出，样式码会从中间拆散
+          # CLI help 断言的字符串（NO_COLOR 压不住粗体码）；TERM=dumb 按标准
+          # 机制声明哑终端，回到与本地一致的纯文本渲染
+          TERM: dumb
+          # rich 按 80 列换行同样会拆散断言字符串；本地终端更宽
           COLUMNS: "200"
 
   frontend-checks:
