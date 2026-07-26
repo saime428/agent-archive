@@ -669,6 +669,24 @@ agent memory undo <entry-id>
 single-use, and `list` returns only the current active leaf of each revision
 history.
 
+Run explicit local automations:
+
+```powershell
+agent automation add "inspect project" --every-minutes 60
+agent automation list
+agent automation enable <automation-id>
+agent automation worker --once
+agent automation attempts
+agent automation notifications
+agent automation cancel <attempt-id>
+agent automation disable <automation-id>
+```
+
+Automations use fixed UTC minute intervals and run only while the foreground
+worker is active; no service or cron job is installed. Approval-required
+actions fail instead of being auto-approved. Disabling stops future attempts;
+use `cancel` to request cancellation of an active attempt.
+
 Hooks are disabled by default. When explicitly enabled in config, in-process
 hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.
 
