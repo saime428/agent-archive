@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from agent.cli import app
 from agent.config import AgentConfig
 from agent.core.chat import ConversationState
+from agent.core.memory import MemoryStore
 from agent.core.run_control import RunControl
 from agent.core.run_lease import WorkspaceRunLease
 from agent.llm.deepseek import DeepSeekError
@@ -1716,6 +1717,58 @@ def test_memory_review_accept_list_and_undo(tmp_path) -> None:
     undo_result = runner.invoke(app, ["memory", "undo", entry_id, "--cwd", str(workspace)])
     assert undo_result.exit_code == 0
     assert "undone:" in undo_result.output
+
+
+def test_memory_reject_revise_delete_and_history_commands(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = MemoryStore(workspace)
+    rejected_candidate = store.add_candidate(source_run_id="run_reject", source_excerpt="discard this")
+
+    reject_result = runner.invoke(
+        app,
+        ["memory", "reject", rejected_candidate.candidate_id, "--cwd", str(workspace)],
+    )
+
+    assert reject_result.exit_code == 0
+    assert f"rejected: {rejected_candidate.candidate_id}" in reject_result.output
+    rejected_accept = runner.invoke(
+        app,
+        ["memory", "accept", rejected_candidate.candidate_id, "--cwd", str(workspace)],
+    )
+    assert rejected_accept.exit_code == 1
+    assert "not pending" in rejected_accept.output
+    assert "Traceback" not in rejected_accept.output
+
+    accepted_candidate = store.add_candidate(source_run_id="run_accept", source_excerpt="old parser memory")
+    accept_result = runner.invoke(
+        app,
+        ["memory", "accept", accepted_candidate.candidate_id, "--cwd", str(workspace)],
+    )
+    original_id = accept_result.output.split("accepted:", 1)[1].strip().split()[0]
+
+    revise_result = runner.invoke(
+        app,
+        ["memory", "revise", original_id, "new parser memory", "--cwd", str(workspace)],
+    )
+
+    assert revise_result.exit_code == 0
+    revised_id = revise_result.output.split("revised:", 1)[1].strip().split()[0]
+    list_result = runner.invoke(app, ["memory", "list", "--cwd", str(workspace)])
+    assert revised_id in list_result.output
+    assert original_id not in list_result.output
+
+    history_result = runner.invoke(app, ["memory", "history", original_id, "--cwd", str(workspace)])
+    assert history_result.exit_code == 0
+    assert original_id in history_result.output
+    assert revised_id in history_result.output
+    assert "supersedes:" in history_result.output
+
+    delete_result = runner.invoke(app, ["memory", "delete", revised_id, "--cwd", str(workspace)])
+    assert delete_result.exit_code == 0
+    assert f"deleted: {revised_id}" in delete_result.output
+    assert runner.invoke(app, ["memory", "list", "--cwd", str(workspace)]).output == ""
 
 
 def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:

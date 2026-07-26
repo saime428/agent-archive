@@ -1037,10 +1037,14 @@ def skills_show(
 def memory_review(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory.")) -> None:
     """List pending memory candidates."""
     store = MemoryStore((cwd or Path.cwd()).resolve())
-    candidates = store.list_candidates()
+    try:
+        candidates = [item for item in store.list_candidates() if item.status == "pending"]
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
     for candidate in candidates:
-        console.print(
-            f"{candidate.candidate_id}\tstatus: {candidate.status}\tsource: {candidate.source_run_id}\t{candidate.source_excerpt}"
+        console.file.write(
+            f"{candidate.candidate_id}\tstatus: {candidate.status}\tsource: {candidate.source_run_id}\t{candidate.source_excerpt}\n"
         )
 
 
@@ -1048,8 +1052,15 @@ def memory_review(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace
 def memory_list(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory.")) -> None:
     """List accepted active memory entries."""
     store = MemoryStore((cwd or Path.cwd()).resolve())
-    for entry in store.list_entries():
-        console.print(f"{entry.entry_id}\tstatus: {entry.status}\tsource: {entry.source_run_id}\t{entry.source_excerpt}")
+    try:
+        entries = store.list_entries()
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for entry in entries:
+        console.file.write(
+            f"{entry.entry_id}\tstatus: {entry.status}\tsource: {entry.source_run_id}\t{entry.source_excerpt}\n"
+        )
 
 
 @memory_app.command("accept")
@@ -1064,6 +1075,68 @@ def memory_accept(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     console.print(f"accepted: {entry.entry_id}")
+
+
+@memory_app.command("reject")
+def memory_reject(
+    candidate_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory."),
+) -> None:
+    """Reject a pending memory candidate."""
+    try:
+        candidate = MemoryStore((cwd or Path.cwd()).resolve()).reject_candidate(candidate_id)
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"rejected: {candidate.candidate_id}")
+
+
+@memory_app.command("revise")
+def memory_revise(
+    entry_id: str,
+    replacement: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory."),
+) -> None:
+    """Replace a current active memory entry while preserving its history."""
+    try:
+        entry = MemoryStore((cwd or Path.cwd()).resolve()).revise_entry(entry_id, replacement)
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"revised: {entry.entry_id} supersedes: {entry.supersedes}")
+
+
+@memory_app.command("delete")
+def memory_delete(
+    entry_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory."),
+) -> None:
+    """Delete a current active memory entry by writing a tombstone."""
+    try:
+        tombstone = MemoryStore((cwd or Path.cwd()).resolve()).delete_entry(entry_id)
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.print(f"deleted: {tombstone.supersedes} tombstone: {tombstone.entry_id}")
+
+
+@memory_app.command("history")
+def memory_history(
+    entry_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for memory."),
+) -> None:
+    """Show one memory entry's complete revision history."""
+    try:
+        entries = MemoryStore((cwd or Path.cwd()).resolve()).entry_history(entry_id)
+    except MemoryError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for entry in entries:
+        console.file.write(
+            f"{entry.entry_id}\tstatus: {entry.status}\tsource: {entry.source_run_id}"
+            f"\tcandidate: {entry.candidate_id or '-'}\tsupersedes: {entry.supersedes or '-'}"
+            f"\t{entry.source_excerpt}\n"
+        )
 
 
 @memory_app.command("undo")

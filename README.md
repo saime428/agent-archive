@@ -429,8 +429,8 @@ recent runs, and snapshots. It uses the existing `/api/health` refresh path and
 does not execute tests, restore files, or mutate the workspace.
 
 Memory Review shows pending memory candidates and active accepted entries in
-the Workbench. It is read-only; accepting and undoing memory still happens
-through explicit `agent memory ...` commands.
+the Workbench. It is read-only; accepting, rejecting, revising, deleting, and
+auditing memory still happens through explicit `agent memory ...` commands.
 
 Failure Recovery adds read-only recovery guidance for failed runs. It reports
 whether `rollback_available` is true, points to Trace and Failure Summary, and
@@ -657,9 +657,17 @@ Review and manage memory:
 ```powershell
 agent memory review
 agent memory accept <candidate-id>
+agent memory reject <candidate-id>
 agent memory list
+agent memory revise <entry-id> "replacement text"
+agent memory history <entry-id>
+agent memory delete <entry-id>
 agent memory undo <entry-id>
 ```
+
+`undo` remains a compatibility alias for `delete`. Candidate decisions are
+single-use, and `list` returns only the current active leaf of each revision
+history.
 
 Hooks are disabled by default. When explicitly enabled in config, in-process
 hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.

@@ -979,6 +979,7 @@ def test_phase3_recoverable_task_lifecycle_docs_lock_scope_and_completion_bounda
 
 def test_phase3_memory_lifecycle_docs_lock_scope_and_completion_boundary() -> None:
     direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     spec = (
         ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-memory-lifecycle-design.md"
     ).read_text(encoding="utf-8")
@@ -995,5 +996,7 @@ def test_phase3_memory_lifecycle_docs_lock_scope_and_completion_boundary() -> No
     assert "current active 叶节点" in spec
     assert "不建数据库" in spec
     assert "并发 accept/reject 只有一个成功" in plan
+    for command in ("reject", "revise", "delete", "history"):
+        assert f"agent memory {command}" in readme
     assert "Project vNext 核心仍未完成" in verification
     assert "Phase 4–5" in verification
