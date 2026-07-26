@@ -390,7 +390,7 @@ def test_run_command_surfaces_tree_stop_failure(monkeypatch, tmp_path) -> None:
     action = _parse_run_command(
         context,
         {
-            "argv": [sys.executable, "-c", "import time; time.sleep(2)"],
+            "argv": [sys.executable, "-c", "import time; time.sleep(60)"],
             "cwd": None,
             "timeout_seconds": 1,
         },
