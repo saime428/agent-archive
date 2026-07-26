@@ -53,6 +53,7 @@ _STATIC_ENTRYPOINTS = {
     "/preview/": "preview/index.html",
     "/legacy/": "index.html",
 }
+_MAX_JSON_BODY_BYTES = 64_000
 _ENTRYPOINT_ALIASES = {"/preview": "/preview/", "/legacy": "/legacy/"}
 
 
@@ -264,6 +265,7 @@ def create_workbench_handler(
                 if path == "/api/file/save":
                     self._send_json(build_save_file_payload(root, self._read_json_body()))
                     return
+                self._discard_bounded_request_body()
                 self._send_json({"error": f"Unknown endpoint: {path}"}, status=HTTPStatus.NOT_FOUND)
             except json.JSONDecodeError as exc:
                 self._send_json({"error": f"Invalid JSON body: {exc.msg}"}, status=HTTPStatus.BAD_REQUEST)
@@ -288,6 +290,7 @@ def create_workbench_handler(
             host = self.headers.get("Host")
             host_parts = _host_header_parts(host)
             if host_parts is None or not _is_loopback_host(host_parts[0]):
+                self._discard_bounded_request_body()
                 self._send_json(
                     {"error": "Workbench only accepts loopback requests."},
                     status=HTTPStatus.FORBIDDEN,
@@ -298,6 +301,7 @@ def create_workbench_handler(
             fetch_site = self.headers.get("Sec-Fetch-Site", "").casefold()
             origin = self.headers.get("Origin")
             if fetch_site == "cross-site" or (origin is not None and not _origin_matches_host(origin, host_parts, self.server.server_port)):
+                self._discard_bounded_request_body()
                 self._send_json(
                     {"error": "Cross-origin Workbench writes are not allowed."},
                     status=HTTPStatus.FORBIDDEN,
@@ -309,16 +313,24 @@ def create_workbench_handler(
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
                 raise ValueError("JSON body is required.")
-            if length > 64_000:
+            if length > _MAX_JSON_BODY_BYTES:
                 raise ValueError("JSON body is too large.")
+            raw = self.rfile.read(length)
             content_type = self.headers.get("Content-Type", "").partition(";")[0].strip().casefold()
             if content_type != "application/json":
                 raise ValueError("Content-Type must be application/json.")
-            raw = self.rfile.read(length).decode("utf-8")
-            payload = json.loads(raw)
+            payload = json.loads(raw.decode("utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("JSON body must be an object.")
             return payload
+
+        def _discard_bounded_request_body(self) -> None:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                return
+            if 0 < length <= _MAX_JSON_BODY_BYTES:
+                self.rfile.read(length)
 
         def _send_json(self, payload: dict[str, Any], *, status: HTTPStatus = HTTPStatus.OK) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")

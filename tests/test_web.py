@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gzip
+import io
 import json
 import os
 import subprocess
@@ -125,6 +126,21 @@ def test_workbench_rejects_simple_form_write_without_json_content_type(tmp_path)
     assert status == 400
     assert json.loads(response) == {"error": "Content-Type must be application/json."}
     assert not (workspace / ".agent" / "config.toml").exists()
+
+
+def test_workbench_consumes_bounded_rejected_body_before_responding(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    payload = b'{"dry_run": true}'
+    handler_type = server.create_workbench_handler(workspace)
+    handler = handler_type.__new__(handler_type)
+    handler.headers = {"Content-Length": str(len(payload)), "Content-Type": "text/plain"}
+    handler.rfile = io.BytesIO(payload)
+
+    with pytest.raises(ValueError, match="Content-Type"):
+        handler._read_json_body()
+
+    assert handler.rfile.read() == b""
 
 
 def test_workbench_applies_security_headers_to_success_and_error_responses(tmp_path) -> None:
