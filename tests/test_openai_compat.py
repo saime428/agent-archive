@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import socket
+import threading
+from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -425,6 +429,71 @@ def test_reusable_transport_drops_connection_when_stream_abandoned() -> None:
     assert response.closed is True
     assert key not in transport._connections
     assert connection.closed is True
+
+
+@contextmanager
+def _live_server(responses: list[tuple[int, bytes]]):
+    seen: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"  # keep-alive, like real gateways
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            status, body = responses[min(len(seen), len(responses) - 1)]
+            seen.append(self.path)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield server.server_address[1], seen
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_default_transport_retries_transient_error_on_keep_alive_connection() -> None:
+    with _live_server([(429, b'{"error": "rate limited"}'), (200, _chat_response(_done_content()))]) as (port, seen):
+        client = OpenAICompatClient(
+            api_key="",
+            model="m",
+            base_url=f"http://127.0.0.1:{port}/v1",
+            retry_sleep=lambda _delay: None,
+        )
+
+        result = client.chat([{"role": "user", "content": "hi"}])
+
+    assert result == json.loads(_done_content())
+    assert len(seen) == 2
+
+
+def test_default_transport_maps_connection_refused_to_retryable_provider_error() -> None:
+    placeholder = socket.socket()
+    placeholder.bind(("127.0.0.1", 0))
+    dead_port = placeholder.getsockname()[1]
+    placeholder.close()
+    sleeps: list[float] = []
+    client = OpenAICompatClient(
+        api_key="",
+        model="m",
+        base_url=f"http://127.0.0.1:{dead_port}/v1",
+        provider_label="openai-compat",
+        retry_sleep=sleeps.append,
+    )
+
+    with pytest.raises(ProviderError) as excinfo:
+        client.chat([{"role": "user", "content": "hi"}])
+
+    assert "openai-compat API request failed" in str(excinfo.value)
+    assert sleeps == [1.0, 2.0, 4.0]
 
 
 def test_stream_chat_tools_reports_invalid_sse() -> None:

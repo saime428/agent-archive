@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from http.client import HTTPConnection, HTTPSConnection
+from http.client import HTTPConnection, HTTPException, HTTPSConnection
 from collections.abc import Generator, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -433,7 +433,12 @@ class _ReusableHTTPTransport:
 
     def request_bytes(self, url: str, headers: dict[str, str], body: bytes, timeout: float) -> bytes:
         response = self._request(url, headers, body, timeout)
-        data = response.read()
+        try:
+            data = response.read()
+        except (HTTPException, OSError) as exc:
+            # A half-read body poisons the keep-alive socket for reuse.
+            self._drop_connection(url)
+            raise URLError(exc) from exc
         self._drop_closed_connection(url, response.will_close)
         return data
 
@@ -458,9 +463,25 @@ class _ReusableHTTPTransport:
         target = parsed.path or "/"
         if parsed.query:
             target += f"?{parsed.query}"
-        connection.request("POST", target, body=body, headers=headers)
-        response = connection.getresponse()
+        try:
+            connection.request("POST", target, body=body, headers=headers)
+            response = connection.getresponse()
+        except (HTTPException, OSError) as exc:
+            # http.client raises raw socket/protocol errors; map them into
+            # the urllib taxonomy the retry classification understands, and
+            # drop the connection because its state is no longer clean.
+            self._drop_connection(url)
+            raise URLError(exc) from exc
         if response.status >= 400:
+            # Drain and close the error body so the pooled keep-alive
+            # connection is left reusable for the retry that follows.
+            try:
+                response.read()
+            except (HTTPException, OSError):
+                self._drop_connection(url)
+            finally:
+                response.close()
+            self._drop_closed_connection(url, response.will_close)
             raise HTTPError(url, response.status, response.reason, hdrs=response.headers, fp=None)
         return response
 
