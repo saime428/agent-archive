@@ -24,6 +24,7 @@ from agent.core.loop import run_once
 from agent.core.redaction import redact_value
 from agent.core.run_control import DEFAULT_RUN_TIMEOUT_SECONDS, RunControl, validate_timeout_seconds
 from agent.core.run_lease import WorkspaceRunLease
+from agent.core.skills import load_selected_skills
 from agent.llm.factory import make_llm as make_llm_client
 from agent.mcp_runtime import McpStdioRuntime
 from agent.secrets import load_workspace_secrets
@@ -594,6 +595,8 @@ class AutomationWorker:
         try:
             load_workspace_secrets(self.workspace)
             config, _diagnostics = load_config(self.workspace)
+            if definition.skills:
+                load_selected_skills(self.workspace, definition.skills, max_chars=_MAX_TASK_CHARS)
             with WorkspaceRunLease.acquire(
                 self.workspace,
                 owner={"kind": "automation", "attempt_id": attempt.attempt_id},

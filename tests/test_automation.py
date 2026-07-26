@@ -208,6 +208,29 @@ def test_automation_worker_records_busy_workspace_as_failure_notification(tmp_pa
     assert store.list_notifications() == completed
 
 
+def test_automation_worker_fails_when_an_explicit_skill_is_missing(tmp_path) -> None:
+    store = AutomationStore(tmp_path)
+    definition = store.add_definition(
+        task="inspect with missing skill",
+        interval_seconds=60,
+        skills=("missing-skill",),
+        now=NOW,
+    )
+    store.enable_definition(definition.automation_id, now=NOW)
+    worker = AutomationWorker(
+        tmp_path,
+        llm_factory=lambda _config: FakeLLMClient(),
+        runtime_factory=RecordingRuntime,
+        now=lambda: NOW,
+    )
+
+    completed = worker.run_once()
+
+    assert [item.status for item in completed] == ["failed"]
+    assert "Unknown skill: missing-skill" in (completed[0].error or "")
+    assert store.list_notifications() == completed
+
+
 def test_automation_worker_never_auto_approves_confirmation_required_action(tmp_path) -> None:
     store = AutomationStore(tmp_path)
     _enabled(store, task="write notes")
