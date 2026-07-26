@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 缺陷修复轮（多代理深度审查 + 逐条实证复现驱动，8/8 确认后修复）：run 收尾先持久化审计日志再做 best-effort 副作用，memory 候选存储写满或锁超时不再吞掉成功 run 的 `tool_calls.jsonl`/`summary.md`（降级为 summary 内警告行）；工具执行新增 `INTERNAL_ERROR` 兜底观察值，意外异常（如合法 `\ud800` 输入触发的 UnicodeEncodeError）不再穿透 run_once 丢失全部记录；run 日志改为临时文件 + 原子替换写入。CLI 共享 Console 关闭 rich markup，模型输出含 `[/x]` 等标记不再崩溃或被重新染色；显式 `--skill` 现在跑前预校验（对齐 automation 先例），拼错立即报错而不是静默忽略，run loop 对默认技能的防注入容错保持不变。OpenAI 兼容 Provider 修复重试路径：429/5xx 错误响应先读净关闭再抛出，keep-alive 连接不再被未读响应毒化（此前重试必抛 `ResponseNotReady`）；裸 socket/协议异常映射入既有可重试错误分类。Workbench 审批事件新增服务端权威 `expires_in_ms`，倒计时不再用任务开始时钟推算，归零不再禁用批准/拒绝按钮（以服务端裁决为准）；SSE 对未知 job 返回合成终止事件而非 400，服务重启后浏览器输入框不再永久锁死。MCP 发现调度死线覆盖 initialize + list_tools 两阶段合法预算，慢但合规的 Server 不再被误判超时。Workbench 终端子进程注入 `PYTHONIOENCODING=utf-8`，非 UTF-8 区域设置下 Python 子进程中文输出不再乱码。
+
 - Project vNext 阶段 0–3 核心目标完成：最终矩阵在修复 Python checkout/wheel 换行不确定性后整套复跑，源码与隔离 wheel 各 1165 个 Python 测试、前端类型/规范/构建/Vitest/Playwright/视觉/性能、源码与 wheel 实服、对话/生成、CLI、后端/API、真实 DeepSeek 和可见浏览器路径全部通过；阶段 4–5 继续仅按真实需求触发。
 - Phase 3E 编辑器与工作区搜索完成：桌面端懒加载 Monaco 单 editor/多 model，移动端使用共享状态的原生 textarea fallback；最多 20 个标签，保留独立 buffer/dirty/view state，关闭、离开与刷新均保护未保存内容。新增独立有界 `/api/search`，复用现有 search Tool、sandbox 与错误语义，支持文本/路径/glob/Unicode 并跳到命中行；保存继续只走显式确认和 snapshot。源码、wheel、detached、真实服务与可见浏览器复验通过，包体和依赖审计满足门槛。
 - Phase 3D 稳定 Eval 完成：4 个内置 FakeLLM case 复用真实 run loop，覆盖直接完成、读文件、错误恢复和审批拒绝；记录完成/错误/Tool/耗时指标，生成有界原子本地报告，并以稳定 CLI 退出码作为离线门禁。验收同时补齐 Automation/Eval 本地状态忽略规则，并修复 Windows 下拒绝 POST 时未消费有界 body 导致的 10053 连接中止；源码、D 盘全量、detached、wheel 与污染配置真实 CLI 复验通过。
