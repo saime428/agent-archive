@@ -1626,7 +1626,11 @@ class McpStdioRuntime:
             futures[server_id] = future
             self._enqueue(server_id, _OwnerCommand(kind="discover", future=future, initial=initial))
 
-        deadline = time.monotonic() + _DISCOVERY_TIMEOUT_SECONDS + 1.0
+        # The owner may legally spend the full per-phase budget twice
+        # (initialize + list_tools each run under asyncio.timeout of
+        # _DISCOVERY_TIMEOUT_SECONDS), so the dispatcher must wait at least
+        # that long or a slow-but-legal server times out from the caller side.
+        deadline = time.monotonic() + 2 * _DISCOVERY_TIMEOUT_SECONDS + 1.0
         results: dict[str, tuple[McpToolDefinition, ...]] = {}
         safety_errors: list[_SnapshotSafetyError] = []
         runtime_errors: list[McpRuntimeError] = []
