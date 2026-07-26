@@ -45,6 +45,7 @@ from agent.web.settings import (
     build_save_config_payload,
     build_tools_payload,
 )
+from agent.web.terminal import TerminalRuntime
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
@@ -72,9 +73,15 @@ def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 876
         raise ValueError("Agent Workbench host must be a loopback address.")
     root = workspace.resolve()
     mcp_runtime = McpStdioRuntime(root)
+    terminal_runtime: TerminalRuntime | None = None
     server: ThreadingHTTPServer | None = None
     try:
-        handler = create_workbench_handler(root, mcp_runtime=mcp_runtime)
+        terminal_runtime = TerminalRuntime(root)
+        handler = create_workbench_handler(
+            root,
+            mcp_runtime=mcp_runtime,
+            terminal_runtime=terminal_runtime,
+        )
         server = ThreadingHTTPServer((host, port), handler)
         server.daemon_threads = True
         url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
@@ -92,13 +99,18 @@ def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 876
             if server is not None:
                 server.server_close()
         finally:
-            mcp_runtime.close()
+            try:
+                if terminal_runtime is not None:
+                    terminal_runtime.close()
+            finally:
+                mcp_runtime.close()
 
 
 def create_workbench_handler(
     workspace: Path,
     *,
     mcp_runtime: Any | None = None,
+    terminal_runtime: TerminalRuntime | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     root = workspace.resolve()
     runtime = (
@@ -106,6 +118,7 @@ def create_workbench_handler(
         if mcp_runtime is None
         else ChatRuntime(root, mcp_runtime=mcp_runtime)
     )
+    terminal = terminal_runtime if terminal_runtime is not None else TerminalRuntime(root)
 
     class WorkbenchHandler(BaseHTTPRequestHandler):
         server_version = "AgentWorkbench/0.1"
@@ -158,6 +171,15 @@ def create_workbench_handler(
                             root,
                             _query_value(parsed.query, "path"),
                             _query_value(parsed.query, "area"),
+                        )
+                    )
+                    return
+                if path == "/api/terminal":
+                    self._send_json(
+                        terminal.snapshot(
+                            terminal_id=_query_value(parsed.query, "terminal_id"),
+                            after=_parse_after(_query_value(parsed.query, "after")),
+                            timeout=_parse_terminal_poll_timeout(_query_value(parsed.query, "timeout")),
                         )
                     )
                     return
@@ -281,6 +303,30 @@ def create_workbench_handler(
                     return
                 if path == "/api/file/save":
                     self._send_json(build_save_file_payload(root, self._read_json_body()))
+                    return
+                if path == "/api/terminal/start":
+                    request = self._read_json_body()
+                    self._send_json(
+                        terminal.start(
+                            argv=request.get("argv"),
+                            cwd=request.get("cwd", "."),
+                            timeout_seconds=request.get("timeout_seconds"),
+                        )
+                    )
+                    return
+                if path == "/api/terminal/input":
+                    request = self._read_json_body()
+                    terminal_id = request.get("terminal_id")
+                    if not isinstance(terminal_id, str) or not terminal_id:
+                        raise ValueError("terminal_id is required.")
+                    self._send_json(terminal.write(terminal_id, request.get("data")))
+                    return
+                if path == "/api/terminal/stop":
+                    request = self._read_json_body()
+                    terminal_id = request.get("terminal_id")
+                    if not isinstance(terminal_id, str) or not terminal_id:
+                        raise ValueError("terminal_id is required.")
+                    self._send_json(terminal.stop(terminal_id))
                     return
                 self._discard_bounded_request_body()
                 self._send_json({"error": f"Unknown endpoint: {path}"}, status=HTTPStatus.NOT_FOUND)
@@ -480,6 +526,18 @@ def _parse_after(value: str | None) -> int:
     if not value or not value.isascii() or not value.isdigit():
         raise ValueError("after must be a non-negative integer.")
     return int(value)
+
+
+def _parse_terminal_poll_timeout(value: str | None) -> float:
+    if value is None:
+        return 0.0
+    try:
+        timeout = float(value)
+    except ValueError as exc:
+        raise ValueError("timeout must be between 0 and 15 seconds.") from exc
+    if not 0 <= timeout <= 15:
+        raise ValueError("timeout must be between 0 and 15 seconds.")
+    return timeout
 
 
 def _is_loopback_host(host: str) -> bool:

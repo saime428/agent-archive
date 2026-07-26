@@ -495,11 +495,14 @@ def test_async_chat_job_reports_mcp_error_before_model_call(tmp_path, stage: str
     [
         ("normal", None),
         ("keyboard", None),
+        ("terminal_create", "terminal create failed"),
         ("handler", "handler failed"),
         ("bind", "bind failed"),
         ("timer", "timer failed"),
         ("serve", "serve failed"),
         ("server_close", "server close failed"),
+        ("terminal_close", "terminal close failed"),
+        ("mcp_close", "mcp close failed"),
     ],
 )
 def test_serve_workbench_closes_owned_mcp_runtime_on_every_exit_path(
@@ -510,20 +513,37 @@ def test_serve_workbench_closes_owned_mcp_runtime_on_every_exit_path(
 ) -> None:
     events: list[str] = []
 
-    class OwnedRuntime:
+    class OwnedMcpRuntime:
         def close(self) -> None:
-            events.append("runtime_close")
+            events.append("mcp_close")
+            if phase == "mcp_close":
+                raise RuntimeError("mcp close failed")
 
-    owned = OwnedRuntime()
+    class OwnedTerminalRuntime:
+        def close(self) -> None:
+            events.append("terminal_close")
+            if phase == "terminal_close":
+                raise RuntimeError("terminal close failed")
 
-    def make_runtime(root: Path):
+    owned_mcp = OwnedMcpRuntime()
+    owned_terminal = OwnedTerminalRuntime()
+
+    def make_mcp_runtime(root: Path):
         assert root == tmp_path.resolve()
-        events.append("runtime_create")
-        return owned
+        events.append("mcp_create")
+        return owned_mcp
 
-    def make_handler(root: Path, *, mcp_runtime):
+    def make_terminal_runtime(root: Path):
         assert root == tmp_path.resolve()
-        assert mcp_runtime is owned
+        events.append("terminal_create")
+        if phase == "terminal_create":
+            raise RuntimeError("terminal create failed")
+        return owned_terminal
+
+    def make_handler(root: Path, *, mcp_runtime, terminal_runtime):
+        assert root == tmp_path.resolve()
+        assert mcp_runtime is owned_mcp
+        assert terminal_runtime is owned_terminal
         events.append("handler")
         if phase == "handler":
             raise RuntimeError("handler failed")
@@ -555,7 +575,8 @@ def test_serve_workbench_closes_owned_mcp_runtime_on_every_exit_path(
 
         return SimpleNamespace(start=start)
 
-    monkeypatch.setattr(server, "McpStdioRuntime", make_runtime)
+    monkeypatch.setattr(server, "McpStdioRuntime", make_mcp_runtime)
+    monkeypatch.setattr(server, "TerminalRuntime", make_terminal_runtime)
     monkeypatch.setattr(server, "create_workbench_handler", make_handler)
     monkeypatch.setattr(server, "ThreadingHTTPServer", FakeServer)
     monkeypatch.setattr(server.threading, "Timer", make_timer)
@@ -574,10 +595,13 @@ def test_serve_workbench_closes_owned_mcp_runtime_on_every_exit_path(
                 open_browser=phase == "timer",
             )
 
-    assert events.count("runtime_close") == 1
+    assert events.count("mcp_close") == 1
+    assert events.count("terminal_close") == (0 if phase == "terminal_create" else 1)
     if "server_close" in events:
-        assert events.index("server_close") < events.index("runtime_close")
-    assert events[-1] == "runtime_close"
+        assert events.index("server_close") < events.index("terminal_close")
+    if "terminal_close" in events:
+        assert events.index("terminal_close") < events.index("mcp_close")
+    assert events[-1] == "mcp_close"
 
 
 def test_serve_workbench_rejects_non_loopback_bind_before_runtime_start(monkeypatch, tmp_path) -> None:
@@ -610,7 +634,12 @@ def test_serve_workbench_uses_daemon_request_threads(monkeypatch, tmp_path) -> N
             pass
 
     monkeypatch.setattr(server, "McpStdioRuntime", lambda _root: Runtime())
-    monkeypatch.setattr(server, "create_workbench_handler", lambda _root, *, mcp_runtime: object())
+    monkeypatch.setattr(server, "TerminalRuntime", lambda _root: Runtime())
+    monkeypatch.setattr(
+        server,
+        "create_workbench_handler",
+        lambda _root, *, mcp_runtime, terminal_runtime: object(),
+    )
     monkeypatch.setattr(server, "ThreadingHTTPServer", FakeServer)
 
     server.serve_workbench(workspace=tmp_path)

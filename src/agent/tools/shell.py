@@ -107,18 +107,13 @@ def execute_run_command(
                 details={"argv": argv},
             )
         _validate_path_arguments(argv, sandbox)
-        platform_args = (
-            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-            if os.name == "nt"
-            else {"start_new_session": True}
-        )
         process = subprocess.Popen(
             argv,
             cwd=cwd,
             shell=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            **platform_args,
+            **process_group_kwargs(),
         )
         stdout, stderr, stop_reason = _communicate(process, timeout_seconds, control)
         if stop_reason is not None:
@@ -213,6 +208,18 @@ def _communicate(
 
 
 def _stop_process_tree(process: subprocess.Popen) -> str | None:
+    return stop_process_tree(process)
+
+
+def process_group_kwargs() -> dict[str, bool | int]:
+    return (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
+
+
+def stop_process_tree(process: subprocess.Popen) -> str | None:
     try:
         if os.name == "nt":
             completed = subprocess.run(
@@ -338,6 +345,10 @@ def _bounded_timeout(raw_timeout: int | None) -> int:
 
 
 def _policy_denial(argv: list[str], allowed_commands: tuple[str, ...] = ()) -> str | None:
+    return command_policy_denial(argv, allowed_commands)
+
+
+def command_policy_denial(argv: list[str], allowed_commands: tuple[str, ...] = ()) -> str | None:
     executable = _executable_name(argv[0])
     if executable in SHELL_WRAPPERS:
         return "Shell wrapper commands are not supported."
@@ -375,6 +386,10 @@ def _normalized_executable(executable: str) -> str:
 
 
 def _validate_path_arguments(argv: list[str], sandbox: WorkspaceSandbox) -> None:
+    validate_command_paths(argv, sandbox)
+
+
+def validate_command_paths(argv: list[str], sandbox: WorkspaceSandbox) -> None:
     if _executable_name(argv[0]) in PYTHON_COMMANDS and len(argv) >= 2 and argv[1] == "-c":
         return
 

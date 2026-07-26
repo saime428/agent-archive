@@ -34,6 +34,7 @@ KNOWN_KEYS = {
     "dry_run",
     "web_search_enabled",
     "computer_read_enabled",
+    "terminal_enabled",
     "max_consecutive_errors",
     "native_tools",
 }
@@ -64,6 +65,7 @@ class AgentConfig:
     dry_run: bool = False
     web_search_enabled: bool = False
     computer_read_enabled: bool = False
+    terminal_enabled: bool = False
     max_consecutive_errors: int = 3
     native_tools: bool = False
 
@@ -87,6 +89,7 @@ class ConfigOverrides:
     dry_run: bool | None = None
     web_search_enabled: bool | None = None
     computer_read_enabled: bool | None = None
+    terminal_enabled: bool | None = None
     max_consecutive_errors: int | None = None
     native_tools: bool | None = None
 
@@ -202,6 +205,7 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
         "dry_run": overrides.dry_run,
         "web_search_enabled": overrides.web_search_enabled,
         "computer_read_enabled": overrides.computer_read_enabled,
+        "terminal_enabled": overrides.terminal_enabled,
         "max_consecutive_errors": overrides.max_consecutive_errors,
         "native_tools": overrides.native_tools,
     }
@@ -216,7 +220,14 @@ def _apply_overrides(config: AgentConfig, overrides: ConfigOverrides) -> AgentCo
 def validate_value(key: str, value: Any, path: Path | None) -> None:
     cli = path is None
     sequence_type = tuple if cli else list
-    if key in {"dry_run", "memory_auto_write", "web_search_enabled", "computer_read_enabled", "native_tools"}:
+    if key in {
+        "dry_run",
+        "memory_auto_write",
+        "web_search_enabled",
+        "computer_read_enabled",
+        "terminal_enabled",
+        "native_tools",
+    }:
         if not isinstance(value, bool):
             raise _invalid_config_value(key, "expected boolean", path)
         return

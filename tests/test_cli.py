@@ -1876,6 +1876,7 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "dry_run: false" in result.output
     assert "web_search_enabled: false" in result.output
     assert "computer_read_enabled: false" in result.output
+    assert "terminal_enabled: false" in result.output
     assert "provider: fake" in result.output
     assert "model: deepseek-v4-flash" in result.output
     assert "allowed_commands: []" in result.output
@@ -2328,9 +2329,11 @@ def test_config_set_bool_and_int(tmp_path) -> None:
     workspace.mkdir()
 
     assert runner.invoke(app, ["config", "set", "dry_run", "true", "--cwd", str(workspace)]).exit_code == 0
+    assert runner.invoke(app, ["config", "set", "terminal_enabled", "true", "--cwd", str(workspace)]).exit_code == 0
     assert runner.invoke(app, ["config", "set", "memory_max_items", "9", "--cwd", str(workspace)]).exit_code == 0
     shown = runner.invoke(app, ["config", "show", "--cwd", str(workspace)])
     assert "dry_run: true" in shown.output
+    assert "terminal_enabled: true" in shown.output
     assert "memory_max_items: 9" in shown.output
 
     rejected = runner.invoke(app, ["config", "set", "dry_run", "yes", "--cwd", str(workspace)])
