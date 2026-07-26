@@ -25,9 +25,13 @@
     "@radix-ui/react-dialog": "1.1.21",
     "@radix-ui/react-tooltip": "1.2.14",
     "lucide-react": "1.26.0",
+    "monaco-editor": "0.56.0",
     "motion": "12.42.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
+  },
+  "overrides": {
+    "dompurify": "3.4.12"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

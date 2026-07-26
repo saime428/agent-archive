@@ -196,6 +196,8 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   expect(sameTempRoot).toBe(true);
   expect(basename(workspace)).toMatch(/^agent-served-workspace-/);
   await writeFile(join(workspace, "README.md"), "# Cutover seed\n", "utf8");
+  await mkdir(join(workspace, "src"), { recursive: true });
+  await writeFile(join(workspace, "src", "app.py"), "def sample():\n    return 'needle'\n", "utf8");
 
   const [root, preview, legacy] = await Promise.all([
     request.get("/"),
@@ -228,9 +230,19 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Files", exact: true }).click();
+  const search = page.getByRole("searchbox", { name: "递归搜索工作区", exact: true });
+  await search.fill("needle");
+  await search.press("Enter");
+  await page.getByRole("button", { name: "src/app.py 第 2 行", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "app.py", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("已跳转到第 2 行", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "README.md", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "app.py", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "README.md", exact: true })).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
-  await page.getByRole("textbox", { name: "文件编辑器", exact: true }).fill("# Cutover seed\nupdated\n");
+  await page.locator(".monaco-editor").click({ position: { x: 180, y: 24 } });
+  await page.keyboard.press("Control+a");
+  await page.keyboard.insertText("# Cutover seed\nupdated\n");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "确认保存", exact: true })).toBeVisible();
 

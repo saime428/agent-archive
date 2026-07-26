@@ -9,6 +9,7 @@ let resumeRequest: Record<string, unknown> | null = null;
 let startRequests = 0;
 let savedConfigUpdates: Record<string, unknown> | null = null;
 let rejectConfigSave = false;
+let savedFileRequests: Array<{ path?: string; content?: string }> = [];
 const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
 
 async function installWorkbenchMocks(page: Page) {
@@ -155,6 +156,38 @@ async function installWorkbenchMocks(page: Page) {
       await json({ status: "ok", action: "restored", path: body.path, snapshot_path: body.snapshot_path });
       return;
     }
+    if (path === "/api/search") {
+      const query = new URL(request.url()).searchParams.get("query") || "";
+      if (query === "empty") {
+        await json({
+          query,
+          path: ".",
+          matches: [],
+          total_matches: 0,
+          truncated: false,
+          scan_truncated: false,
+          scanned_files: 5,
+          skipped_files: 0,
+        });
+      } else if (query === "broken") {
+        await json({ error: "Workspace search failed." }, 400);
+      } else {
+        await json({
+          query,
+          path: ".",
+          matches: [
+            { path: "src/app.py", kind: "text", line: 2, excerpt: "    return 'needle'" },
+            { path: "README.md", kind: "path", line: null, excerpt: null },
+          ],
+          total_matches: 52,
+          truncated: true,
+          scan_truncated: true,
+          scanned_files: 10_000,
+          skipped_files: 3,
+        });
+      }
+      return;
+    }
     if (path === "/api/files") {
       const requested = new URL(request.url()).searchParams.get("path");
       if (requested === "src") {
@@ -191,6 +224,11 @@ async function installWorkbenchMocks(page: Page) {
     }
     if (path === "/api/file/save" && request.method() === "POST") {
       const body = JSON.parse(request.postData() || "{}") as { path?: string; content?: string };
+      savedFileRequests.push(body);
+      if (body.content === "reject save") {
+        await json({ error: "Save rejected by fixture." }, 400);
+        return;
+      }
       await json({
         status: "ok",
         run_id: "run_save",
@@ -493,6 +531,7 @@ test.beforeEach(async ({ page }) => {
   startRequests = 0;
   savedConfigUpdates = null;
   rejectConfigSave = false;
+  savedFileRequests = [];
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installWorkbenchMocks(page);
 });
@@ -647,6 +686,12 @@ test.describe("files", () => {
     await page.getByRole("button", { name: "Files", exact: true }).click();
   }
 
+  async function replaceDesktopEditor(page: Page, value: string) {
+    await page.locator(".monaco-editor").click({ position: { x: 180, y: 24 } });
+    await page.keyboard.press("Control+a");
+    await page.keyboard.insertText(value);
+  }
+
   test("browses directories and previews a text file", async ({ page }) => {
     await openFiles(page);
 
@@ -664,8 +709,7 @@ test.describe("files", () => {
     await page.getByRole("button", { name: "README.md", exact: true }).click();
     await page.getByRole("button", { name: "编辑", exact: true }).click();
 
-    const editor = page.getByRole("textbox", { name: "文件编辑器", exact: true });
-    await editor.fill("# Readme\nHello world");
+    await replaceDesktopEditor(page, "# Readme\nHello world");
     await page.getByRole("button", { name: "保存", exact: true }).click();
 
     // Confirmation must spell out path, byte count and snapshot before writing.
@@ -698,7 +742,9 @@ test.describe("files", () => {
     await openFiles(page);
     await page.getByRole("button", { name: "README.md", exact: true }).click();
     await page.getByRole("button", { name: "编辑", exact: true }).click();
-    await page.getByRole("textbox", { name: "文件编辑器", exact: true }).fill("# Readme\nDirty edit");
+    await replaceDesktopEditor(page, "# Readme\nDirty edit");
+
+    expect(await page.evaluate(() => !window.dispatchEvent(new Event("beforeunload", { cancelable: true })))).toBe(true);
 
     // Escape should not silently discard the dirty buffer.
     await page.keyboard.press("Escape");
@@ -707,12 +753,95 @@ test.describe("files", () => {
 
     // Continue editing keeps the workspace open with the buffer intact.
     await page.getByRole("button", { name: "继续编辑", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "文件编辑器", exact: true })).toHaveValue("# Readme\nDirty edit");
+    await expect(page.locator(".view-lines")).toContainText("Dirty edit");
 
     // Discarding via the guard closes the workspace.
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "丢弃并继续", exact: true }).click();
     await expect(page.getByRole("button", { name: "System", exact: true })).toHaveCount(0);
+  });
+
+  test("keeps the dirty buffer when save fails", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await replaceDesktopEditor(page, "reject save");
+    await page.keyboard.press("Control+s");
+    await expect(page.getByRole("dialog", { name: "确认保存", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "确认保存", exact: true }).click();
+
+    await expect(page.getByText("Save rejected by fixture.", { exact: true })).toBeVisible();
+    await expect(page.locator(".view-lines")).toContainText("reject save");
+    await expect(page.getByLabel("已修改", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
+  });
+
+  test("keeps independent dirty buffers across tabs and guards dirty tab close", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await replaceDesktopEditor(page, "README dirty");
+
+    await page.getByRole("button", { name: "src", exact: true }).click();
+    await page.getByRole("button", { name: "app.py", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await replaceDesktopEditor(page, "app dirty");
+
+    await page.getByRole("tab", { name: "README.md", exact: true }).click();
+    await expect(page.locator(".view-lines")).toContainText("README dirty");
+    await page.locator(".monaco-editor").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("!?");
+    await expect(page.locator(".view-lines")).toContainText("README dirty!?");
+    await page.getByRole("tab", { name: "app.py", exact: true }).click();
+    await page.getByRole("button", { name: "关闭 src/app.py", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "未保存修改", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(page.locator(".view-lines")).toContainText("app dirty");
+
+    await page.getByRole("button", { name: "关闭 src/app.py", exact: true }).click();
+    await page.getByRole("button", { name: "丢弃修改", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "app.py", exact: true })).toHaveCount(0);
+    await expect(page.locator(".view-lines")).toContainText("README dirty");
+  });
+
+  test("searches recursively, reports bounds, and jumps to a matching line", async ({ page }) => {
+    await openFiles(page);
+    const search = page.getByRole("searchbox", { name: "递归搜索工作区", exact: true });
+    await search.fill("needle");
+    await search.press("Enter");
+
+    await expect(page.getByText("已扫描 10000 个文件，结果至少 52 条", { exact: false })).toBeVisible();
+    await expect(page.getByText("仅显示前 2 条", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "src/app.py 第 2 行", exact: true }).click();
+    await expect(page.getByRole("tab", { name: "app.py", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText("已跳转到第 2 行", { exact: true })).toBeVisible();
+
+    await search.fill("empty");
+    await search.press("Enter");
+    await expect(page.getByText("未找到匹配项。", { exact: true })).toBeVisible();
+
+    await search.fill("broken");
+    await search.press("Enter");
+    await expect(page.getByText("Workspace search failed.", { exact: true })).toBeVisible();
+  });
+
+  test("uses the native editor fallback on narrow screens and saves with Ctrl+S", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+
+    const editor = page.getByRole("textbox", { name: "文件编辑器", exact: true });
+    await expect(editor).toHaveClass(/files-editor-native/);
+    await expect(page.locator(".monaco-editor")).toHaveCount(0);
+    await editor.fill("mobile dirty");
+    await editor.press("Control+s");
+    await page.getByRole("button", { name: "确认保存", exact: true }).click();
+
+    expect(savedFileRequests).toEqual([{ path: "README.md", content: "mobile dirty" }]);
   });
 });
 
