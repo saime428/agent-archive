@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { FolderTree, GitBranch, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-react";
+import { FolderTree, GitBranch, LayoutDashboard, ListChecks, RefreshCw, SquareTerminal, X } from "lucide-react";
 
 import { api } from "../api/client";
 import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPayload } from "../api/types";
@@ -10,8 +10,9 @@ import { FilesView, type FilesViewHandle } from "./FilesView";
 import { GitView } from "./GitView";
 import { RunsView } from "./RunsView";
 import { SettingsView } from "./SettingsView";
+import { TerminalView } from "./TerminalView";
 
-type WorkspaceView = "files" | "git" | "runs" | "system";
+type WorkspaceView = "files" | "git" | "terminal" | "runs" | "system";
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -38,6 +39,7 @@ interface WorkspacePanelProps {
 const VIEW_TABS: Array<{ id: WorkspaceView; label: string; icon: typeof FolderTree }> = [
   { id: "files", label: "Files", icon: FolderTree },
   { id: "git", label: "Git", icon: GitBranch },
+  { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "runs", label: "Runs", icon: ListChecks },
   { id: "system", label: "System", icon: LayoutDashboard },
 ];
@@ -185,11 +187,13 @@ export function WorkspacePanel({
                     key={tab.id}
                     type="button"
                     className="workspace-tab"
+                    aria-label={tab.label}
+                    title={tab.label}
                     aria-pressed={view === tab.id}
                     onClick={() => requestView(tab.id)}
                   >
                     <Icon aria-hidden="true" />
-                    {tab.label}
+                    <span className="workspace-tab-label">{tab.label}</span>
                   </button>
                 );
               })}
@@ -241,6 +245,8 @@ export function WorkspacePanel({
                   <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} focusRunId={focusRunId} />
                 ) : view === "git" ? (
                   <GitView />
+                ) : view === "terminal" ? (
+                  <TerminalView />
                 ) : (
                   <FilesView ref={filesRef} />
                 )}

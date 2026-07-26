@@ -17,6 +17,7 @@ import type {
   RunsPayload,
   SaveFilePayload,
   SearchPayload,
+  TerminalPayload,
   ToolsPayload,
 } from "./types";
 
@@ -104,6 +105,20 @@ export function createApiClient(fetcher: typeof fetch = globalThis.fetch.bind(gl
     getGitStatus: () => request<GitStatusPayload>("/api/git/status"),
     getGitDiff: (path: string, area: "staged" | "unstaged") =>
       request<GitDiffPayload>(`/api/git/diff${queryString({ path, area })}`),
+    getTerminal: (terminalId?: string, after = 0, timeout = 0) =>
+      request<TerminalPayload>(
+        `/api/terminal${queryString({
+          terminal_id: terminalId,
+          after: String(after),
+          timeout: String(timeout),
+        })}`,
+      ),
+    startTerminal: (argv: string[], cwd: string, timeoutSeconds: number) =>
+      post<TerminalPayload>("/api/terminal/start", { argv, cwd, timeout_seconds: timeoutSeconds }),
+    writeTerminal: (terminalId: string, data: string) =>
+      post<TerminalPayload>("/api/terminal/input", { terminal_id: terminalId, data }),
+    stopTerminal: (terminalId: string) =>
+      post<TerminalPayload>("/api/terminal/stop", { terminal_id: terminalId }),
     saveFile: (path: string, content: string) =>
       post<SaveFilePayload>("/api/file/save", { path, content }),
     getDiff: (path: string, snapshot: string) =>

@@ -300,7 +300,8 @@ export function SettingsView({
             <div className="settings-readonly">
               <KeyRow label="base_url" value={config?.config.base_url || "（未设置）"} />
               <KeyRow label="allowed_commands" value={config?.config.allowed_commands.join(", ") || "（空）"} />
-              <p className="overview-note">上面两项与密钥不在浏览器写白名单内，请用终端修改。</p>
+              <KeyRow label="terminal_enabled" value={String(config?.config.terminal_enabled ?? false)} />
+              <p className="overview-note">上面三项与密钥不在浏览器写白名单内，请用 CLI 修改。</p>
             </div>
 
             {saveError ? <p className="overview-error" data-payload>{saveError}</p> : null}

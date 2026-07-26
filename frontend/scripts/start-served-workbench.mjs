@@ -110,6 +110,21 @@ function startControlWatcher(notify) {
 
 async function terminateChild(child, closed) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === "win32" && child.pid) {
+    const treeStopped = await new Promise((resolveStop) => {
+      const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+        shell: false,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      killer.once("error", () => resolveStop(false));
+      killer.once("close", (code) => resolveStop(code === 0));
+    });
+    if (treeStopped) {
+      await closed;
+      return;
+    }
+  }
   child.kill("SIGTERM");
   const stopped = await Promise.race([closed.then(() => true), delay(2_000).then(() => false)]);
   if (!stopped && child.exitCode === null && child.signalCode === null) {

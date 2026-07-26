@@ -132,6 +132,28 @@ export interface GitDiffPayload {
   truncated: boolean;
 }
 
+export type TerminalStatus = "idle" | "running" | "completed" | "failed" | "stopped" | "timed_out";
+
+export interface TerminalEvent {
+  sequence: number;
+  stream: "stdout" | "stderr" | "system";
+  text: string;
+}
+
+export interface TerminalPayload {
+  enabled: boolean;
+  terminal_id: string | null;
+  status: TerminalStatus;
+  argv: string[];
+  cwd: string;
+  timeout_seconds: number | null;
+  exit_code: number | null;
+  events: TerminalEvent[];
+  next: number;
+  truncated: boolean;
+  cleanup_error: string | null;
+}
+
 export interface SaveFilePayload {
   status: "ok";
   run_id: string;
@@ -269,6 +291,7 @@ export interface AgentConfigRecord {
   dry_run: boolean;
   web_search_enabled: boolean;
   computer_read_enabled: boolean;
+  terminal_enabled: boolean;
   native_tools: boolean;
   default_skills: string[];
   allowed_commands: string[];

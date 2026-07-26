@@ -12,7 +12,31 @@ let rejectConfigSave = false;
 let savedFileRequests: Array<{ path?: string; content?: string }> = [];
 let gitStatusMode: "normal" | "clean" | "nonrepo" | "error" | "diff-error" = "normal";
 let gitDiffRequests: Array<{ path: string; area: string }> = [];
+let terminalMode: "disabled" | "idle" | "error" = "disabled";
+let terminalStatus: "idle" | "running" | "stopped" = "idle";
+let terminalEvents: Array<{ sequence: number; stream: "stdout" | "stderr" | "system"; text: string }> = [];
+let terminalStartRequest: Record<string, unknown> | null = null;
+let terminalInputRequests: Array<Record<string, unknown>> = [];
+let terminalStopRequests = 0;
+let terminalReadySent = false;
 const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
+
+function terminalFixture(after = 0) {
+  const active = terminalStatus !== "idle";
+  return {
+    enabled: terminalMode !== "disabled",
+    terminal_id: active ? "terminal_mock" : null,
+    status: terminalStatus,
+    argv: active ? ["python", "-c", "print('ready')"] : [],
+    cwd: active ? "." : "",
+    timeout_seconds: active ? 30 : null,
+    exit_code: terminalStatus === "stopped" ? 1 : null,
+    events: terminalEvents.filter((event) => event.sequence >= after),
+    next: terminalEvents.length,
+    truncated: false,
+    cleanup_error: null,
+  };
+}
 
 async function installWorkbenchMocks(page: Page) {
   await page.addInitScript(() => {
@@ -188,6 +212,42 @@ async function installWorkbenchMocks(page: Page) {
         ? ""
         : `diff --git a/${requestedPath} b/${requestedPath}\n@@\n-${area === "staged" ? "base" : "staged"}\n+${area === "staged" ? "staged line" : "worktree line"}`;
       await json({ path: requestedPath, area, diff, truncated: area === "staged" && requestedPath === "src/app.py" });
+      return;
+    }
+    if (path === "/api/terminal" && request.method() === "GET") {
+      if (terminalMode === "error") {
+        await json({ error: "Terminal status failed." }, 400);
+        return;
+      }
+      const after = Number(new URL(request.url()).searchParams.get("after") || "0");
+      if (terminalStatus === "running" && after > 0 && !terminalReadySent) {
+        terminalReadySent = true;
+        terminalEvents.push({ sequence: terminalEvents.length, stream: "stdout", text: "ready\n" });
+      } else if (terminalStatus === "running" && after >= terminalEvents.length) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      await json(terminalFixture(after));
+      return;
+    }
+    if (path === "/api/terminal/start") {
+      terminalStartRequest = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
+      terminalStatus = "running";
+      terminalEvents = [{ sequence: 0, stream: "system", text: "Process started.\n" }];
+      await json(terminalFixture());
+      return;
+    }
+    if (path === "/api/terminal/input") {
+      const payload = JSON.parse(request.postData() || "{}") as Record<string, unknown>;
+      terminalInputRequests.push(payload);
+      terminalEvents.push({ sequence: terminalEvents.length, stream: "stdout", text: `${payload.data}\n` });
+      await json(terminalFixture());
+      return;
+    }
+    if (path === "/api/terminal/stop") {
+      terminalStopRequests += 1;
+      terminalStatus = "stopped";
+      terminalEvents.push({ sequence: terminalEvents.length, stream: "system", text: "Process stopped.\n" });
+      await json(terminalFixture());
       return;
     }
     if (path === "/api/runs") {
@@ -514,6 +574,7 @@ function configFixture() {
       dry_run: false,
       web_search_enabled: false,
       computer_read_enabled: false,
+      terminal_enabled: terminalMode !== "disabled",
       native_tools: false,
       default_skills: ["code-dev"],
       allowed_commands: [],
@@ -653,6 +714,13 @@ test.beforeEach(async ({ page }) => {
   savedFileRequests = [];
   gitStatusMode = "normal";
   gitDiffRequests = [];
+  terminalMode = "disabled";
+  terminalStatus = "idle";
+  terminalEvents = [];
+  terminalStartRequest = null;
+  terminalInputRequests = [];
+  terminalStopRequests = 0;
+  terminalReadySent = false;
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installWorkbenchMocks(page);
 });
@@ -763,7 +831,7 @@ for (const decision of [
 }
 
 test.describe("workspace shell", () => {
-  test("opens the workspace plane with four entries and returns focus on close", async ({ page }) => {
+  test("opens the workspace plane with five entries and returns focus on close", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("./#/new");
 
@@ -774,6 +842,7 @@ test.describe("workspace shell", () => {
     await expect(page.getByRole("button", { name: "System", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Files", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Git", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Terminal", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Runs", exact: true })).toBeVisible();
     // Default view is System Overview with real health-derived signals.
     await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
@@ -797,6 +866,61 @@ test.describe("workspace shell", () => {
 
     await page.getByRole("button", { name: "关闭工作台", exact: true }).click();
     await expect(sheet).toHaveCount(0);
+  });
+});
+
+test.describe("terminal", () => {
+  async function openTerminal(page: Page) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  }
+
+  test("keeps the terminal disabled until the project CLI enables it", async ({ page }) => {
+    await openTerminal(page);
+    await expect(page.getByText("Terminal 默认关闭。请在项目终端显式启用：", { exact: true })).toBeVisible();
+    await expect(page.getByText("agent config set terminal_enabled true --cwd <workspace>", { exact: true })).toBeVisible();
+  });
+
+  test("starts, polls, writes to, and stops one process", async ({ page }) => {
+    terminalMode = "idle";
+    await openTerminal(page);
+
+    await page.getByLabel("Terminal 程序", { exact: true }).fill("python");
+    await page.getByLabel("Terminal 参数", { exact: true }).fill("-c\nprint('ready')");
+    await page.getByLabel("Terminal cwd", { exact: true }).fill("scripts");
+    await page.getByLabel("Terminal timeout", { exact: true }).fill("30");
+    await page.getByRole("button", { name: "启动", exact: true }).click();
+
+    await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("ready");
+    expect(terminalStartRequest).toEqual({
+      argv: ["python", "-c", "print('ready')"],
+      cwd: "scripts",
+      timeout_seconds: 30,
+    });
+
+    await page.reload();
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    await expect(page.getByText("running", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("ready");
+
+    await page.getByLabel("Terminal stdin", { exact: true }).fill("hello");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    await expect.poll(() => terminalInputRequests).toEqual([{ terminal_id: "terminal_mock", data: "hello" }]);
+    await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("hello");
+
+    await page.getByRole("button", { name: "停止", exact: true }).click();
+    await expect(page.getByText("stopped", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("Process stopped.");
+    expect(terminalStopRequests).toBe(1);
+  });
+
+  test("surfaces terminal refresh failures", async ({ page }) => {
+    terminalMode = "error";
+    await openTerminal(page);
+    await expect(page.getByText("Terminal status failed.", { exact: true })).toBeVisible();
   });
 });
 
@@ -1145,7 +1269,7 @@ test.describe("system", () => {
 });
 
 test.describe("workspace layout and a11y", () => {
-  async function openWorkspace(page: Page, view?: "Files" | "Git" | "Runs" | "System") {
+  async function openWorkspace(page: Page, view?: "Files" | "Git" | "Terminal" | "Runs" | "System") {
     await page.goto("./#/new");
     await page.getByRole("button", { name: "打开工作台", exact: true }).click();
     if (view) await page.getByRole("button", { name: view, exact: true }).click();
@@ -1167,6 +1291,10 @@ test.describe("workspace layout and a11y", () => {
 
       await page.getByRole("button", { name: "Git", exact: true }).click();
       await expect(page.getByText("状态项至少 5 条", { exact: false })).toBeVisible();
+      expect(await pageOverflows(page)).toBe(false);
+
+      await page.getByRole("button", { name: "Terminal", exact: true }).click();
+      await expect(page.getByText("Terminal 默认关闭。请在项目终端显式启用：", { exact: true })).toBeVisible();
       expect(await pageOverflows(page)).toBe(false);
 
       await page.getByRole("button", { name: "Runs", exact: true }).click();
@@ -1354,6 +1482,36 @@ for (const variant of workspaceVisuals) {
     await expect(page).toHaveScreenshot(`${variant.name}.png`, {
       animations: "disabled",
       // Keep wall-clock text out of the approved image.
+      mask: [page.locator(".workspace-refresh-time")],
+    });
+    const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
+    expect(dimensions.scrollWidth).toBe(dimensions.width);
+  });
+}
+
+for (const variant of [
+  { name: "workspace-terminal-disabled-dark-1440", width: 1440, height: 900, running: false },
+  { name: "workspace-terminal-running-dark-390", width: 390, height: 844, running: true },
+] as const) {
+  test(`visual ${variant.name}`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-07-25T12:34:56"));
+    await page.setViewportSize({ width: variant.width, height: variant.height });
+    terminalMode = variant.running ? "idle" : "disabled";
+    await page.goto("./#/new");
+    await page.getByLabel("显示模式", { exact: true }).selectOption("dark");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    if (variant.running) {
+      await page.getByLabel("Terminal 程序", { exact: true }).fill("python");
+      await page.getByLabel("Terminal 参数", { exact: true }).fill("-c\nprint('ready')");
+      await page.getByRole("button", { name: "启动", exact: true }).click();
+      await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("ready");
+    } else {
+      await expect(page.getByText("Terminal 默认关闭。请在项目终端显式启用：", { exact: true })).toBeVisible();
+    }
+
+    await expect(page).toHaveScreenshot(`${variant.name}.png`, {
+      animations: "disabled",
       mask: [page.locator(".workspace-refresh-time")],
     });
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));

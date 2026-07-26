@@ -1913,6 +1913,11 @@ select {
   .workspace-tab { flex: 1; justify-content: center; min-width: max-content; padding-inline: 10px; }
 }
 
+@media (max-width: 400px) {
+  .workspace-tab { min-width: 0; padding-inline: 6px; }
+  .workspace-tab-label { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .workspace-plane,
   .workspace-overlay { animation: none; }
@@ -2148,6 +2153,72 @@ select {
   .files-entries { max-height: 190px; }
   .files-search-results { max-height: 180px; }
   .files-editor-native { min-height: 280px; }
+}
+
+/* ===== Phase 3G line-mode Terminal ===== */
+.terminal-view { display: grid; min-width: 0; gap: 12px; }
+.terminal-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.terminal-toolbar .workspace-section-title { margin-bottom: 2px; }
+.terminal-toolbar .overview-note { margin: 0; }
+.terminal-toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.terminal-stop { color: #e5576f; border-color: color-mix(in srgb, #e5576f 42%, transparent); }
+.terminal-disabled,
+.terminal-start-form {
+  padding: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+}
+.terminal-disabled p { margin: 0 0 8px; color: var(--text-dim); }
+.terminal-disabled code { display: block; overflow-x: auto; font-family: var(--font-mono); color: var(--accent); }
+.terminal-start-form { display: grid; gap: 10px; }
+.terminal-start-form label { display: grid; min-width: 0; gap: 5px; font-size: 12px; color: var(--text-dim); }
+.terminal-start-form input,
+.terminal-start-form textarea,
+.terminal-input-row input {
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-family: var(--font-mono);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  outline: none;
+}
+.terminal-start-form textarea { min-height: 86px; resize: vertical; line-height: 1.45; }
+.terminal-start-form input:focus-visible,
+.terminal-start-form textarea:focus-visible,
+.terminal-input-row input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.terminal-start-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, 140px) auto; align-items: end; gap: 8px; }
+.terminal-meta { display: flex; min-width: 0; flex-wrap: wrap; gap: 8px 14px; font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+.terminal-meta span:first-child { min-width: 0; flex: 1; overflow: hidden; color: var(--text-dim); text-overflow: ellipsis; white-space: nowrap; }
+.terminal-output {
+  min-height: 260px;
+  max-height: min(58vh, 560px);
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg) 82%, #000);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.terminal-event[data-stream="stderr"] { color: #e98391; }
+.terminal-event[data-stream="system"] { color: var(--text-faint); }
+.terminal-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+
+@media (max-width: 767px) {
+  .terminal-toolbar { align-items: stretch; flex-direction: column; }
+  .terminal-toolbar-actions { justify-content: flex-start; }
+  .terminal-start-row { grid-template-columns: 1fr 1fr; }
+  .terminal-start-row .files-action { grid-column: 1 / -1; justify-content: center; }
+  .terminal-output { min-height: 220px; max-height: 360px; }
 }
 
 /* ===== Phase 3F read-only Git status and diff ===== */

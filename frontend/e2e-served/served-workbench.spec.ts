@@ -304,6 +304,43 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   expect(errors).toEqual([]);
 });
 
+test("runs and stops a real interactive terminal process", async ({ page, request }) => {
+  const workspace = await servedWorkspace(request);
+  const parentPidFile = join(workspace, "terminal-parent.pid");
+  await mkdir(join(workspace, ".agent"), { recursive: true });
+  await writeFile(join(workspace, ".agent", "config.toml"), "terminal_enabled = true\n", "utf8");
+  const parent = [
+    "import os,pathlib,sys,time",
+    "pathlib.Path('terminal-parent.pid').write_text(str(os.getpid()))",
+    "print('ready',flush=True)",
+    "print('got:'+sys.stdin.readline().strip(),flush=True)",
+    "time.sleep(60)",
+  ].join(";");
+  const errors = collectBrowserErrors(page);
+
+  await page.goto("/#/new");
+  await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByLabel("Terminal 程序", { exact: true }).fill(PYTHON);
+  await page.getByLabel("Terminal 参数", { exact: true }).fill(`-c\n${parent}`);
+  await page.getByLabel("Terminal timeout", { exact: true }).fill("120");
+  await page.getByRole("button", { name: "启动", exact: true }).click();
+
+  await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("ready", { timeout: 10_000 });
+  await waitForFile(parentPidFile, 10_000);
+  const parentPid = Number((await readFile(parentPidFile, "utf8")).trim());
+  expect(await pidIsAlive(parentPid)).toBe(true);
+
+  await page.getByLabel("Terminal stdin", { exact: true }).fill("hello");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("got:hello", { timeout: 10_000 });
+  await page.getByRole("button", { name: "停止", exact: true }).click();
+
+  await expect(page.getByText("stopped", { exact: true })).toBeVisible();
+  await waitFor(async () => !(await pidIsAlive(parentPid)), 10_000);
+  expect(errors).toEqual([]);
+});
+
 test("cancels a pending approval without executing the write", async ({ page, request }) => {
   const workspace = await configureProvider(request);
   const blockedFile = join(workspace, "served-approval-must-not-exist.txt");

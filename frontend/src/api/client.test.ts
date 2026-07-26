@@ -107,6 +107,28 @@ describe("createApiClient", () => {
     ]);
   });
 
+  it("uses cursor queries and structured bodies for Terminal", async () => {
+    const fetcher = vi.fn(async (...request: Parameters<typeof fetch>) => {
+      void request;
+      return new Response('{"enabled":true,"status":"idle","events":[],"next":0}');
+    });
+    const client = createApiClient(fetcher as typeof fetch);
+
+    await client.getTerminal("terminal_中文", 7, 10);
+    await client.startTerminal(["python", "-c", "print('ok')"], ".", 600);
+    await client.writeTerminal("terminal_1", "hello");
+    await client.stopTerminal("terminal_1");
+
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      `/api/terminal?terminal_id=${encodeURIComponent("terminal_中文")}&after=7&timeout=10`,
+    );
+    expect(fetcher.mock.calls.slice(1).map(([path, init]) => [path, init?.body])).toEqual([
+      ["/api/terminal/start", JSON.stringify({ argv: ["python", "-c", "print('ok')"], cwd: ".", timeout_seconds: 600 })],
+      ["/api/terminal/input", JSON.stringify({ terminal_id: "terminal_1", data: "hello" })],
+      ["/api/terminal/stop", JSON.stringify({ terminal_id: "terminal_1" })],
+    ]);
+  });
+
   it("restores using the snapshot_path request body key", async () => {
     const fetcher = vi.fn(async () => new Response('{"status":"ok","action":"restored","path":"a.txt","snapshot_path":"s"}'));
     const client = createApiClient(fetcher as typeof fetch);

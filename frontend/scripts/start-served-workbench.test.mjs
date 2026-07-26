@@ -45,11 +45,20 @@ async function runFakeAgent() {
   const userProfile = process.env.USERPROFILE || "";
   const stateFile = process.env.FAKE_STATE_FILE;
   if (!stateFile) throw new Error("FAKE_STATE_FILE is required.");
+  const descendant = mode === "tree"
+    ? spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        cwd: workspace,
+        shell: false,
+        stdio: "ignore",
+        windowsHide: true,
+      })
+    : null;
 
   await writeFile(
     stateFile,
     JSON.stringify({
       pid: process.pid,
+      descendantPid: descendant?.pid || null,
       workspace,
       home,
       userProfile,
@@ -264,6 +273,34 @@ if (process.argv.includes(FAKE_FLAG)) {
       await removeScratch(scratch.root);
     }
   });
+
+  test(
+    "cleans the child process tree through the served stop request on Windows",
+    { skip: process.platform !== "win32" },
+    async () => {
+      const scratch = await makeScratch();
+      const run = startWrapper(scratch, "tree");
+      try {
+        const state = await readJsonWhenReady(scratch.stateFile);
+        assert.equal(typeof state.descendantPid, "number");
+        assert.doesNotThrow(() => process.kill(state.pid, 0));
+        assert.doesNotThrow(() => process.kill(state.descendantPid, 0));
+
+        await writeFile(join(scratch.controlDir, "stop"), "stop", "utf8");
+        await waitFor(() => fileExists(join(scratch.controlDir, "done")));
+        const result = await run.result;
+
+        assert.equal(result.code, 0, result.stderr);
+        assert.throws(() => process.kill(state.pid, 0));
+        assert.throws(() => process.kill(state.descendantPid, 0));
+        await assertNoWrapperTemps(scratch.root);
+        await assertPortsFree();
+      } finally {
+        await stopWrapper(run);
+        await removeScratch(scratch.root);
+      }
+    },
+  );
 
   test("restarts the child in the same isolated workspace and home", async () => {
     const scratch = await makeScratch();
