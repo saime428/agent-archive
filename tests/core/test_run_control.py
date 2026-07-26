@@ -35,3 +35,14 @@ def test_run_control_without_deadline_only_stops_after_cancel() -> None:
     assert control.stop_reason() is None
     assert control.request_cancel() is True
     assert control.stop_reason() == "cancelled"
+
+
+def test_run_control_promotes_external_cancel_probe_to_local_cancel() -> None:
+    requested = [False]
+    control = RunControl(cancel_probe=lambda: requested[0])
+
+    assert control.stop_reason() is None
+    requested[0] = True
+    assert control.stop_reason() == "cancelled"
+    requested[0] = False
+    assert control.stop_reason() == "cancelled"
