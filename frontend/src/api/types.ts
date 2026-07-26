@@ -105,6 +105,33 @@ export interface SearchPayload {
   skipped_files: number;
 }
 
+export interface GitStatusEntry {
+  path: string;
+  original_path: string | null;
+  index_status: string | null;
+  worktree_status: string | null;
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  conflicted: boolean;
+}
+
+export interface GitStatusPayload {
+  git_available: boolean;
+  is_repository: boolean;
+  reason: "git_unavailable" | "not_repository" | "repository_root_outside_workspace" | null;
+  entries: GitStatusEntry[];
+  entry_count: number;
+  truncated: boolean;
+}
+
+export interface GitDiffPayload {
+  path: string;
+  area: "staged" | "unstaged";
+  diff: string;
+  truncated: boolean;
+}
+
 export interface SaveFilePayload {
   status: "ok";
   run_id: string;

@@ -91,6 +91,22 @@ describe("createApiClient", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/diff?path=a.txt&snapshot=snap_1", expect.anything());
   });
 
+  it("reads Git status and encodes a single-file Git diff", async () => {
+    const fetcher = vi.fn(async (...request: Parameters<typeof fetch>) => {
+      void request;
+      return new Response('{"entries":[],"diff":""}');
+    });
+    const client = createApiClient(fetcher as typeof fetch);
+
+    await client.getGitStatus();
+    await client.getGitDiff("src/报告 file.ts", "staged");
+
+    expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
+      "/api/git/status",
+      `/api/git/diff?path=${encodeURIComponent("src/报告 file.ts")}&area=staged`,
+    ]);
+  });
+
   it("restores using the snapshot_path request body key", async () => {
     const fetcher = vi.fn(async () => new Response('{"status":"ok","action":"restored","path":"a.txt","snapshot_path":"s"}'));
     const client = createApiClient(fetcher as typeof fetch);

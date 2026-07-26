@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { FolderTree, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-react";
+import { FolderTree, GitBranch, LayoutDashboard, ListChecks, RefreshCw, X } from "lucide-react";
 
 import { api } from "../api/client";
 import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPayload } from "../api/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FilesView, type FilesViewHandle } from "./FilesView";
+import { GitView } from "./GitView";
 import { RunsView } from "./RunsView";
 import { SettingsView } from "./SettingsView";
 
-type WorkspaceView = "files" | "runs" | "system";
+type WorkspaceView = "files" | "git" | "runs" | "system";
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -36,6 +37,7 @@ interface WorkspacePanelProps {
 
 const VIEW_TABS: Array<{ id: WorkspaceView; label: string; icon: typeof FolderTree }> = [
   { id: "files", label: "Files", icon: FolderTree },
+  { id: "git", label: "Git", icon: GitBranch },
   { id: "runs", label: "Runs", icon: ListChecks },
   { id: "system", label: "System", icon: LayoutDashboard },
 ];
@@ -237,6 +239,8 @@ export function WorkspacePanel({
                   </>
                 ) : view === "runs" ? (
                   <RunsView runs={runs.data?.runs ?? []} onGlobalRefresh={onGlobalRefresh} focusRunId={focusRunId} />
+                ) : view === "git" ? (
+                  <GitView />
                 ) : (
                   <FilesView ref={filesRef} />
                 )}

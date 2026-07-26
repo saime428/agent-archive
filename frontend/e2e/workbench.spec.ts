@@ -10,6 +10,8 @@ let startRequests = 0;
 let savedConfigUpdates: Record<string, unknown> | null = null;
 let rejectConfigSave = false;
 let savedFileRequests: Array<{ path?: string; content?: string }> = [];
+let gitStatusMode: "normal" | "clean" | "nonrepo" | "error" | "diff-error" = "normal";
+let gitDiffRequests: Array<{ path: string; area: string }> = [];
 const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
 
 async function installWorkbenchMocks(page: Page) {
@@ -69,6 +71,123 @@ async function installWorkbenchMocks(page: Page) {
     }
     if (path === "/api/tools") {
       await json({ tools: [{ name: "read_file", category: "filesystem", dry_run: "safe", description: "Read a file." }] });
+      return;
+    }
+    if (path === "/api/git/status") {
+      if (gitStatusMode === "error") {
+        await json({ error: "Git status failed." }, 400);
+      } else if (gitStatusMode === "nonrepo") {
+        await json({
+          git_available: true,
+          is_repository: false,
+          reason: "repository_root_outside_workspace",
+          entries: [],
+          entry_count: 0,
+          truncated: false,
+        });
+      } else if (gitStatusMode === "clean") {
+        await json({
+          git_available: true,
+          is_repository: true,
+          reason: null,
+          entries: [],
+          entry_count: 0,
+          truncated: false,
+        });
+      } else if (gitStatusMode === "diff-error") {
+        await json({
+          git_available: true,
+          is_repository: true,
+          reason: null,
+          entries: [{
+            path: "broken.txt",
+            original_path: null,
+            index_status: null,
+            worktree_status: "M",
+            staged: false,
+            unstaged: true,
+            untracked: false,
+            conflicted: false,
+          }],
+          entry_count: 1,
+          truncated: false,
+        });
+      } else {
+        await json({
+          git_available: true,
+          is_repository: true,
+          reason: null,
+          entries: [
+            {
+              path: "src/app.py",
+              original_path: null,
+              index_status: "M",
+              worktree_status: "M",
+              staged: true,
+              unstaged: true,
+              untracked: false,
+              conflicted: false,
+            },
+            {
+              path: "rename new.txt",
+              original_path: "rename old.txt",
+              index_status: "R",
+              worktree_status: null,
+              staged: true,
+              unstaged: false,
+              untracked: false,
+              conflicted: false,
+            },
+            {
+              path: "notes ü space.txt",
+              original_path: null,
+              index_status: null,
+              worktree_status: null,
+              staged: false,
+              unstaged: false,
+              untracked: true,
+              conflicted: false,
+            },
+            {
+              path: "conflict.txt",
+              original_path: null,
+              index_status: "U",
+              worktree_status: "U",
+              staged: true,
+              unstaged: true,
+              untracked: false,
+              conflicted: true,
+            },
+            {
+              path: "empty.txt",
+              original_path: null,
+              index_status: "M",
+              worktree_status: null,
+              staged: true,
+              unstaged: false,
+              untracked: false,
+              conflicted: false,
+            },
+          ],
+          entry_count: 5,
+          truncated: true,
+        });
+      }
+      return;
+    }
+    if (path === "/api/git/diff") {
+      const query = new URL(request.url()).searchParams;
+      const requestedPath = query.get("path") || "";
+      const area = query.get("area") || "";
+      gitDiffRequests.push({ path: requestedPath, area });
+      if (gitStatusMode === "diff-error") {
+        await json({ error: "Git diff failed." }, 400);
+        return;
+      }
+      const diff = requestedPath === "empty.txt"
+        ? ""
+        : `diff --git a/${requestedPath} b/${requestedPath}\n@@\n-${area === "staged" ? "base" : "staged"}\n+${area === "staged" ? "staged line" : "worktree line"}`;
+      await json({ path: requestedPath, area, diff, truncated: area === "staged" && requestedPath === "src/app.py" });
       return;
     }
     if (path === "/api/runs") {
@@ -532,6 +651,8 @@ test.beforeEach(async ({ page }) => {
   savedConfigUpdates = null;
   rejectConfigSave = false;
   savedFileRequests = [];
+  gitStatusMode = "normal";
+  gitDiffRequests = [];
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installWorkbenchMocks(page);
 });
@@ -642,7 +763,7 @@ for (const decision of [
 }
 
 test.describe("workspace shell", () => {
-  test("opens the workspace plane with three entries and returns focus on close", async ({ page }) => {
+  test("opens the workspace plane with four entries and returns focus on close", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("./#/new");
 
@@ -652,6 +773,7 @@ test.describe("workspace shell", () => {
 
     await expect(page.getByRole("button", { name: "System", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Files", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Git", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Runs", exact: true })).toBeVisible();
     // Default view is System Overview with real health-derived signals.
     await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
@@ -675,6 +797,58 @@ test.describe("workspace shell", () => {
 
     await page.getByRole("button", { name: "关闭工作台", exact: true }).click();
     await expect(sheet).toHaveCount(0);
+  });
+});
+
+test.describe("git", () => {
+  async function openGit(page: Page) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Git", exact: true }).click();
+  }
+
+  test("switches staged and unstaged diffs without requesting untracked files", async ({ page }) => {
+    await openGit(page);
+
+    await expect(page.getByText("状态项至少 5 条，仅显示前 5 条。", { exact: true })).toBeVisible();
+    await expect(page.getByText("rename old.txt", { exact: false })).toBeVisible();
+    await expect(page.getByText("conflict", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: /src\/app\.py staged unstaged/ }).click();
+    await expect(page.locator(".git-diff")).toContainText("+worktree line");
+    await page.getByRole("button", { name: "Staged", exact: true }).click();
+    await expect(page.locator(".git-diff")).toContainText("+staged line");
+    await expect(page.getByText("Diff 已截断", { exact: true })).toBeVisible();
+
+    const beforeUntracked = gitDiffRequests.length;
+    await page.getByRole("button", { name: /notes ü space\.txt untracked/ }).click();
+    await expect(page.getByText("Untracked 文件没有 Git diff；请到 Files 中查看内容。", { exact: true })).toBeVisible();
+    await expect.poll(() => gitDiffRequests.length).toBe(beforeUntracked);
+
+    await page.getByRole("button", { name: /empty\.txt staged/ }).click();
+    await expect(page.getByText("该区域没有可显示的差异。", { exact: true })).toBeVisible();
+    expect(gitDiffRequests).toContainEqual({ path: "src/app.py", area: "unstaged" });
+    expect(gitDiffRequests).toContainEqual({ path: "src/app.py", area: "staged" });
+  });
+
+  test("shows repository, clean, status error, and diff error states", async ({ page }) => {
+    gitStatusMode = "nonrepo";
+    await openGit(page);
+    await expect(page.getByText("请将工作区打开到 Git 仓库根目录。", { exact: true })).toBeVisible();
+
+    gitStatusMode = "clean";
+    await page.getByRole("button", { name: "刷新 Git 状态", exact: true }).click();
+    await expect(page.getByText("工作区干净。", { exact: true })).toBeVisible();
+
+    gitStatusMode = "error";
+    await page.getByRole("button", { name: "刷新 Git 状态", exact: true }).click();
+    await expect(page.getByText("Git status failed.", { exact: true })).toBeVisible();
+
+    gitStatusMode = "diff-error";
+    await page.getByRole("button", { name: "刷新 Git 状态", exact: true }).click();
+    await page.getByRole("button", { name: /broken\.txt unstaged/ }).click();
+    await expect(page.getByText("Git diff failed.", { exact: true })).toBeVisible();
   });
 });
 
@@ -971,7 +1145,7 @@ test.describe("system", () => {
 });
 
 test.describe("workspace layout and a11y", () => {
-  async function openWorkspace(page: Page, view?: "Files" | "Runs" | "System") {
+  async function openWorkspace(page: Page, view?: "Files" | "Git" | "Runs" | "System") {
     await page.goto("./#/new");
     await page.getByRole("button", { name: "打开工作台", exact: true }).click();
     if (view) await page.getByRole("button", { name: view, exact: true }).click();
@@ -989,6 +1163,10 @@ test.describe("workspace layout and a11y", () => {
 
       await page.getByRole("button", { name: "Files", exact: true }).click();
       await expect(page.getByRole("button", { name: "README.md", exact: true })).toBeVisible();
+      expect(await pageOverflows(page)).toBe(false);
+
+      await page.getByRole("button", { name: "Git", exact: true }).click();
+      await expect(page.getByText("状态项至少 5 条", { exact: false })).toBeVisible();
       expect(await pageOverflows(page)).toBe(false);
 
       await page.getByRole("button", { name: "Runs", exact: true }).click();

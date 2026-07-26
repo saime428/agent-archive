@@ -9,6 +9,8 @@ import type {
   DiffPayload,
   FilePayload,
   FilesPayload,
+  GitDiffPayload,
+  GitStatusPayload,
   HealthPayload,
   RestorePayload,
   RunDetailPayload,
@@ -99,6 +101,9 @@ export function createApiClient(fetcher: typeof fetch = globalThis.fetch.bind(gl
     listFiles: (path?: string) => request<FilesPayload>(`/api/files${queryString({ path })}`),
     getFile: (path: string) => request<FilePayload>(`/api/file${queryString({ path })}`),
     searchFiles: (query: string) => request<SearchPayload>(`/api/search${queryString({ query })}`),
+    getGitStatus: () => request<GitStatusPayload>("/api/git/status"),
+    getGitDiff: (path: string, area: "staged" | "unstaged") =>
+      request<GitDiffPayload>(`/api/git/diff${queryString({ path, area })}`),
     saveFile: (path: string, content: string) =>
       post<SaveFilePayload>("/api/file/save", { path, content }),
     getDiff: (path: string, snapshot: string) =>

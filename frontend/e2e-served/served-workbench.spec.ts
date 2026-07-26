@@ -1,9 +1,11 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { execFile as execFileCallback } from "node:child_process";
 import { access, mkdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 
 const FIXTURE_MARKERS = ["[served-approval]", "[served-command]", "[served-restart]", "[served-resume]"];
 const REPOSITORY = resolve(process.cwd(), "..");
@@ -11,6 +13,7 @@ const PYTHON = resolve(
   process.env.AGENT_TEST_PYTHON
     || resolve(REPOSITORY, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
 );
+const execFile = promisify(execFileCallback);
 let providerServer: Server;
 let providerBaseUrl = "";
 const providerCalls = new Map<string, number>();
@@ -22,6 +25,10 @@ async function fileExists(path: string) {
   } catch {
     return false;
   }
+}
+
+async function git(cwd: string, ...args: string[]) {
+  await execFile("git", args, { cwd, windowsHide: true });
 }
 
 async function waitForFile(path: string, timeoutMs = 5_000) {
@@ -198,6 +205,23 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   await writeFile(join(workspace, "README.md"), "# Cutover seed\n", "utf8");
   await mkdir(join(workspace, "src"), { recursive: true });
   await writeFile(join(workspace, "src", "app.py"), "def sample():\n    return 'needle'\n", "utf8");
+  await git(workspace, "init", "--quiet");
+  await git(workspace, "add", "README.md", "src/app.py");
+  await git(
+    workspace,
+    "-c",
+    "user.email=served@example.com",
+    "-c",
+    "user.name=Served Test",
+    "commit",
+    "--quiet",
+    "-m",
+    "seed",
+  );
+  await writeFile(join(workspace, "README.md"), "# Cutover staged\n", "utf8");
+  await git(workspace, "add", "README.md");
+  await writeFile(join(workspace, "README.md"), "# Cutover staged\nunstaged\n", "utf8");
+  await writeFile(join(workspace, "untracked ü space.txt"), "untracked\n", "utf8");
 
   const [root, preview, legacy] = await Promise.all([
     request.get("/"),
@@ -228,6 +252,14 @@ test("serves the tracked React workbench from the default entry", async ({ page,
 
   await page.getByRole("button", { name: "打开工作台", exact: true }).click();
   await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Git", exact: true }).click();
+  await page.getByRole("button", { name: "README.md staged unstaged", exact: true }).click();
+  await expect(page.locator(".git-diff")).toContainText("+unstaged");
+  await page.getByRole("button", { name: "Staged", exact: true }).click();
+  await expect(page.locator(".git-diff")).toContainText("+# Cutover staged");
+  await page.getByRole("button", { name: "untracked ü space.txt untracked", exact: true }).click();
+  await expect(page.getByText("Untracked 文件没有 Git diff；请到 Files 中查看内容。", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Files", exact: true }).click();
   const search = page.getByRole("searchbox", { name: "递归搜索工作区", exact: true });
