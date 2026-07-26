@@ -1,9 +1,0 @@
-provider = "deepseek"
-model = "deepseek-v4-flash"
-sandbox = "workspace-write"
-approval = "risky-confirm"
-dry_run = false
-web_search_enabled = true
-computer_read_enabled = true
-native_tools = true
-default_skills = ["code-dev"]
