@@ -1755,6 +1755,7 @@ def test_memory_reject_revise_delete_and_history_commands(tmp_path) -> None:
 
     assert revise_result.exit_code == 0
     revised_id = revise_result.output.split("revised:", 1)[1].strip().split()[0]
+    assert revise_result.output.splitlines() == [f"revised: {revised_id} supersedes: {original_id}"]
     list_result = runner.invoke(app, ["memory", "list", "--cwd", str(workspace)])
     assert revised_id in list_result.output
     assert original_id not in list_result.output
@@ -1768,6 +1769,7 @@ def test_memory_reject_revise_delete_and_history_commands(tmp_path) -> None:
     delete_result = runner.invoke(app, ["memory", "delete", revised_id, "--cwd", str(workspace)])
     assert delete_result.exit_code == 0
     assert f"deleted: {revised_id}" in delete_result.output
+    assert len(delete_result.output.splitlines()) == 1
     assert runner.invoke(app, ["memory", "list", "--cwd", str(workspace)]).output == ""
 
 

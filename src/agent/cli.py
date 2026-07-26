@@ -1074,7 +1074,7 @@ def memory_accept(
     except MemoryError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    console.print(f"accepted: {entry.entry_id}")
+    console.file.write(f"accepted: {entry.entry_id}\n")
 
 
 @memory_app.command("reject")
@@ -1088,7 +1088,7 @@ def memory_reject(
     except MemoryError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    console.print(f"rejected: {candidate.candidate_id}")
+    console.file.write(f"rejected: {candidate.candidate_id}\n")
 
 
 @memory_app.command("revise")
@@ -1103,7 +1103,7 @@ def memory_revise(
     except MemoryError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    console.print(f"revised: {entry.entry_id} supersedes: {entry.supersedes}")
+    console.file.write(f"revised: {entry.entry_id} supersedes: {entry.supersedes}\n")
 
 
 @memory_app.command("delete")
@@ -1117,7 +1117,7 @@ def memory_delete(
     except MemoryError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    console.print(f"deleted: {tombstone.supersedes} tombstone: {tombstone.entry_id}")
+    console.file.write(f"deleted: {tombstone.supersedes} tombstone: {tombstone.entry_id}\n")
 
 
 @memory_app.command("history")
@@ -1150,7 +1150,7 @@ def memory_undo(
     except MemoryError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
-    console.print(f"undone: {tombstone.supersedes}")
+    console.file.write(f"undone: {tombstone.supersedes}\n")
 
 
 def _make_llm(config):
