@@ -6,7 +6,7 @@
 - 上级方向：[Project vNext 总方向](project-vnext-direction.md)
 
 当前迁移状态：阶段 0–2、Default Entry Readiness、Cutover 与阶段 3I Legacy retirement 已完成；根 `/` 已指向 React Workbench，
-并与 `/preview/` 共用唯一运行时静态壳，旧静态壳和兼容入口已删除。阶段 3 是核心目标：最终缺陷清零仍未完成；
+并与 `/preview/` 共用唯一运行时静态壳，旧静态壳和兼容入口已删除。阶段 3 是核心目标，最终缺陷清零已完成；
 阶段 4–5 是需求触发项，不阻塞 Frontend vNext 核心完成。
 
 ## 一句话目标
@@ -146,6 +146,9 @@
 - 对话、生成、前端、后端/API、CLI、打包和真实浏览器路径均通过最终回归；
 - 旧静态壳已经删除，构建与测试路径只有一套。
 
+以上条件均已通过 [Project vNext 最终矩阵](verification/project-vnext-final-matrix.md)；
+Frontend vNext 阶段 0–3 核心范围现已完成。
+
 生态中心只有在现有 CLI 生命周期已不足以支撑日常管理时才触发阶段 4；安装包、自动更新、
 desktop shell 或 remote gateway 只有在出现非开发者安装、多机迁移或跨设备使用时才触发阶段 5。
 这两阶段未触发时不做占位页面、不加依赖，也不阻塞核心完成。
@@ -170,7 +173,7 @@ desktop shell 或 remote gateway 只有在出现非开发者安装、多机迁�
 
 阶段 0–2、默认入口 Cutover、3E Editor/Search、3F Git/Diff、3G Terminal、3H Command/Layout 与
 3I Legacy retirement 已完成，不再重复补脚手架、功能等价、编辑器、Git 只读视图、Terminal、命令布局或
-旧壳兼容层。当前只执行最终跨 Interface 回归与缺陷清零；阶段 4–5 继续留在需求池，直到对应触发条件成立。
+旧壳兼容层。最终跨 Interface 回归与缺陷清零也已完成；后续只在对应触发条件成立时启动阶段 4–5。
 
 ## 参考
 

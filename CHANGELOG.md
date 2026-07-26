@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Project vNext 阶段 0–3 核心目标完成：最终矩阵在修复 Python checkout/wheel 换行不确定性后整套复跑，源码与隔离 wheel 各 1165 个 Python 测试、前端类型/规范/构建/Vitest/Playwright/视觉/性能、源码与 wheel 实服、对话/生成、CLI、后端/API、真实 DeepSeek 和可见浏览器路径全部通过；阶段 4–5 继续仅按真实需求触发。
 - Phase 3E 编辑器与工作区搜索完成：桌面端懒加载 Monaco 单 editor/多 model，移动端使用共享状态的原生 textarea fallback；最多 20 个标签，保留独立 buffer/dirty/view state，关闭、离开与刷新均保护未保存内容。新增独立有界 `/api/search`，复用现有 search Tool、sandbox 与错误语义，支持文本/路径/glob/Unicode 并跳到命中行；保存继续只走显式确认和 snapshot。源码、wheel、detached、真实服务与可见浏览器复验通过，包体和依赖审计满足门槛。
 - Phase 3D 稳定 Eval 完成：4 个内置 FakeLLM case 复用真实 run loop，覆盖直接完成、读文件、错误恢复和审批拒绝；记录完成/错误/Tool/耗时指标，生成有界原子本地报告，并以稳定 CLI 退出码作为离线门禁。验收同时补齐 Automation/Eval 本地状态忽略规则，并修复 Windows 下拒绝 POST 时未消费有界 body 导致的 10053 连接中止；源码、D 盘全量、detached、wheel 与污染配置真实 CLI 复验通过。
 - Phase 3C 可审计 Automation 完成：新增显式前台固定间隔 worker、定义启停、latest-slot 幂等 claim、durable attempt/notification、取消与崩溃恢复；复用同一 Provider/MCP/run lifecycle、workspace lease 与安全链，且不提供自动审批。验收修复缺失 Skill 静默降级、超长异常卡住 running、summary 路径未绑定 run 和多行 CLI 审计四类问题；源码、detached 全量、wheel 与真实 CLI 通过。
@@ -9,7 +10,7 @@
 - Phase 3A 可恢复任务生命周期完成：CLI、HTTP/SSE 与 React 共用取消、整轮超时和单 workspace lease；job/event 持久化支持服务重启后的 `interrupted` 终态，异常回合用用户新消息安全 resume 且不重放旧 Tool；受控命令取消会终止父子进程树。源码、wheel、真实服务与可见浏览器验收均已通过。
 - Project vNext 完成定义已按个人生产工具与完整作品重新收口：阶段 0–3 是核心目标，阶段 4–5 改为需求触发项；最终门禁覆盖对话、生成、前端、后端/API、CLI、打包与真实浏览器，并要求修复后整套复跑。
 - 修复异步新会话首次详情读取竞态：`ChatRuntime.start()` 现在只对尚未持久化的 session 在发布 ID 前走既有原子保存路径，避免 React 紧接着读取 `/api/chats/<id>` 时因 `session.json` 尚未生成而短暂返回 500。
-- Frontend vNext 默认入口已切换。Phase 3I 旧壳退役也已完成：根 `/` 与 `/preview/` 复用受版本控制并随 Python wheel 发布的 React runtime；14 个旧静态文件、`/legacy/` 与只供旧壳使用的同步 `/api/chat/turn` 已删除，现行 async HTTP/SSE、安全与数据语义不变。Frontend Phase 3 仍需最终全链路缺陷清零后才算完成，Phase 4–5 为需求触发项。
+- Frontend vNext 默认入口已切换。Phase 3I 旧壳退役也已完成：根 `/` 与 `/preview/` 复用受版本控制并随 Python wheel 发布的 React runtime；14 个旧静态文件、`/legacy/` 与只供旧壳使用的同步 `/api/chat/turn` 已删除，现行 async HTTP/SSE、安全与数据语义不变。Frontend Phase 3 已通过最终全链路缺陷清零，Phase 4–5 为需求触发项。
 - Frontend vNext 阶段 2 核心功能等价：`/preview/` React 工作台从单页聊天扩展为真实工作台，覆盖 Files（浏览、预览、截断只读、snapshot-backed 编辑保存）、Runs（列表过滤、Review/Workflow/Failure/Patch Review/Recovery/Replay 只读详情、diff、二次确认恢复）、System（readiness、workspace risk、memory review 只读，config 白名单受控写，Tool 目录，资源详情跨视图跳转），并加入 10 秒安全刷新与 dirty 编辑保护。后端 HTTP/SSE schema、sandbox、snapshot、run store、config write 零改动；根 `/` 仍是旧静态 Workbench，不切换默认入口、不删除旧资源。不含 Monaco、真实 terminal、递归搜索、Git 工作区与生态管理生命周期。
 
 - Frontend vNext 阶段 1：新增 `/preview/` React/Vite App Shell 与真实 Chat 纵切，覆盖三主题深浅模式、REST/SSE Adapter、工具与审批状态、历史重建、响应式会话轨道、单层状态 Canvas、reduced-motion 和 Lucide-only 门禁；静态服务安全解析目录 index、对可压缩资源协商 gzip，CSP 仅对 style 放宽 inline 支持并继续严格禁止 inline script。旧 `/` Workbench 与 HTTP/SSE Interface 不变。

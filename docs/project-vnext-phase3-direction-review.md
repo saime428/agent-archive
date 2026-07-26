@@ -1,7 +1,7 @@
 # Project vNext Phase 3 方向分析与审查
 
 - 日期：2026-07-25
-- 状态：3A Lifecycle 至 3I Legacy retirement 已完成；下一步为最终全链路缺陷清零
+- 状态：3A Lifecycle 至 3I Legacy retirement 与最终全链路缺陷清零均已完成
 - 上位方向：[Project vNext 总方向](project-vnext-direction.md)
 - 前端子方向：[Frontend vNext 总方向](frontend-vnext-direction.md)
 
@@ -26,22 +26,23 @@ Phase 3 不做一次性大改，固定按以下依赖推进：
 每一项依次经过 spec 审查、implementation plan 审查、实现、五轴审查和真实路径验收；后端
 Interface 不存在时先完成后端切片，前端不先造假入口。
 
-当前进度：3A Lifecycle 至 3I Legacy retirement 已完成并通过独立验收；最终全链路缺陷清零仍未完成。
+当前进度：3A Lifecycle 至 3I Legacy retirement 已完成并通过独立验收；最终全链路缺陷清零也已完成，
+Project vNext 阶段 0–3 核心范围现已闭环。
 
 ## 当前事实与真实缺口
 
-| 领域 | 当前已有 | Phase 3 仍缺 |
+| 领域 | 当前验收结果 | Phase 3 仍缺 |
 | --- | --- | --- |
-| Chat job | Web job 有递增 sequence、SSE poll、approval 5 分钟超时和同 session 并发拒绝 | 用户取消、整轮超时、durable job/event、服务重启后的终态、中断后安全续接、workspace 占用语义 |
-| Run loop | 单一权威 loop、Tool 事件、最终 run 日志、Tool 自身超时 | 统一 stop 原因、取消检查、取消/超时终态与摘要；不能靠 UI 丢弃事件冒充取消 |
-| Conversation | CLI `--resume` 与 Web session history 可续聊 | interrupted/cancelled/timed-out turn 必须写入历史；续接不得自动重放可能已有副作用的 Tool |
+| Chat job | 3A 已完成用户取消、整轮超时、durable job/event、服务重启终态、安全续接与单 workspace 占用 | 无 |
+| Run loop | 单一权威 loop 已统一 stop 原因、取消检查、取消/超时终态、摘要与受控子进程树停止 | 无 |
+| Conversation | CLI `--resume` 与 Web history 均保留 interrupted/cancelled/timed-out turn；续接使用用户新消息且不重放旧 Tool | 无 |
 | Memory | candidate accept/reject、并发单终态、可审计 revise/delete 链、current-leaf list/retrieve、source run | 无；3B 已完成，后续切片不扩张 Memory 写界面 |
 | Automation | 显式前台 worker、固定间隔定义/启停、幂等 slot claim、同 runtime 执行、取消/恢复与异常通知 | 无；3C 已完成，系统服务、cron、retry 与高风险自动审批仍明确不做 |
 | Eval | 4 个内置 FakeLLM case、真实 run loop、完成/错误/Tool/耗时指标、原子本地 report 与稳定 CLI 退出码 | 无；3D 已完成，真实 Provider 只保留为最终可选 smoke，不作为硬门禁 |
 | Files | React 文件树、Monaco 多标签、移动 textarea、独立 dirty buffer、递归搜索/行跳转、snapshot 保存 | 无；3E 已完成，后续切片不扩张文件写 Interface |
 | Git | Agent Tool 与 Workbench 都有只读 status/diff；3F 已完成仓库根、sandbox、上限、错误态与 staged/unstaged/untracked 闭环 | 无；后续切片不扩张为 commit、push 或 stage UI |
 | Terminal | 3G 已完成显式启用、结构化 argv、cursor 输出、line-mode stdin、stop/timeout/close、进程树清理与刷新恢复 | 无；后续切片不扩张为 PTY、shell、后台或多会话 Terminal |
-| Product shell | React 是根与 `/preview/` 的唯一运行时静态壳；3H 命令布局与 3I 旧壳退役均已完成 | 无；只剩跨 Interface 最终回归，不扩张产品壳 |
+| Product shell | React 是根与 `/preview/` 的唯一运行时静态壳；3H 命令布局、3I 旧壳退役与最终跨 Interface 回归均已完成 | 无 |
 
 ## 固定语义
 
@@ -93,6 +94,7 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 | 3G Terminal | start → output cursor → input → stop/timeout → 进程树与临时状态清理；刷新可恢复终态 |
 | 3H Command/Layout | 键盘打开命令 → 执行真实动作；刷新后布局恢复，窄屏与 focus 正常 |
 | 3I Legacy retirement | 稳定回归通过后删除旧壳、`/legacy/` 与双前端测试；wheel/源码/文档一致 |
+| Final matrix | 对话、生成、前端、后端/API、CLI、package 与真实浏览器整套通过；发现的可复现缺陷修复后全量复跑 |
 
 ## 风险与停止条件
 
@@ -112,4 +114,5 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 5. 性能：个人工具默认单 workspace slot；event 采用 append/cursor，搜索和输出必须有界。
 
 审查结论：通过，无未解决 finding。3A Lifecycle 至 3I Legacy retirement 已按各自独立设计和验收记录
-完成；下一步仅进入最终对话、生成、前端、后端/API、CLI、package、真实浏览器与缺陷清零矩阵。
+完成；最终对话、生成、前端、后端/API、CLI、package、真实浏览器与缺陷清零矩阵也已整套通过。
+Project vNext 阶段 0–3 核心范围完成，阶段 4–5 继续按需求触发。

@@ -24,10 +24,10 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
-| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A–3I 已完成；只剩最终全量缺陷清零 |
+| Project vNext core (Phase 0–3) | 100% | Complete: Phase 0–3 与修复后最终全量矩阵均已完成；Phase 4–5 不计入当前完成定义 |
 
-These percentages are product estimates for the legacy local-baseline roadmap,
-not a claim that the full Project vNext ecosystem is complete.
+These percentages are product estimates for the current personal-product scope,
+not a claim that demand-triggered Phase 4–5 ecosystem work has started.
 
 ## Project vNext Extension Track
 
@@ -47,7 +47,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Phase 3G: Terminal | Complete | Explicit enablement, shared command/path policy, structured argv, cursor output, line-mode stdin, tree stop/timeout/close, React/source/wheel/browser evidence are complete |
 | Phase 3H: Command/Layout | Complete | Nine existing actions, Ctrl/Cmd+K, bounded non-sensitive layout persistence, dirty/modal/focus safeguards, React/source/wheel/browser evidence are complete |
 | Phase 3I: Legacy retirement | Complete | Fourteen old static files, `/legacy/`, the synchronous chat shim and dead helpers are gone; React/source/wheel/served/browser evidence is consistent |
-| Project vNext core (Phase 0–3) | In progress | Phase 3A–3I are complete; only the final conversation/generation/frontend/backend/CLI/package/browser bug pass remains |
+| Final cross-interface matrix | Complete | Conversation, generation, frontend, backend/API, CLI, package, real Provider and visible-browser paths passed after defect repair and full rerun |
+| Project vNext core (Phase 0–3) | Complete | All current completion criteria are evidenced in `docs/verification/project-vnext-final-matrix.md` |
 | Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones
@@ -71,6 +72,7 @@ not a claim that the full Project vNext ecosystem is complete.
 | Frontend vNext Phase 2 | Workspace functional parity | Files, Runs, System diagnostics, bounded config writes, snapshot review/restore confirmation, and deterministic responsive visual coverage |
 | Frontend vNext Cutover | Default React entry | Root React Workbench with `/preview/` compatibility and `/legacy/` rollback |
 | Frontend vNext Phase 3I | Single React runtime | Old static shell, `/legacy/`, synchronous chat compatibility and dual-frontend tests retired after independent source/wheel/browser acceptance |
+| Project vNext Phase 0–3 | Personal production tool core | Recoverable runtime, managed extensions, Memory, Automation, eval, coding workspace and single React runtime passed the final cross-interface matrix |
 
 ## Active v0.6 Plan
 
@@ -358,13 +360,14 @@ and implemented by
 Root `/` now serves React and `/preview/` remains compatible. Phase 3I subsequently
 passed separate stability evidence and review, then removed `/legacy/`, the old shell
 and its synchronous chat compatibility route.
-The final cross-Interface defect pass remains the required next track. Marketplace,
-registry, remote sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
+The final cross-Interface defect pass is complete. Marketplace, registry, remote
+sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
 
 Completed slices: Phase 3A recoverable task lifecycle, 3B auditable Memory,
 3C auditable Automation, 3D stable Eval, 3E Editor/Search, 3F Git/Diff, 3G Terminal,
-3H Command/Layout, and 3I Legacy retirement. The next required step is the final
-cross-Interface defect pass; this does not yet declare Project vNext core complete.
+3H Command/Layout, and 3I Legacy retirement. The final cross-Interface defect pass
+also completed after fixing deterministic Python wheel checkout semantics; Project
+vNext Phase 0–3 core is complete. Further product work is demand-triggered.
 
 ## Guardrails
 

@@ -372,7 +372,7 @@ def test_stdio_mcp_docs_record_config_security_scope_and_acceptance() -> None:
     assert "MCP 后端切片已完成" in direction
     assert "尚无 MCP runtime" not in direction
     assert "Project vNext Extension Track" in roadmap
-    assert "Project vNext core (Phase 0–3) | In progress" in roadmap
+    assert "Project vNext core (Phase 0–3) | Complete" in roadmap
     assert "Phase 4–5 demand-triggered pool | Not started by design" in roadmap
     assert "状态：已实施（自动门禁与真实本地验收通过）" in spec
     assert "实施与验收证据（2026-07-18）" in spec
@@ -784,7 +784,7 @@ def test_managed_extension_lifecycle_docs_record_commands_scope_and_status() -> 
     assert "Phase 2 slice 1: managed MCP and Skills lifecycle | Complete" in roadmap
     assert "Frontend vNext Phase 2: Core functional parity | Complete" in roadmap
     assert "Frontend vNext Default Entry Cutover | Complete" in roadmap
-    assert "Project vNext core (Phase 0–3) | In progress" in roadmap
+    assert "Project vNext core (Phase 0–3) | Complete" in roadmap
     assert "Phase 4–5 demand-triggered pool | Not started by design" in roadmap
     assert "Completed slice: Project vNext Phase 2 managed MCP and Skills lifecycle, then" in roadmap
     assert "Completed slice: Frontend vNext Phase 1 App Shell and Chat vertical slice" in roadmap
@@ -1199,5 +1199,18 @@ def test_phase3_local_runtime_state_is_gitignored() -> None:
 
 def test_python_wheel_sources_have_stable_lf_checkout_contract() -> None:
     attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
+    direction = (ROOT / "docs" / "project-vnext-direction.md").read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "project-vnext-final-matrix.md"
 
     assert "*.py text eol=lf" in attributes
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "状态：Project vNext 核心完成" in verification
+    assert "1165 passed" in verification
+    assert "d60c97c66f31bab08bb4f1f868b1f4c2793c9c47e52d3cfabb58d9e1d1adaa34" in verification
+    assert "阶段 0–3 核心目标完成" in changelog
+    assert "| Project vNext core (Phase 0–3) | Complete |" in roadmap
+    assert "Project vNext 核心现已完成" in direction

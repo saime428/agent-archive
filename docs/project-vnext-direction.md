@@ -28,10 +28,10 @@
 | Tools 与安全 | Filesystem、Shell、Git、Web、Documents 与 stdio MCP；统一 catalog、schema 校验、sandbox、approval、redaction、snapshot、durable logs | 后续扩展仍必须无例外地接入同一安全链与 trace |
 | 扩展底座 | stdio MCP 动态 Tool 与 managed 配置/启停/live doctor、Skills 三来源与用户级 install/update/package/remove、共享用户存储事务层、Memory、Hooks、Tool catalog | 仍缺自动重连、远程来源、registry 与 Workbench 写接口 |
 | 产品入口 | CLI、React Workbench、HTTP JSON/SSE、会话与运行记录；Frontend vNext Phase 1/2、Default Entry Cutover 与 Phase 3E–3I 已完成，旧静态壳已退役 | 核心产品壳无建设缺口；统一生态管理入口属于需求触发项 |
-| 质量与运维 | pytest、doctor、release doctor、稳定 eval、真实 Provider/Workbench 验收经验 | 仍需最终跨 Interface 缺陷清零；CI 发布与安装包闭环属于需求触发项 |
+| 质量与运维 | pytest、doctor、release doctor、稳定 eval、真实 Provider/Workbench 验收与最终跨 Interface 缺陷清零 | 当前核心范围无遗留质量缺口；CI 发布与安装包闭环属于需求触发项 |
 | 分发与远程 | 本地源码/包运行、`agent start` | 签名安装包、自动更新、Gateway、远程身份与社区 registry 均为需求触发项 |
 
-结论：阶段 3 的建设切片已闭环，接下来只执行最终全链路缺陷清零；不应重新造一个 Agent runtime，也不应让商业化分发或社区能力阻塞核心完成。
+结论：阶段 0–3 的建设切片和最终全链路缺陷清零均已闭环，Project vNext 作为个人生产工具与完整作品的当前核心目标已完成；不应重新造一个 Agent runtime，也不应让商业化分发或社区能力阻塞核心完成。
 
 ## 能力闭环地图
 
@@ -154,8 +154,9 @@
    显式前台 worker，不开放无人值守高风险审批。
 4. 3I Legacy retirement 已完成，React 是根与 `/preview/` 的唯一运行时静态壳；不再保留双前端或
    同步 chat shim。
-5. 当前运行最终测试矩阵，覆盖对话、生成、前端、后端/API、CLI、
-   打包和真实浏览器；修复全部可复现缺陷并整套复跑后，才允许宣告 Project vNext 核心完成。
+5. 最终测试矩阵已完成，覆盖对话、生成、前端、后端/API、CLI、
+   打包和真实浏览器；已修复发现的全部可复现缺陷并整套复跑，证据见
+   [Project vNext 最终矩阵](verification/project-vnext-final-matrix.md)。Project vNext 核心现已完成。
 6. 阶段 4 只有在出现非开发者安装、多机迁移、签名发布、自动升级或统一生态管理的
    真实需求时启动；届时 UI 仍不得先于后端生命周期闭环。
 7. 阶段 5 只有在出现跨设备远程使用或第三方扩展发布需求时启动。Gateway 只做认证与
@@ -187,6 +188,9 @@
 - 对话、生成、前端、后端/API、CLI、打包和真实浏览器测试全部通过，全部可复现缺陷已修复，
   并在修复后完成整套复跑；
 - 旧静态壳退役，当前源码、构建产物、wheel、文档与 Git 提交证据一致。
+
+以上条件均已满足；当前完成状态和逐项证据记录在
+[Project vNext 最终矩阵](verification/project-vnext-final-matrix.md)。
 
 阶段 4–5 是需求触发项。未出现明确的非开发者分发、跨设备远程或第三方社区需求时，
 它们不进入当前完成定义；触发后必须另写 spec 和计划，并重新执行相应安全与发布门禁。
