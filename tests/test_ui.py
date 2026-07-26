@@ -392,6 +392,7 @@ def test_build_health_payload_includes_read_only_memory_review(tmp_path: Path) -
     pending = store.add_candidate(source_run_id="run_1", source_excerpt="Remember pytest workflow.")
     accepted = store.add_candidate(source_run_id="run_2", source_excerpt="Remember review workflow.")
     entry = store.accept_candidate(accepted.candidate_id)
+    revised = store.revise_entry(entry.entry_id, "Remember current review workflow.")
 
     payload = build_health_payload(workspace)
 
@@ -399,7 +400,7 @@ def test_build_health_payload_includes_read_only_memory_review(tmp_path: Path) -
     assert payload["memory_review"]["pending_count"] == 1
     assert payload["memory_review"]["active_count"] == 1
     assert payload["memory_review"]["candidates"][0]["candidate_id"] == pending.candidate_id
-    assert payload["memory_review"]["entries"][0]["entry_id"] == entry.entry_id
+    assert payload["memory_review"]["entries"][0]["entry_id"] == revised.entry_id
     assert "Review pending memory candidates" in payload["memory_review"]["checks"]
 
 

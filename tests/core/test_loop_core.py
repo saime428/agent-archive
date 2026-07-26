@@ -2550,19 +2550,21 @@ def test_run_once_skips_memory_candidate_when_auto_write_disabled(tmp_path) -> N
     assert not (tmp_path / ".agent" / "memory" / "candidates.jsonl").exists()
 
 
-def test_run_once_adds_accepted_memory_context(tmp_path) -> None:
+def test_run_once_adds_only_current_memory_context(tmp_path) -> None:
     from agent.core.memory import MemoryStore
 
     store = MemoryStore(tmp_path)
     candidate = store.add_candidate(source_run_id="run_old", source_excerpt="parser tests use pytest")
-    store.accept_candidate(candidate.candidate_id)
+    entry = store.accept_candidate(candidate.candidate_id)
+    store.revise_entry(entry.entry_id, "parser tests use tomllib")
     llm = SpyLLM()
 
     result = run_once("parser tests", llm, cwd=tmp_path, run_id="run_memory_context")
 
     assert llm.messages is not None
     assert any("Relevant memory" in message["content"] for message in llm.messages)
-    assert any("parser tests use pytest" in message["content"] for message in llm.messages)
+    assert any("parser tests use tomllib" in message["content"] for message in llm.messages)
+    assert all("parser tests use pytest" not in message["content"] for message in llm.messages)
     assert result.observation.status == "ok"
 
 
