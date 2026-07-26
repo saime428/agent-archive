@@ -24,7 +24,7 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
-| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover、Phase 3A Lifecycle 与 3B Memory 已完成；Phase 3C–3I 和最终全量缺陷清零仍未完成 |
+| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover、Phase 3A Lifecycle、3B Memory 与 3C Automation 已完成；Phase 3D–3I 和最终全量缺陷清零仍未完成 |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -40,7 +40,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Frontend vNext Default Entry Cutover | Complete | Root `/` serves React; `/preview/` remains compatible and `/legacy/` remains the old Workbench rollback entry |
 | Phase 3A: recoverable task lifecycle | Complete | CLI/HTTP/React share cancel, timeout, workspace lease, durable terminal, restart recovery and safe new-message resume; full source/wheel/browser evidence is recorded |
 | Phase 3B: auditable Memory lifecycle | Complete | Candidate accept/reject is single-terminal; revise/delete/history preserve provenance; list/retrieve/Workbench expose only current active leaves; source/wheel/real-CLI evidence is recorded |
-| Project vNext core (Phase 0–3) | In progress | Phase 3A–3B are complete; Phase 3C–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
+| Phase 3C: auditable Automation | Complete | Foreground fixed-interval worker, idempotent slot claims, shared runtime/safety chain, durable attempts/notifications, cancel/recovery and source/wheel/real-CLI evidence are complete |
+| Project vNext core (Phase 0–3) | In progress | Phase 3A–3C are complete; Phase 3D–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
 | Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones
@@ -353,8 +354,9 @@ evidence and review.
 Phase 3 productivity remains the required next track. Marketplace, registry, remote
 sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
 
-Completed slice: Phase 3A recoverable task lifecycle. The next required slice is
-3B Memory; this does not declare Phase 3 or Project vNext core complete.
+Completed slices: Phase 3A recoverable task lifecycle, 3B auditable Memory and
+3C auditable Automation. The next required slice is 3D Eval; this does not
+declare Phase 3 or Project vNext core complete.
 
 ## Guardrails
 

@@ -149,9 +149,9 @@
    Readiness 均不再列为待实现项。
 2. Frontend Default Entry Cutover（已完成）：根 `/` 使用 React，`/preview/` 保持兼容，
    `/legacy/` 保留旧 Workbench 回滚入口；旧壳删除必须等待稳定期证据并另行审查。
-3. 阶段 3 主线先收口可恢复任务生命周期：取消、超时、恢复、并发占用和 Run Event
-   契约；随后完善 Memory 修订/删除/来源、Automation 幂等/通知和稳定 eval。没有可取消、
-   可审计的任务生命周期前，不开放无人值守高风险自动化。
+3. 阶段 3 的可恢复任务生命周期、Memory 修订/删除/来源与 Automation 幂等/通知已分别完成并
+   通过独立验收；下一切片为稳定 eval。Automation 继续只允许显式前台 worker，不开放无人值守
+   高风险审批。
 4. Frontend Phase 3 按独立纵切推进：编辑器与搜索、Git/diff、真实 Terminal 与进程管理、
    命令面板和布局持久化。每个纵切只消费已经存在且有契约的后端 Interface；缺少后端
    语义时先写独立后端 spec。

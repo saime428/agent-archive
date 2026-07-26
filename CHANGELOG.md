@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Phase 3C 可审计 Automation 完成：新增显式前台固定间隔 worker、定义启停、latest-slot 幂等 claim、durable attempt/notification、取消与崩溃恢复；复用同一 Provider/MCP/run lifecycle、workspace lease 与安全链，且不提供自动审批。验收修复缺失 Skill 静默降级、超长异常卡住 running、summary 路径未绑定 run 和多行 CLI 审计四类问题；源码、detached 全量、wheel 与真实 CLI 通过。
 - Phase 3B 可审计 Memory 生命周期完成：保留旧 JSONL，复用共享文件锁与原子发布；candidate accept/reject 只有一个终态，entry revise/delete/history 保留来源与修订链，模型检索和 Workbench 只读取当前 active 叶节点。新增真实 CLI 命令并修复长 UUID 状态行被 Rich 自动折行；源码、wheel 与真实命令验收通过。
 - Phase 3A 可恢复任务生命周期完成：CLI、HTTP/SSE 与 React 共用取消、整轮超时和单 workspace lease；job/event 持久化支持服务重启后的 `interrupted` 终态，异常回合用用户新消息安全 resume 且不重放旧 Tool；受控命令取消会终止父子进程树。源码、wheel、真实服务与可见浏览器验收均已通过。
 - Project vNext 完成定义已按个人生产工具与完整作品重新收口：阶段 0–3 是核心目标，阶段 4–5 改为需求触发项；最终门禁覆盖对话、生成、前端、后端/API、CLI、打包与真实浏览器，并要求修复后整套复跑。
