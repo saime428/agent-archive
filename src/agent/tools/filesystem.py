@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +22,9 @@ DEFAULT_MAX_LINES = ContextBudget().file_read_max_lines
 DEFAULT_MAX_CHARS = ContextBudget().file_read_max_chars
 DEFAULT_MAX_MATCHES = ContextBudget().search_max_matches
 MAX_EXCERPT_CHARS = ContextBudget().search_excerpt_chars
-SKIP_DIR_NAMES = {".git", "__pycache__", ".pytest_cache"}
+MAX_SEARCH_FILE_BYTES = 1_048_576
+MAX_SEARCH_FILES = 10_000
+SKIP_DIR_NAMES = {".git", ".pytest_cache", ".venv", "__pycache__", "build", "dist", "node_modules"}
 
 
 @dataclass(frozen=True)
@@ -366,19 +369,36 @@ def _search_files(
     glob_mode = _is_glob_query(query)
     matches: list[dict] = []
     total_matches = 0
+    scanned_files = 0
+    skipped_files = 0
+    scan_truncated = False
 
-    paths = [root] if root.is_file() else sorted(root.rglob("*"), key=lambda item: str(item).lower())
-    for candidate in paths:
-        if _should_skip_path(candidate, sandbox.root):
+    for candidate in _iter_search_files(root, sandbox.root):
+        if scanned_files >= MAX_SEARCH_FILES:
+            scan_truncated = True
+            break
+        try:
+            candidate = sandbox.resolve_read_path(str(candidate))
+            size = candidate.stat().st_size
+        except (OSError, SandboxError):
+            skipped_files += 1
             continue
-        if candidate.is_dir():
+        if not candidate.is_file():
+            skipped_files += 1
             continue
-        relative_path = candidate.relative_to(sandbox.root).as_posix()
-        candidate_matches = (
-            _path_matches(relative_path, query)
-            if glob_mode
-            else _path_and_text_matches(candidate, relative_path, query, context.budget)
-        )
+        scanned_files += 1
+        relative_path = _display_path(candidate, sandbox.root)
+        try:
+            if glob_mode:
+                candidate_matches = _path_matches(relative_path, query)
+            elif size > MAX_SEARCH_FILE_BYTES:
+                skipped_files += 1
+                candidate_matches = _path_text_matches(relative_path, query)
+            else:
+                candidate_matches = _path_and_text_matches(candidate, relative_path, query, context.budget)
+        except OSError:
+            skipped_files += 1
+            continue
         for match in candidate_matches:
             total_matches += 1
             if len(matches) < max_matches:
@@ -389,7 +409,10 @@ def _search_files(
         "path": str(root),
         "matches": matches,
         "total_matches": total_matches,
-        "truncated": total_matches > len(matches),
+        "truncated": total_matches > len(matches) or scan_truncated,
+        "scan_truncated": scan_truncated,
+        "scanned_files": scanned_files,
+        "skipped_files": skipped_files,
     }
     return make_observation(
         action,
@@ -416,10 +439,8 @@ def _path_and_text_matches(
     query: str,
     budget: ContextBudget,
 ) -> list[dict]:
+    matches = _path_text_matches(relative_path, query)
     query_lower = query.lower()
-    matches: list[dict] = []
-    if query_lower in relative_path.lower():
-        matches.append({"path": relative_path, "kind": "path", "line": None, "excerpt": None})
 
     raw = candidate.read_bytes()
     if _looks_binary(raw):
@@ -439,11 +460,41 @@ def _path_and_text_matches(
     return matches
 
 
-def _should_skip_path(candidate: Path, workspace_root: Path) -> bool:
+def _path_text_matches(relative_path: str, query: str) -> list[dict]:
+    if query.lower() in relative_path.lower():
+        return [{"path": relative_path, "kind": "path", "line": None, "excerpt": None}]
+    return []
+
+
+def _iter_search_files(root: Path, workspace_root: Path):
+    if root.is_file():
+        yield root
+        return
+    for current, dir_names, file_names in os.walk(root, topdown=True, followlinks=False):
+        current_path = Path(current)
+        dir_names[:] = sorted(
+            (
+                name
+                for name in dir_names
+                if not (current_path / name).is_symlink()
+                and not _should_skip_path(current_path / name, workspace_root, root)
+            ),
+            key=str.lower,
+        )
+        for name in sorted(file_names, key=str.lower):
+            candidate = current_path / name
+            if not _should_skip_path(candidate, workspace_root, root):
+                yield candidate
+
+
+def _should_skip_path(candidate: Path, workspace_root: Path, search_root: Path) -> bool:
     try:
         relative_parts = candidate.relative_to(workspace_root).parts
     except ValueError:
-        return True
+        try:
+            relative_parts = candidate.relative_to(search_root).parts
+        except ValueError:
+            return True
     if len(relative_parts) >= 2 and relative_parts[0] == ".agent" and relative_parts[1] == "runs":
         return True
     return any(part in SKIP_DIR_NAMES for part in relative_parts)

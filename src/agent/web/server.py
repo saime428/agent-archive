@@ -32,6 +32,7 @@ from agent.web.files import (
     build_files_payload,
     build_restore_snapshot_payload,
     build_save_file_payload,
+    build_search_payload,
 )
 from agent.web.runs import (
     build_run_detail_payload as _build_run_detail_payload,
@@ -143,6 +144,9 @@ def create_workbench_handler(
                     return
                 if path == "/api/files":
                     self._send_json(build_files_payload(root, _query_value(parsed.query, "path")))
+                    return
+                if path == "/api/search":
+                    self._send_json(build_search_payload(root, _query_value(parsed.query, "query")))
                     return
                 if path == "/api/file":
                     self._send_json(build_file_payload(root, _query_value(parsed.query, "path")))

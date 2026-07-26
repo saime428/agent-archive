@@ -87,6 +87,24 @@ export interface FilePayload {
   size: number;
 }
 
+export interface SearchMatch {
+  path: string;
+  kind: "path" | "text";
+  line: number | null;
+  excerpt: string | null;
+}
+
+export interface SearchPayload {
+  query: string;
+  path: string;
+  matches: SearchMatch[];
+  total_matches: number;
+  truncated: boolean;
+  scan_truncated: boolean;
+  scanned_files: number;
+  skipped_files: number;
+}
+
 export interface SaveFilePayload {
   status: "ok";
   run_id: string;

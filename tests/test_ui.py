@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import agent.tools.filesystem as filesystem_tools
 from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
@@ -21,6 +22,7 @@ from agent.web.files import (
     build_files_payload,
     build_restore_snapshot_payload,
     build_save_file_payload,
+    build_search_payload,
 )
 from agent.web.runs import build_run_detail_payload, build_runs_payload
 from agent.web.server import static_file_path
@@ -744,6 +746,73 @@ def test_build_file_payload_rejects_binary_file(tmp_path: Path) -> None:
         assert "Binary file preview is not supported" in str(exc)
     else:
         raise AssertionError("binary previews should fail")
+
+
+def test_build_search_payload_reuses_bounded_workspace_search(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "src").mkdir(parents=True)
+    (workspace / "src" / "app.py").write_text("first\nNeedle 中文\n", encoding="utf-8")
+    (workspace / "notes.md").write_text("needle notes\n", encoding="utf-8")
+    (workspace / "node_modules" / "pkg").mkdir(parents=True)
+    (workspace / "node_modules" / "pkg" / "hidden.js").write_text("needle\n", encoding="utf-8")
+
+    payload = build_search_payload(workspace, "needle")
+
+    assert payload["query"] == "needle"
+    assert payload["path"] == "."
+    assert [(item["path"], item["line"]) for item in payload["matches"]] == [
+        ("notes.md", 1),
+        ("src/app.py", 2),
+    ]
+    assert payload["total_matches"] == 2
+    assert payload["truncated"] is False
+    assert payload["scan_truncated"] is False
+    assert payload["scanned_files"] == 2
+
+    glob_payload = build_search_payload(workspace, "*.py")
+    assert glob_payload["matches"] == [
+        {"path": "src/app.py", "kind": "path", "line": None, "excerpt": None}
+    ]
+
+
+def test_build_search_payload_bounds_query_scan_and_file_reads(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "a.txt").write_text("needle\n", encoding="utf-8")
+    (workspace / "b.txt").write_text("needle after limit\n", encoding="utf-8")
+    (workspace / "large.txt").write_text("prefix needle\n", encoding="utf-8")
+    monkeypatch.setattr(filesystem_tools, "MAX_SEARCH_FILES", 2)
+    monkeypatch.setattr(filesystem_tools, "MAX_SEARCH_FILE_BYTES", 8)
+
+    payload = build_search_payload(workspace, "needle")
+
+    assert payload["scan_truncated"] is True
+    assert payload["truncated"] is True
+    assert payload["scanned_files"] == 2
+    assert payload["matches"] == [
+        {"path": "a.txt", "kind": "text", "line": 1, "excerpt": "needle"}
+    ]
+    assert payload["skipped_files"] == 1
+
+    for query in ("", "   ", "x" * 201):
+        with pytest.raises(ValueError):
+            build_search_payload(workspace, query)
+
+
+def test_build_search_payload_skips_symlink_escape(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("needle secret\n", encoding="utf-8")
+    try:
+        (workspace / "linked.txt").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation is unavailable")
+
+    payload = build_search_payload(workspace, "needle")
+
+    assert payload["matches"] == []
+    assert payload["skipped_files"] == 1
 
 
 def test_build_save_file_payload_writes_text_and_records_snapshot(tmp_path: Path) -> None:

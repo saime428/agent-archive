@@ -323,6 +323,34 @@ def test_search_files_skips_internal_run_state(tmp_path) -> None:
     assert [match["path"] for match in observation.data["matches"]] == ["visible.txt"]
 
 
+def test_search_files_prunes_dependency_and_virtualenv_directories(tmp_path) -> None:
+    for directory in ("node_modules", ".venv", "dist", "build"):
+        hidden = tmp_path / directory / "nested" / "hidden.txt"
+        hidden.parent.mkdir(parents=True)
+        hidden.write_text("needle\n", encoding="utf-8")
+    (tmp_path / "visible.txt").write_text("needle\n", encoding="utf-8")
+    context = RunContext.create("search", cwd=tmp_path, run_id="run_tools")
+    action = parse_model_action(
+        {
+            "message": "Search.",
+            "action": {
+                "name": "search_files",
+                "args": {"query": "needle", "path": ".", "max_matches": None},
+            },
+        },
+        run_id=context.run_id,
+        action_index=1,
+        created_at=context.created_at,
+    )
+
+    observation = execute_tool(action, context, WorkspaceSandbox(tmp_path), observation_index=1)
+
+    assert observation.status == "ok"
+    assert observation.data is not None
+    assert [match["path"] for match in observation.data["matches"]] == ["visible.txt"]
+    assert observation.data["scanned_files"] == 1
+
+
 def test_search_files_returns_sandbox_error_for_path_escape(tmp_path) -> None:
     context = RunContext.create("search", cwd=tmp_path, run_id="run_tools")
     action = parse_model_action(

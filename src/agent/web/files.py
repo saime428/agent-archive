@@ -13,7 +13,7 @@ from agent.core.budget import ContextBudget, truncate_text
 from agent.core.context import RunContext
 from agent.core.redaction import redact_record, redact_value
 from agent.policy.sandbox import SandboxError, WorkspaceSandbox
-from agent.tools.filesystem import create_snapshot
+from agent.tools.filesystem import create_snapshot, execute_tool
 
 
 def _read_sandbox(root: Path) -> WorkspaceSandbox:
@@ -73,6 +73,35 @@ def build_file_payload(workspace: Path, path: str | None, *, max_chars: int | No
         "truncated": truncated.truncated,
         "size": file_path.stat().st_size,
     }
+
+
+def build_search_payload(workspace: Path, query: str | None) -> dict[str, Any]:
+    normalized = query.strip() if isinstance(query, str) else ""
+    if not normalized:
+        raise ValueError("query is required.")
+    if len(normalized) > 200:
+        raise ValueError("query must be at most 200 characters.")
+
+    root = workspace.resolve()
+    context = RunContext.create("Workbench workspace search", cwd=root)
+    action = InternalAction(
+        run_id=context.run_id,
+        action_id="act_000001",
+        created_at=context.created_at,
+        message="Workbench workspace search.",
+        action=ActionCall(
+            name="search_files",
+            args={"query": normalized, "path": ".", "max_matches": None},
+        ),
+    )
+    observation = execute_tool(action, context, WorkspaceSandbox(root), observation_index=1)
+    if observation.status != "ok" or observation.data is None:
+        if observation.error is None:
+            raise ValueError("Workspace search failed.")
+        raise ValueError(f"{observation.error.code.value}: {observation.error.message}")
+    payload = dict(observation.data)
+    payload["path"] = _display_path(Path(str(payload["path"])), root)
+    return payload
 
 
 def build_save_file_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:

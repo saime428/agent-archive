@@ -71,6 +71,15 @@ describe("createApiClient", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/files", expect.anything());
   });
 
+  it("encodes recursive workspace search queries with percent escapes", async () => {
+    const fetcher = vi.fn(async () => new Response('{"query":"中文 *.py","path":".","matches":[]}'));
+    const client = createApiClient(fetcher as typeof fetch);
+
+    await client.searchFiles("中文 *.py");
+
+    expect(fetcher).toHaveBeenCalledWith(`/api/search?query=${encodeURIComponent("中文 *.py")}`, expect.anything());
+  });
+
   it("sends diff with path and snapshot query params", async () => {
     const fetcher = vi.fn(
       async () => new Response('{"path":"a.txt","snapshot_path":"s","diff":"","truncated":false,"current_exists":true,"snapshot_missing":false}'),

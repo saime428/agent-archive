@@ -203,6 +203,15 @@ def _wait_for_runtime_event(runtime: ChatRuntime, job_id: str, name: str) -> lis
         pytest.param("GET", "/api/runs", "_build_runs_payload", _NO_BODY, (_ROOT,), {}, id="runs"),
         pytest.param("GET", "/api/files?path=src", "build_files_payload", _NO_BODY, (_ROOT, "src"), {}, id="files"),
         pytest.param(
+            "GET",
+            "/api/search?query=hello%20world",
+            "build_search_payload",
+            _NO_BODY,
+            (_ROOT, "hello world"),
+            {},
+            id="search",
+        ),
+        pytest.param(
             "GET", "/api/file?path=README.md", "build_file_payload", _NO_BODY, (_ROOT, "README.md"), {}, id="file"
         ),
         pytest.param(

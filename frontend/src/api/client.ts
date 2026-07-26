@@ -14,6 +14,7 @@ import type {
   RunDetailPayload,
   RunsPayload,
   SaveFilePayload,
+  SearchPayload,
   ToolsPayload,
 } from "./types";
 
@@ -97,6 +98,7 @@ export function createApiClient(fetcher: typeof fetch = globalThis.fetch.bind(gl
       post<{ status: "ok"; session_id: string; deleted: true }>("/api/chat/delete", { session_id: sessionId }),
     listFiles: (path?: string) => request<FilesPayload>(`/api/files${queryString({ path })}`),
     getFile: (path: string) => request<FilePayload>(`/api/file${queryString({ path })}`),
+    searchFiles: (query: string) => request<SearchPayload>(`/api/search${queryString({ query })}`),
     saveFile: (path: string, content: string) =>
       post<SaveFilePayload>("/api/file/save", { path, content }),
     getDiff: (path: string, snapshot: string) =>
