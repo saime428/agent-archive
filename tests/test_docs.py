@@ -1066,6 +1066,30 @@ def test_phase3_stable_eval_docs_lock_deterministic_fake_gate() -> None:
     assert "Phase 4–5" in verification
 
 
+def test_phase3_editor_search_docs_lock_safe_multi_tab_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-editor-search-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-25-phase3-editor-search.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-editor-search.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3E Editor/Search" in direction
+    assert "monaco-editor@0.56.0" in spec
+    assert "GET /api/search?query=" in spec
+    assert "/api/file/save" in spec
+    assert "最多同时打开 20 个标签" in spec
+    assert "小于 768px" in spec
+    assert "不新增" in plan
+    assert "状态：待实施与独立验收" in verification
+    assert "3F Git/Diff" in verification
+
+
 def test_phase3_local_runtime_state_is_gitignored() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
