@@ -1117,6 +1117,29 @@ def test_phase3_git_diff_docs_lock_read_only_workspace_boundary() -> None:
     assert "3G Terminal" in verification
 
 
+def test_phase3_terminal_docs_lock_line_mode_process_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-terminal-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-25-phase3-terminal.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-terminal.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3G Terminal" in direction
+    assert "terminal_enabled=false" in spec
+    assert "POST /api/terminal/start" in spec
+    assert "结构化 argv" in spec
+    assert "最多保留 1 MiB" in spec
+    assert "不新增 dependency" in plan
+    assert "状态：待实施与独立验收" in verification
+    assert "3H Command/Layout" in verification
+
+
 def test_phase3_local_runtime_state_is_gitignored() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
