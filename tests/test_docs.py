@@ -1111,7 +1111,9 @@ def test_phase3_git_diff_docs_lock_read_only_workspace_boundary() -> None:
     assert "--no-ext-diff" in spec
     assert "最多返回前 1,000 项" in spec
     assert "不新增 dependency" in plan
-    assert "状态：待实施与独立验收" in verification
+    assert "状态：3F Git/Diff 已完成" in verification
+    assert "1155 passed" in verification
+    assert "96da88655e8806b1a15edf5a16185b0fabed3a3c9239af0d4acc9fe259101288" in verification
     assert "3G Terminal" in verification
 
 
