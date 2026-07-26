@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -22,6 +24,7 @@ from agent.core.budget import ContextBudget, truncate_observation, truncate_text
 from agent.core.context import RunContext
 from agent.core.hooks import run_hooks
 from agent.core.memory import MemoryEntry, MemoryStore, build_memory_message
+from agent.core.memory import MemoryError as MemoryStoreError
 from agent.core.project_instructions import (
     ProjectInstructions,
     build_project_instructions_message,
@@ -378,6 +381,22 @@ def run_once(
                 )
                 adapter_redaction_replacements = 0
                 _emit_run_stop_event(event_handler, action.run_id, model_call_index, "cancelled")
+            except Exception as exc:
+                # A tool executor raised outside the SandboxError/OSError it
+                # handles. Convert to a terminal INTERNAL_ERROR observation so the
+                # run still finalizes and persists its durable record, instead of
+                # the exception escaping run_once and erasing all trace of actions
+                # already executed (and files already mutated). Mirrors the MCP
+                # failure path; the generic message keeps raw internals out.
+                observation = make_error_observation(
+                    action.action_id,
+                    action.run_id,
+                    observation_index=model_call_index,
+                    code=ErrorCode.INTERNAL_ERROR,
+                    message="Tool execution failed unexpectedly.",
+                    details={"tool": action.action.name, "error_type": type(exc).__name__},
+                )
+                adapter_redaction_replacements = 0
         run_stopped = _observation_stop_reason(observation) is not None
         error_recoverable = (
             observation.status == "error"
@@ -503,13 +522,8 @@ def _finalize_run(
     tool_calls_path: Path,
     summary_path: Path,
 ) -> RunResult:
-    _write_memory_candidate(context, observations, config)
-    _run_hook_event(
-        "after_run",
-        config,
-        hooks_path,
-        {"run_id": context.run_id, "status": observations[-1].status if observations else "unknown"},
-    )
+    # Persist the durable run record FIRST: it is the audit trail for actions
+    # that already executed and must never be lost to a best-effort side effect.
     _write_run_logs(
         context=context,
         actions=actions,
@@ -523,6 +537,21 @@ def _finalize_run(
         tool_calls_path=tool_calls_path,
         summary_path=summary_path,
     )
+    _run_hook_event(
+        "after_run",
+        config,
+        hooks_path,
+        {"run_id": context.run_id, "status": observations[-1].status if observations else "unknown"},
+    )
+    # Memory candidate is best-effort telemetry (e.g. the store can hit its size
+    # cap or a lock timeout, both surfacing as MemoryError); it must never brick
+    # a successful run whose record is already on disk. Surface the skip in the
+    # summary that was just written instead of raising.
+    try:
+        _write_memory_candidate(context, observations, config)
+    except MemoryStoreError as exc:
+        with summary_path.open("a", encoding="utf-8") as stream:
+            stream.write(f"- memory_candidate_skipped: {exc}\n")
     return RunResult(
         context=context,
         action=actions[-1],
@@ -1494,9 +1523,9 @@ def _write_run_logs(
                 ensure_ascii=True,
             )
         )
-    tool_calls_path.write_text(
+    _write_text_atomic(
+        tool_calls_path,
         "\n".join(records) + "\n",
-        encoding="utf-8",
     )
     summary = render_summary(context, actions, observations, project_instructions, skills, memory_entries, config)
     redacted_summary = redact_value(summary)
@@ -1504,4 +1533,15 @@ def _write_run_logs(
     summary_text = redacted_summary.value
     if redaction_replacements:
         summary_text = summary_text.rstrip("\n") + "\n- redaction_applied: true\n"
-    summary_path.write_text(summary_text, encoding="utf-8")
+    _write_text_atomic(summary_path, summary_text)
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    # temp + os.replace so a crash mid-write cannot leave a truncated audit
+    # record; the previous complete version (if any) survives instead.
+    temp_path = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        temp_path.write_text(text, encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)

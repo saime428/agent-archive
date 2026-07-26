@@ -2744,3 +2744,131 @@ def test_started_turn_keeps_its_skill_snapshot_until_the_next_turn(tmp_path, mon
     assert all("REVIEWER-V1-BODY-MARKER" not in message["content"] for message in next_turn.messages)
 
 
+
+class _WriteThenDoneLLM:
+    """Mutates the workspace, then completes successfully."""
+
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+        self._calls += 1
+        if self._calls == 1:
+            return {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "artifact.txt", "content": "mutated\n", "create_parents": False},
+                },
+            }
+        return {
+            "message": "Done.",
+            "action": {
+                "name": "done",
+                "args": {"final": "Wrote artifact.txt.", "changed_files": ["artifact.txt"], "next_steps": []},
+            },
+        }
+
+
+def _fill_memory_candidates_over_cap(workspace: Path) -> None:
+    from agent.core.memory import _MAX_STORE_BYTES
+
+    memory_dir = workspace / ".agent" / "memory"
+    memory_dir.mkdir(parents=True)
+    chunks: list[str] = []
+    size = 0
+    index = 0
+    while size <= _MAX_STORE_BYTES:
+        line = (
+            json.dumps(
+                {
+                    "candidate_id": f"cand_{index:032x}",
+                    "source_run_id": "run_old",
+                    "source_excerpt": "x" * 1024,
+                    "created_at": "2026-07-26T00:00:00+00:00",
+                    "status": "pending",
+                },
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+        chunks.append(line)
+        size += len(line)
+        index += 1
+    (memory_dir / "candidates.jsonl").write_text("".join(chunks), encoding="utf-8")
+
+
+def test_memory_store_failure_does_not_destroy_run_record(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    _fill_memory_candidates_over_cap(workspace)
+
+    result = run_once(
+        "write artifact then finish",
+        _WriteThenDoneLLM(),
+        cwd=workspace,
+        run_id="run_memory_cap",
+        config=AgentConfig(memory_auto_write=True),
+        approval_handler=lambda _action: True,
+    )
+
+    assert result.observation.status == "ok"
+    assert (workspace / "artifact.txt").read_text(encoding="utf-8") == "mutated\n"
+    run_dir = workspace / ".agent" / "runs" / "run_memory_cap"
+    assert (run_dir / "tool_calls.jsonl").exists()
+    summary = (run_dir / "summary.md").read_text(encoding="utf-8")
+    assert "memory_candidate_skipped:" in summary
+    assert "too large" in summary
+
+
+class _CrashingSecondWriteLLM:
+    """First write succeeds; the second raises UnicodeEncodeError inside the tool."""
+
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None) -> dict:
+        self._calls += 1
+        if self._calls == 1:
+            return {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "content": "ok\n", "create_parents": False},
+                },
+            }
+        return {
+            "message": "Write again.",
+            "action": {
+                "name": "write_file",
+                "args": {"path": "bad.txt", "content": "\ud800", "create_parents": False},
+            },
+        }
+
+
+def test_unexpected_tool_exception_finalizes_with_internal_error(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = run_once(
+        "write two files",
+        _CrashingSecondWriteLLM(),
+        cwd=workspace,
+        run_id="run_tool_crash",
+        approval_handler=lambda _action: True,
+    )
+
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.INTERNAL_ERROR
+    assert result.observation.error.details["tool"] == "write_file"
+    assert result.observation.error.details["error_type"] == "UnicodeEncodeError"
+    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "ok\n"
+    run_dir = workspace / ".agent" / "runs" / "run_tool_crash"
+    records = [
+        json.loads(line)
+        for line in (run_dir / "tool_calls.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 2
+    assert (run_dir / "summary.md").exists()
