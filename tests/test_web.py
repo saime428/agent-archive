@@ -743,6 +743,31 @@ def test_workbench_sse_route_rejects_unknown_job_before_headers(tmp_path) -> Non
     assert json.loads(response) == {"error": "chat job id is invalid."}
 
 
+@pytest.mark.parametrize("after", [0, 7])
+def test_workbench_sse_route_terminates_wellformed_unknown_job_with_failed_event(tmp_path, after: int) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    status, headers, response = _http_request(
+        workspace,
+        "GET",
+        f"/api/chat/events?job_id=job_0123456789ab&after={after}",
+    )
+
+    assert status == 200
+    assert headers["content-type"] == "text/event-stream; charset=utf-8"
+    assert headers["connection"] == "close"
+    body = response.decode("utf-8")
+    assert f"id: {after}\nevent: failed\n" in body
+    data = json.loads(body.split("data: ", 1)[1].split("\n", 1)[0])
+    assert data["event"] == "failed"
+    assert data["sequence"] == after
+    assert data["elapsed_ms"] == 0
+    assert data["run_id"] == ""
+    assert data["error"]
+    assert body.count("\n\n") == 1
+
+
 def test_workbench_static_fallback_and_unknown_post(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1548,6 +1573,7 @@ def test_chat_runtime_applies_approval_decision(tmp_path, approve: bool, decisio
 
     assert approval["action"] == "write_file"
     assert approval["reason"] == "Action requires approval before execution."
+    assert approval["expires_in_ms"] == int(chat_runtime.APPROVAL_WAIT_TIMEOUT_SECONDS * 1000)
     assert runtime.decide(job_id=started["job_id"], approve=approve) == {
         "status": "ok",
         "job_id": started["job_id"],

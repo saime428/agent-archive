@@ -367,8 +367,11 @@ function ApprovalCard({
   busy: boolean;
   onDecision: (approved: boolean) => void;
 }) {
-  const initialSeconds = Math.max(0, 300 - Math.floor(event.elapsed_ms / 1000));
-  const [seconds, setSeconds] = useState(initialSeconds);
+  // 服务端在 approval_required 事件上携带权威审批窗口；字段缺失时退回 300 秒。
+  const expiresInMs = "expires_in_ms" in event && typeof event.expires_in_ms === "number"
+    ? event.expires_in_ms
+    : 300_000;
+  const [seconds, setSeconds] = useState(() => Math.max(0, Math.floor(expiresInMs / 1000)));
 
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((value) => Math.max(0, value - 1)), 1000);
@@ -391,11 +394,17 @@ function ApprovalCard({
         <div><dt>Intent</dt><dd data-payload>{event.message}</dd></div>
       </dl>
       <pre data-payload>{JSON.stringify(event.args, null, 2)}</pre>
+      {seconds === 0 ? (
+        <div className="inline-notice" data-tone="warning">
+          <Clock3 aria-hidden="true" />
+          <span>审批可能已超时，仍可提交决定，以服务端结果为准。</span>
+        </div>
+      ) : null}
       <div className="approval-actions">
-        <button className="button secondary" disabled={busy || seconds === 0} onClick={() => onDecision(false)}>
+        <button className="button secondary" disabled={busy} onClick={() => onDecision(false)}>
           <X aria-hidden="true" /> 拒绝
         </button>
-        <button className="button primary" disabled={busy || seconds === 0} onClick={() => onDecision(true)}>
+        <button className="button primary" disabled={busy} onClick={() => onDecision(true)}>
           {busy ? <LoaderCircle className="spin" aria-hidden="true" /> : <Check aria-hidden="true" />} 批准并继续
         </button>
       </div>
@@ -462,7 +471,9 @@ function LiveTurn({
             ))}
           </ol>
         ) : null}
-        {live.approval ? <ApprovalCard event={live.approval} busy={approvalBusy} onDecision={onDecision} /> : null}
+        {live.approval ? (
+          <ApprovalCard key={live.approval.sequence} event={live.approval} busy={approvalBusy} onDecision={onDecision} />
+        ) : null}
         {live.final ? (
           <div className="final-result">
             <span><CheckCircle2 aria-hidden="true" /> FINAL / {live.final.display_status}</span>

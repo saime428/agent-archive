@@ -342,8 +342,12 @@ class ChatRuntime:
             record = dict(safe)
             record["sequence"] = len(job.events)
             record["elapsed_ms"] = max(0, int((now - job.started_at) * 1000))
+            is_approval = record.get("event") == "approval_required"
+            if is_approval:
+                # The frontend counts down from this window; it must mirror the deadline decide() enforces.
+                record["expires_in_ms"] = int(self._approval_timeout * 1000)
             record = self._append_event_file(job.job_id, record)
-            if record.get("event") == "approval_required":
+            if is_approval:
                 job.approval_decision = None
                 job.approval_pending = True
                 job.approval_deadline = now + self._approval_timeout

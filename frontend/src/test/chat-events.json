@@ -18,5 +18,6 @@
     "interrupted",
     "failed",
     "error"
-  ]
+  ],
+  "approval_required_extra_fields": ["expires_in_ms"]
 }

@@ -438,7 +438,26 @@ def create_workbench_handler(
             if not job_id:
                 self._send_json({"error": "job_id is required."}, status=HTTPStatus.BAD_REQUEST)
                 return
-            payload = runtime.poll(job_id, after=after, timeout=0)
+            try:
+                payload = runtime.poll(job_id, after=after, timeout=0)
+            except ValueError as exc:
+                if not str(exc).startswith("Unknown chat job"):
+                    raise
+                # Jobs are in-memory + workspace-durable; after a restart a stale job id must still
+                # terminate the stream, or the frontend composer stays locked retrying forever.
+                payload = {
+                    "events": [
+                        {
+                            "event": "failed",
+                            "sequence": after,
+                            "elapsed_ms": 0,
+                            "run_id": "",
+                            "error": "任务记录已不存在，可能因服务重启丢失，请重新发送消息。",
+                        }
+                    ],
+                    "done": True,
+                    "next": after + 1,
+                }
             try:
                 self.close_connection = True
                 self.send_response(HTTPStatus.OK)

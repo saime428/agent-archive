@@ -38,6 +38,17 @@ def test_frontend_event_catalog_matches_frontend_and_backend() -> None:
     assert len(known) == 18
 
 
+def test_approval_required_event_carries_expiry_window() -> None:
+    fixture = json.loads((ROOT / "frontend" / "src" / "test" / "chat-events.json").read_text(encoding="utf-8"))
+    backend_source = (ROOT / "src" / "agent" / "web" / "chat_runtime.py").read_text(encoding="utf-8")
+    frontend_source = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+
+    assert fixture["approval_required_extra_fields"] == ["expires_in_ms"]
+    for field in fixture["approval_required_extra_fields"]:
+        assert f'"{field}"' in backend_source, field
+        assert field in frontend_source, field
+
+
 def test_health_payload_carries_required_keys_and_read_only_sections(tmp_path) -> None:
     payload = build_health_payload(tmp_path)
 
