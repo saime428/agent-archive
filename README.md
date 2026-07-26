@@ -320,17 +320,18 @@ Do not put API keys in `.agent/config.toml`.
 
 ## Frontend vNext runtime assets
 
-The React/Vite Workbench is the default, with stable preview and legacy entries:
+The React/Vite Workbench is the only runtime frontend, with two stable React entries:
 
 | URL | Current runtime entry |
 | --- | --- |
 | `/` | React `preview/index.html` |
 | `/preview/` | React `preview/index.html` |
-| `/legacy/` | Legacy `index.html` |
 
 `src/agent/web/static/preview/**` is a tracked runtime asset. Node.js belongs
 only to development and build workflows. The Python runtime never invokes npm
-and serves the packaged files directly.
+and serves the packaged files directly. The retired `/legacy`, `/legacy/`, old
+`/assets/**`, and synchronous `POST /api/chat/turn` paths return 404; current
+chat uses `POST /api/chat/start` plus SSE and the approval/cancel/resume routes.
 
 The current Files workspace lazy-loads Monaco on desktop, keeps up to 20
 independent tabs, and falls back to a native textarea below 768px. Recursive
@@ -354,12 +355,11 @@ agent start --cwd . --port 8767
 Commit the complete generated bundle with its source change; a clean tree must
 reproduce it with `npm run build:preview` and no Git drift. Open
 `http://127.0.0.1:8767/` for the default React Workbench. `/preview/` remains a
-compatible React entry and `/legacy/` remains the explicit rollback entry during
-the stability window; rolling back the default does not require rebuilding assets
-or migrating workspace data.
+compatible React entry. A rollback restores the Phase 3I retirement Git commit
+and restarts the service; it does not migrate workspace data.
 
 Run the complete frontend gate from `frontend/` with `npm run check`. Phase 2,
-Readiness, Cutover, and Phase 3E Editor/Search evidence is recorded under
+Readiness, Cutover, and Phase 3E–3I evidence is recorded under
 `docs/verification/`.
 
 ## v0.7 Product Shell Decision

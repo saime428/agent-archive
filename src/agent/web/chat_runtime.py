@@ -293,15 +293,6 @@ class ChatRuntime:
         finally:
             self._release_session(session_id)
 
-    @contextmanager
-    def _reserve_turn(self, session_id: object) -> Iterator[None]:
-        with self._reserve_session(session_id):
-            owner = {"kind": "web-sync"}
-            if isinstance(session_id, str) and session_id:
-                owner["session_id"] = session_id
-            with WorkspaceRunLease.acquire(self._workspace, owner=owner):
-                yield
-
     def _claim_session(self, session_id: str) -> None:
         with self._jobs_lock:
             if session_id in self._active_sessions:

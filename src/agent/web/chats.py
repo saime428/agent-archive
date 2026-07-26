@@ -7,7 +7,6 @@ from typing import Any
 from agent.config import load_config
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.run_store import RunStore, RunStoreError
-from agent.llm.factory import make_llm
 from agent.secrets import load_workspace_secrets
 from agent.web.runs import build_run_replay
 
@@ -72,37 +71,6 @@ def _chat_turn_item(workspace: Path, turn: Any) -> dict[str, Any]:
     item["process"] = _turn_process(workspace, turn)
     item["thinking_text"] = _turn_thinking_text(workspace, turn)
     return item
-
-
-def build_chat_turn_payload(
-    workspace: Path,
-    request: dict[str, Any],
-    *,
-    mcp_runtime: Any | None = None,
-) -> dict[str, Any]:
-    message = request.get("message")
-    if not isinstance(message, str) or not message.strip():
-        raise ValueError("message is required.")
-    session_id = request.get("session_id")
-    if session_id is not None and not isinstance(session_id, str):
-        raise ValueError("session_id must be a string.")
-    approve_once = request.get("approve_once", False)
-    if not isinstance(approve_once, bool):
-        raise ValueError("approve_once must be a boolean.")
-
-    root = workspace.resolve()
-    load_workspace_secrets(root)
-    config, diagnostics = load_config(root)
-    state = load_or_create_chat_state(root, session_id)
-    session = ChatSession(
-        cwd=root,
-        llm=make_llm(config),
-        config=config,
-        state=state,
-        mcp_runtime=mcp_runtime,
-    )
-    result = session.run_turn(message.strip(), approval_handler=_approve_once_handler() if approve_once else None)
-    return build_chat_turn_response(root, session, result, diagnostics)
 
 
 def build_chat_rename_payload(workspace: Path, request: dict[str, Any]) -> dict[str, Any]:
@@ -335,16 +303,3 @@ def _fallback_turn_process(turn: Any) -> list[str]:
     if not summary:
         return ["已完成本轮处理。"]
     return [f"执行 {action}：{summary}"]
-
-
-def _approve_once_handler():
-    approved = False
-
-    def approve_once(_action: Any) -> bool:
-        nonlocal approved
-        if approved:
-            return False
-        approved = True
-        return True
-
-    return approve_once

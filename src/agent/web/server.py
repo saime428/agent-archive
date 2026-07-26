@@ -22,7 +22,6 @@ from agent.web.chats import (
     build_chat_delete_payload as _build_chat_delete_payload,
     build_chat_payload as _build_chat_payload,
     build_chat_rename_payload as _build_chat_rename_payload,
-    build_chat_turn_payload as _build_chat_turn_payload,
     build_chats_payload as _build_chats_payload,
 )
 from agent.web.chat_runtime import ChatRuntime
@@ -50,14 +49,12 @@ from agent.web.terminal import TerminalRuntime
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 
-# The React Workbench is the default; "/legacy/" remains the one-line rollback entry.
 _STATIC_ENTRYPOINTS = {
     "/": "preview/index.html",
     "/preview/": "preview/index.html",
-    "/legacy/": "index.html",
 }
 _MAX_JSON_BODY_BYTES = 64_000
-_ENTRYPOINT_ALIASES = {"/preview": "/preview/", "/legacy": "/legacy/"}
+_ENTRYPOINT_ALIASES = {"/preview": "/preview/"}
 
 
 def static_file_path(relative_path: str) -> Path:
@@ -223,17 +220,6 @@ def create_workbench_handler(
             parsed = urlparse(self.path)
             path = unquote(parsed.path)
             try:
-                if path == "/api/chat/turn":
-                    request = self._read_json_body()
-                    with runtime._reserve_turn(request.get("session_id")):
-                        self._send_json(
-                            _build_chat_turn_payload(root, request)
-                            if mcp_runtime is None
-                            else _build_chat_turn_payload(
-                                root, request, mcp_runtime=mcp_runtime
-                            )
-                        )
-                    return
                 if path == "/api/chat/start":
                     request = self._read_json_body()
                     message = request.get("message")

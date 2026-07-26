@@ -223,24 +223,28 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   await writeFile(join(workspace, "README.md"), "# Cutover staged\nunstaged\n", "utf8");
   await writeFile(join(workspace, "untracked ü space.txt"), "untracked\n", "utf8");
 
-  const [root, preview, legacy] = await Promise.all([
+  const [root, preview, legacy, legacyAlias, legacyAsset, syncTurn] = await Promise.all([
     request.get("/"),
     request.get("/preview/"),
     request.get("/legacy/"),
+    request.get("/legacy?from=retired", { maxRedirects: 0 }),
+    request.get("/assets/app.js"),
+    request.post("/api/chat/turn", { data: { message: "retired" } }),
   ]);
   expect(root.status()).toBe(200);
   expect(preview.status()).toBe(200);
-  expect(legacy.status()).toBe(200);
+  expect(legacy.status()).toBe(404);
+  expect(legacyAlias.status()).toBe(404);
+  expect(legacyAsset.status()).toBe(404);
+  expect(syncTurn.status()).toBe(404);
+  expect(await syncTurn.json()).toEqual({ error: "Unknown endpoint: /api/chat/turn" });
   expect(root.headers()["cache-control"]).toBe("no-store");
   expect(preview.headers()["cache-control"]).toBe("no-store");
-  expect(legacy.headers()["cache-control"]).toBe("no-store");
 
   const rootBody = await root.body();
   const previewBody = await preview.body();
-  const legacyBody = await legacy.body();
   expect(rootBody.equals(previewBody)).toBe(true);
   expect(rootBody.toString("utf8")).not.toContain("tokenicode-shell");
-  expect(legacyBody.toString("utf8")).toContain("tokenicode-shell");
 
   const errors = collectBrowserErrors(page);
   await page.goto("/");

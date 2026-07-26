@@ -241,7 +241,6 @@ def _wait_for_runtime_event(runtime: ChatRuntime, job_id: str, name: str) -> lis
         pytest.param(
             "GET", "/api/runs/run_1", "_build_run_detail_payload", _NO_BODY, (_ROOT, "run_1"), {}, id="run-detail"
         ),
-        pytest.param("POST", "/api/chat/turn", "_build_chat_turn_payload", {"value": "turn"}, (_ROOT, _BODY), {}, id="turn"),
         pytest.param(
             "POST",
             "/api/chat/start",
@@ -337,10 +336,6 @@ def test_workbench_routes_dispatch_to_expected_builder(
         def _reserve_session(self, _session_id: object):
             yield
 
-        @contextmanager
-        def _reserve_turn(self, _session_id: object):
-            yield
-
     monkeypatch.setattr(server, "ChatRuntime", FakeRuntime)
     if not target.startswith("runtime."):
         monkeypatch.setattr(server, target, sentinel)
@@ -355,7 +350,7 @@ def test_workbench_routes_dispatch_to_expected_builder(
     assert calls == [(resolved_args, expected_kwargs)]
 
 
-def test_workbench_sync_and_async_chat_paths_borrow_the_injected_mcp_runtime(
+def test_workbench_async_chat_path_borrows_the_injected_mcp_runtime(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -375,24 +370,7 @@ def test_workbench_sync_and_async_chat_paths_borrow_the_injected_mcp_runtime(
         def _reserve_session(self, _session_id: object):
             yield
 
-        @contextmanager
-        def _reserve_turn(self, _session_id: object):
-            yield
-
-    def fake_turn(_root: Path, _request: dict[str, object], *, mcp_runtime) -> dict[str, str]:
-        seen.append(("sync", mcp_runtime))
-        return {"status": "ok"}
-
     monkeypatch.setattr(server, "ChatRuntime", FakeChatRuntime)
-    monkeypatch.setattr(server, "_build_chat_turn_payload", fake_turn)
-
-    turn_status, _headers, _response = _http_request(
-        workspace,
-        "POST",
-        "/api/chat/turn",
-        {"message": "sync"},
-        mcp_runtime=borrowed,
-    )
     start_status, _headers, _response = _http_request(
         workspace,
         "POST",
@@ -401,59 +379,8 @@ def test_workbench_sync_and_async_chat_paths_borrow_the_injected_mcp_runtime(
         mcp_runtime=borrowed,
     )
 
-    assert turn_status == 200
     assert start_status == 200
-    assert seen == [
-        ("async", borrowed),
-        ("sync", borrowed),
-        ("async", borrowed),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("stage", "expected_status"),
-    [("config", 400), ("initialize", 502), ("discovery", 502)],
-)
-def test_sync_chat_turn_maps_mcp_errors_before_model_call(
-    monkeypatch,
-    tmp_path,
-    stage: str,
-    expected_status: int,
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    model_calls = 0
-
-    class NoCallLLM:
-        def chat(self, _messages, *, temperature=None):
-            nonlocal model_calls
-            model_calls += 1
-            return _done_response()
-
-    class FailingRuntime:
-        def discover_tools(self):
-            raise server.McpRuntimeError(
-                stage=stage,
-                server_id="local",
-                message=f"safe {stage} failure",
-            )
-
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda _config: NoCallLLM())
-    status, _headers, response = _http_request(
-        workspace,
-        "POST",
-        "/api/chat/turn",
-        {"message": "fail before model"},
-        mcp_runtime=FailingRuntime(),
-    )
-    payload = json.loads(response)
-
-    assert status == expected_status
-    assert payload == {
-        "error": f"MCP {stage} failed for server 'local': safe {stage} failure"
-    }
-    assert model_calls == 0
-    assert "Traceback" not in response.decode("utf-8")
+    assert seen == [("async", borrowed)]
 
 
 @pytest.mark.parametrize("stage", ["config", "initialize", "discovery"])
@@ -488,6 +415,71 @@ def test_async_chat_job_reports_mcp_error_before_model_call(tmp_path, stage: str
         f"MCP {stage} failed for server 'local': safe {stage} failure"
     )
     assert model_calls == 0
+
+
+def test_chat_runtime_final_event_projects_repaired_turn(tmp_path) -> None:
+    class RepairThenDoneLLM:
+        def __init__(self) -> None:
+            self.index = 0
+
+        def chat(self, _messages, *, temperature=None):
+            self.index += 1
+            if self.index == 1:
+                return "{not-json"
+            return _done_response("repaired")
+
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: RepairThenDoneLLM())
+    started = runtime.start(message="repair", session_id="chat_repair")
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    final = next(event for event in complete["events"] if event["event"] == "final")
+
+    assert final["display_status"] == "completed"
+    assert final["repair_count"] == 1
+    assert final["has_repair_noise"] is True
+    assert final["final"] == "repaired"
+    assert "invalid_model_response" not in final["thinking_text"]
+
+
+def test_chat_runtime_final_event_projects_ask_user(tmp_path) -> None:
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Ask.",
+                "action": {
+                    "name": "ask_user",
+                    "args": {"question": "Please describe the task."},
+                },
+            }
+        ]
+    )
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: llm)
+    started = runtime.start(message="ask", session_id="chat_ask")
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    final = next(event for event in complete["events"] if event["event"] == "final")
+
+    assert final["completed"] is False
+    assert final["terminal_reason"] == "ask_user"
+    assert final["display_status"] == "ask_user"
+    assert final["final"] == "Please describe the task."
+
+
+def test_chat_runtime_final_event_includes_public_action_message(tmp_path) -> None:
+    llm = FakeLLMClient(
+        actions=[
+            {
+                "message": "Check the workspace files first.",
+                "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 10}},
+            },
+            _done_response("Checked files."),
+        ]
+    )
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: llm)
+    started = runtime.start(message="inspect", session_id="chat_process")
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+    final = next(event for event in complete["events"] if event["event"] == "final")
+
+    assert "Check the workspace files first." in final["thinking_text"]
+    assert "invalid_model_response" not in final["thinking_text"]
 
 
 @pytest.mark.parametrize(
@@ -791,19 +783,19 @@ def _entrypoint_static_root(tmp_path: Path) -> Path:
     return static_root.resolve()
 
 
-def test_workbench_serves_cutover_entrypoints(monkeypatch, tmp_path) -> None:
+def test_workbench_serves_react_entrypoints_and_retires_legacy(monkeypatch, tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     monkeypatch.setattr(server, "STATIC_ROOT", _entrypoint_static_root(tmp_path))
 
     root_status, _root_headers, root_response = _http_request(workspace, "GET", "/")
     preview_status, _preview_headers, preview_response = _http_request(workspace, "GET", "/preview/")
-    legacy_status, _legacy_headers, legacy_response = _http_request(workspace, "GET", "/legacy/")
+    legacy_status, _legacy_headers, _legacy_response = _http_request(workspace, "GET", "/legacy/")
     unknown_status, _unknown_headers, _unknown_response = _http_request(workspace, "GET", "/missing/")
 
     assert (root_status, root_response) == (200, b"preview")
     assert (preview_status, preview_response) == (200, b"preview")
-    assert (legacy_status, legacy_response) == (200, b"legacy")
+    assert legacy_status == 404
     assert unknown_status == 404
 
 
@@ -815,7 +807,7 @@ def test_workbench_normalizes_stable_entrypoint_aliases(monkeypatch, tmp_path) -
     preview_status, preview_headers, preview_response = _http_request(
         workspace, "GET", "/preview?from=bookmark"
     )
-    legacy_status, legacy_headers, _legacy_response = _http_request(
+    legacy_status, _legacy_headers, _legacy_response = _http_request(
         workspace, "GET", "/legacy?from=rollback"
     )
     bare_status, bare_headers, _bare_response = _http_request(workspace, "GET", "/preview")
@@ -824,8 +816,7 @@ def test_workbench_normalizes_stable_entrypoint_aliases(monkeypatch, tmp_path) -
     assert preview_headers["location"] == "/preview/?from=bookmark"
     assert preview_headers["content-length"] == "0"
     assert preview_response == b""
-    assert legacy_status == 308
-    assert legacy_headers["location"] == "/legacy/?from=rollback"
+    assert legacy_status == 404
     assert bare_status == 308
     assert bare_headers["location"] == "/preview/"
 
@@ -837,14 +828,12 @@ def test_workbench_only_disables_caching_for_html_entrypoints(monkeypatch, tmp_p
 
     _root_status, root_headers, _root_response = _http_request(workspace, "GET", "/")
     _preview_status, preview_headers, _preview_response = _http_request(workspace, "GET", "/preview/")
-    _legacy_status, legacy_headers, _legacy_response = _http_request(workspace, "GET", "/legacy/")
     asset_status, asset_headers, _asset_response = _http_request(
         workspace, "GET", "/preview/assets/app.js"
     )
 
     assert root_headers["cache-control"] == "no-store"
     assert preview_headers["cache-control"] == "no-store"
-    assert legacy_headers["cache-control"] == "no-store"
     assert asset_status == 200
     assert "cache-control" not in asset_headers
 
@@ -874,12 +863,30 @@ def test_workbench_returns_404_for_missing_preview_assets(monkeypatch, tmp_path)
     workspace.mkdir()
     static_root = tmp_path / "static"
     static_root.mkdir()
-    (static_root / "index.html").write_text("legacy", encoding="utf-8")
     monkeypatch.setattr(server, "STATIC_ROOT", static_root.resolve())
 
     status, _headers, _response = _http_request(workspace, "GET", "/preview/")
 
     assert status == 404
+
+
+def test_workbench_retires_legacy_assets_and_sync_chat_endpoint(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    legacy_status, _legacy_headers, _legacy_response = _http_request(workspace, "GET", "/legacy/")
+    asset_status, _asset_headers, _asset_response = _http_request(workspace, "GET", "/assets/app.js")
+    turn_status, _turn_headers, turn_response = _http_request(
+        workspace,
+        "POST",
+        "/api/chat/turn",
+        {"message": "retired"},
+    )
+
+    assert legacy_status == 404
+    assert asset_status == 404
+    assert turn_status == 404
+    assert json.loads(turn_response) == {"error": "Unknown endpoint: /api/chat/turn"}
 
 
 def test_workbench_negotiates_gzip_for_large_static_assets(monkeypatch, tmp_path) -> None:
@@ -1206,15 +1213,10 @@ def test_chat_runtime_uses_one_workspace_lease_across_instances(tmp_path) -> Non
             pass
     with second._reserve_session("chat_second"):
         pass
-    with pytest.raises(ValueError, match="Workspace already has an active Agent turn"):
-        with second._reserve_turn("chat_second"):
-            pass
     assert not second_called.is_set()
 
     release.set()
     _wait_for_runtime_done(first, started["job_id"])
-    with second._reserve_turn("chat_second"):
-        pass
     restarted = second.start(message="after release", session_id="chat_second")
     _wait_for_runtime_done(second, restarted["job_id"])
 
@@ -1278,7 +1280,7 @@ def test_chat_runtime_does_not_release_another_job_on_generated_session_collisio
                 pass
 
 
-@pytest.mark.parametrize("path", ["/api/chat/turn", "/api/chat/rename", "/api/chat/delete"])
+@pytest.mark.parametrize("path", ["/api/chat/rename", "/api/chat/delete"])
 def test_workbench_blocks_chat_mutation_while_session_is_active(monkeypatch, tmp_path, path: str) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1293,13 +1295,9 @@ def test_workbench_blocks_chat_mutation_while_session_is_active(monkeypatch, tmp
             raise ValueError("Chat session chat_busy already has an active turn.")
             yield
 
-        _reserve_turn = _reserve_session
-
     monkeypatch.setattr(server, "ChatRuntime", ActiveRuntime)
     body = {"session_id": "chat_busy"}
-    if path.endswith("turn"):
-        body["message"] = "next"
-    elif path.endswith("rename"):
+    if path.endswith("rename"):
         body["title"] = "new"
 
     status, _headers, response = _http_request(workspace, "POST", path, body)

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
 import agent.tools.filesystem as filesystem_tools
-from agent.core.chat import ConversationState
+from agent.config import AgentConfig
+from agent.core.chat import ChatTurn, ConversationState
 from agent.core.memory import MemoryStore
 from agent.llm.fake import FakeLLMClient
 from agent.web.chats import (
     build_chat_delete_payload,
     build_chat_payload,
     build_chat_rename_payload,
-    build_chat_turn_payload,
     build_chats_payload,
 )
 from agent.web.files import (
@@ -25,7 +24,6 @@ from agent.web.files import (
     build_search_payload,
 )
 from agent.web.runs import build_run_detail_payload, build_runs_payload
-from agent.web.server import static_file_path
 from agent.web.settings import (
     build_health_payload,
     build_config_payload,
@@ -34,45 +32,23 @@ from agent.web.settings import (
 )
 
 
-class RepairThenDoneLLM:
-    def __init__(self) -> None:
-        self.index = 0
-
-    def chat(self, messages: list[dict], *, temperature: float | None = None):
-        self.index += 1
-        if self.index == 1:
-            return "{not-json"
-        return {
-            "message": "Ready.",
-            "action": {
-                "name": "done",
-                "args": {
-                    "final": "已就绪，等待用户描述任务。",
-                    "changed_files": [],
-                    "next_steps": [],
-                },
-            },
-        }
-
-
-JS_MODULES = [
-    "assets/app.js",
-    "assets/state.js",
-    "assets/api.js",
-    "assets/sse.js",
-    "assets/render/health.js",
-    "assets/render/chat.js",
-    "assets/render/runs.js",
-    "assets/render/files.js",
-    "assets/render/editor.js",
-    "assets/render/resources.js",
-    "assets/render/diagnostics.js",
-    "assets/render/ui.js",
-]
-
-
-def _read_static_scripts() -> str:
-    return "\n".join(static_file_path(path).read_text(encoding="utf-8") for path in JS_MODULES)
+def _seed_chat(workspace: Path, session_id: str, messages: list[str]) -> ConversationState:
+    state = ConversationState.create(workspace, session_id=session_id)
+    state.turns = [
+        ChatTurn(
+            user=message,
+            run_id=f"run_seed_{index}",
+            status="ok",
+            completed=True,
+            terminal_reason="done",
+            final=f"final {index}",
+            last_action="done",
+            last_observation_summary="Done.",
+        )
+        for index, message in enumerate(messages, start=1)
+    ]
+    state.save(AgentConfig())
+    return state
 
 
 def test_build_config_payload_reports_effective_workspace_config(tmp_path: Path) -> None:
@@ -140,18 +116,6 @@ def test_build_save_config_payload_rejects_non_string_mode(tmp_path: Path) -> No
         assert "mode must be" in str(exc)
     else:
         raise AssertionError("browser config must reject non-string modes")
-
-
-def test_settings_form_writes_run_mode() -> None:
-    index = static_file_path("index.html").read_text(encoding="utf-8")
-    state_script = static_file_path("assets/state.js").read_text(encoding="utf-8")
-    health_script = static_file_path("assets/render/health.js").read_text(encoding="utf-8")
-
-    assert 'id="settings-mode"' in index
-    assert '<option value="auto">' in index
-    assert 'settingsMode: document.querySelector("#settings-mode")' in state_script
-    assert 'els.settingsMode.value = config.mode || "guided"' in health_script
-    assert "mode: els.settingsMode.value" in health_script
 
 
 def test_build_save_config_payload_ignores_allowed_commands_update(tmp_path: Path) -> None:
@@ -415,14 +379,6 @@ def test_build_tools_payload_reuses_policy_categories() -> None:
     assert tools["write_file"]["category"] == "confirmation-required"
     assert tools["write_file"]["dry_run"] == "skipped"
     assert tools["done"]["category"] == "terminal"
-
-
-def test_app_js_avoids_dynamic_inner_html_xss_paths() -> None:
-    script = _read_static_scripts()
-
-    assert "${emptyText}" not in script
-    assert "els.fileList.innerHTML = `<div class=\"empty-state\">${error" not in script
-    assert "function emptyStateElement" in script
 
 
 def test_build_runs_payload_lists_recent_runs(tmp_path: Path) -> None:
@@ -973,132 +929,44 @@ def test_build_restore_snapshot_payload_rejects_metadata_outside_workspace(tmp_p
         raise AssertionError("metadata pointing outside the workspace should be rejected")
 
 
-def test_build_chat_turn_payload_runs_fake_chat_and_persists_session(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
-
-    assert payload["session_id"].startswith("chat_")
-    assert payload["turn_count"] == 1
-    assert payload["status"] == "ok"
-    assert payload["completed"] is True
-    assert payload["terminal_reason"] == "done"
-    assert payload["final"] == "FakeLLM received task: inspect project"
-    assert (workspace / ".agent" / "chats" / payload["session_id"] / "session.json").is_file()
-    assert (workspace / ".agent" / "runs" / payload["run_id"] / "summary.md").is_file()
-    assert payload["repair_count"] == 0
-    assert payload["has_repair_noise"] is False
-    assert payload["display_status"] == "completed"
-    assert payload["process"] == ["整理最终回答。"]
-    assert "thinking_text" in payload
-    assert "整理最终回答" in payload["thinking_text"]
-    assert "Task completed by FakeLLM." in payload["thinking_text"]
-
-
-def test_build_chat_turn_payload_resumes_existing_session(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    first = build_chat_turn_payload(workspace, {"message": "first"})
-
-    second = build_chat_turn_payload(
-        workspace,
-        {"session_id": first["session_id"], "message": "second"},
-    )
-
-    assert second["session_id"] == first["session_id"]
-    assert second["turn_count"] == 2
-    assert second["final"] == "FakeLLM received task: second"
-
-
-def test_build_chat_turn_payload_creates_requested_new_session(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    payload = build_chat_turn_payload(workspace, {"session_id": "chat_manual", "message": "hello"})
-
-    assert payload["session_id"] == "chat_manual"
-    assert payload["turn_count"] == 1
-    assert (workspace / ".agent" / "chats" / "chat_manual" / "session.json").is_file()
-
-
-def test_build_chat_turn_payload_marks_repaired_turn_as_completed(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: RepairThenDoneLLM())
-
-    payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
-
-    assert payload["status"] == "ok"
-    assert payload["completed"] is True
-    assert payload["display_status"] == "completed"
-    assert payload["repair_count"] == 1
-    assert payload["has_repair_noise"] is True
-    assert payload["final"] == "已就绪，等待用户描述任务。"
-    assert "模型输出格式不符合动作协议" not in payload["thinking_text"]
-    assert "invalid_model_response" not in payload["thinking_text"]
-    assert "Model response" not in payload["thinking_text"]
-
-
-def test_build_chat_turn_payload_displays_ask_user_question(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Ask.",
-                "action": {
-                    "name": "ask_user",
-                    "args": {"question": "Please describe the task you want me to complete."},
-                },
-            }
-        ]
-    )
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
-
-    payload = build_chat_turn_payload(workspace, {"message": "inspect project"})
-
-    assert payload["status"] == "ok"
-    assert payload["completed"] is False
-    assert payload["terminal_reason"] == "ask_user"
-    assert payload["display_status"] == "ask_user"
-    assert payload["final"] == "Please describe the task you want me to complete."
-
-
-def test_build_chat_turn_payload_answers_simple_greeting(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient()
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
-
-    payload = build_chat_turn_payload(workspace, {"message": "你好"})
-
-    assert payload["completed"] is True
-    assert payload["terminal_reason"] == "done"
-    assert "你好，我在" in payload["final"]
-    assert payload["process"] == ["整理最终回答。"]
-    assert "thinking_text" in payload
-    assert "整理最终回答" in payload["thinking_text"]
-
-
 def test_build_chats_payload_lists_sessions_and_detail(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    first = build_chat_turn_payload(workspace, {"message": "summarize project goals"})
-    build_chat_turn_payload(workspace, {"session_id": first["session_id"], "message": "then list commands"})
+    state = _seed_chat(
+        workspace,
+        "chat_summary",
+        ["summarize project goals", "then list commands"],
+    )
 
     listing = build_chats_payload(workspace)
-    detail = build_chat_payload(workspace, first["session_id"])
+    detail = build_chat_payload(workspace, state.session_id)
 
-    assert listing["chats"][0]["session_id"] == first["session_id"]
+    assert listing["chats"][0]["session_id"] == state.session_id
     assert listing["chats"][0]["turn_count"] == 2
     assert listing["chats"][0]["latest_user"] == "then list commands"
     assert listing["chats"][0]["title"] == "summarize project goals"
     assert detail["title"] == "summarize project goals"
-    assert detail["session_id"] == first["session_id"]
+    assert detail["session_id"] == state.session_id
     assert [turn["user"] for turn in detail["turns"]] == ["summarize project goals", "then list commands"]
-    assert detail["turns"][0]["process"] == ["整理最终回答。"]
+    assert detail["turns"][0]["process"] == ["执行 done：Done."]
     assert "thinking_text" in detail["turns"][0]
+
+
+def test_build_chat_payload_translates_run_command_capability_warning(tmp_path: Path) -> None:
+    raw = (
+        "Run commands execute local processes with the agent's OS permissions; "
+        "workspace path checks do not fully contain file, network, or subprocess access. Approval is required."
+    )
+    state = _seed_chat(tmp_path, "chat_warning", ["run command"])
+    state.turns[0].last_observation_summary = raw
+    state.save(AgentConfig())
+
+    turn = build_chat_payload(tmp_path, state.session_id)["turns"][0]
+
+    assert turn["last_observation_summary"] == (
+        "运行命令会以 Agent 当前的操作系统权限启动本地进程；"
+        "工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。"
+    )
 
 
 def test_build_chats_payload_projects_conversation_state_list(monkeypatch, tmp_path: Path) -> None:
@@ -1122,14 +990,14 @@ def test_build_chats_payload_projects_conversation_state_list(monkeypatch, tmp_p
 def test_build_chat_rename_payload_updates_session_title(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    first = build_chat_turn_payload(workspace, {"message": "summarize project goals"})
+    state = _seed_chat(workspace, "chat_rename", ["summarize project goals"])
 
     payload = build_chat_rename_payload(
         workspace,
-        {"session_id": first["session_id"], "title": "项目亮点"},
+        {"session_id": state.session_id, "title": "项目亮点"},
     )
     listing = build_chats_payload(workspace)
-    detail = build_chat_payload(workspace, first["session_id"])
+    detail = build_chat_payload(workspace, state.session_id)
 
     assert payload["status"] == "ok"
     assert payload["title"] == "项目亮点"
@@ -1140,13 +1008,13 @@ def test_build_chat_rename_payload_updates_session_title(tmp_path: Path) -> None
 def test_build_chat_delete_payload_removes_session(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    first = build_chat_turn_payload(workspace, {"message": "delete me"})
+    state = _seed_chat(workspace, "chat_delete", ["delete me"])
 
-    payload = build_chat_delete_payload(workspace, {"session_id": first["session_id"]})
+    payload = build_chat_delete_payload(workspace, {"session_id": state.session_id})
 
-    assert payload == {"status": "ok", "session_id": first["session_id"], "deleted": True}
+    assert payload == {"status": "ok", "session_id": state.session_id, "deleted": True}
     assert build_chats_payload(workspace)["chats"] == []
-    assert not (workspace / ".agent" / "chats" / first["session_id"]).exists()
+    assert not (workspace / ".agent" / "chats" / state.session_id).exists()
 
 
 def test_build_chat_delete_payload_preserves_error_messages(tmp_path: Path) -> None:
@@ -1164,418 +1032,3 @@ def test_build_chat_delete_payload_preserves_error_messages(tmp_path: Path) -> N
             assert str(exc) == expected
         else:
             raise AssertionError(f"expected deletion failure: {request}")
-
-
-def test_build_chat_turn_payload_includes_public_action_message_in_process(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Check the workspace files first.",
-                "action": {"name": "list_dir", "args": {"path": ".", "max_entries": 10}},
-            },
-            {
-                "message": "Done.",
-                "action": {
-                    "name": "done",
-                    "args": {"final": "Checked files.", "changed_files": [], "next_steps": []},
-                },
-            },
-        ]
-    )
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
-
-    payload = build_chat_turn_payload(workspace, {"message": "inspect files"})
-
-    assert "Check the workspace files first." in payload["thinking_text"]
-    assert "invalid_model_response" not in payload["thinking_text"]
-
-
-def test_build_chat_turn_payload_rejects_empty_message(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    try:
-        build_chat_turn_payload(workspace, {"message": "  "})
-    except ValueError as exc:
-        assert "message is required" in str(exc)
-    else:
-        raise AssertionError("empty chat messages should be rejected")
-
-
-def test_build_chat_turn_payload_reports_approval_required(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Write.",
-                "action": {
-                    "name": "write_file",
-                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
-                },
-            }
-        ]
-    )
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
-
-    payload = build_chat_turn_payload(workspace, {"message": "write notes"})
-
-    assert payload["status"] == "error"
-    assert payload["approval_required"] is True
-    assert payload["error_code"] == "APPROVAL_REQUIRED"
-    assert payload["requested_action"] == "write_file"
-    assert payload["last_observation_summary"] == "这个操作需要你先在右侧审查里批准。"
-    assert "需要你批准后才会执行" in payload["thinking_text"]
-    assert "没有完成" not in payload["thinking_text"]
-    assert not (workspace / "notes.txt").exists()
-
-
-def test_build_chat_turn_payload_translates_run_command_capability_warning(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    marker = workspace / "should-not-exist.txt"
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Run command.",
-                "action": {
-                    "name": "run_command",
-                    "args": {
-                        "argv": [
-                            sys.executable,
-                            "-c",
-                            "from pathlib import Path; Path('should-not-exist.txt').write_text('x')",
-                        ],
-                        "cwd": None,
-                        "timeout_seconds": 5,
-                    },
-                },
-            }
-        ]
-    )
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
-
-    payload = build_chat_turn_payload(workspace, {"message": "run command"})
-
-    expected = "运行命令会以 Agent 当前的操作系统权限启动本地进程；工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。"
-    assert payload["last_observation_summary"] == expected
-    assert build_chat_payload(workspace, payload["session_id"])["turns"][-1]["last_observation_summary"] == expected
-    assert not marker.exists()
-
-
-def test_build_chat_turn_payload_approve_once_executes_one_required_action(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    llm = FakeLLMClient(
-        actions=[
-            {
-                "message": "Write.",
-                "action": {
-                    "name": "write_file",
-                    "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
-                },
-            },
-            {
-                "message": "Done.",
-                "action": {
-                    "name": "done",
-                    "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
-                },
-            },
-        ]
-    )
-    monkeypatch.setattr("agent.web.chats.make_llm", lambda config: llm)
-
-    payload = build_chat_turn_payload(workspace, {"message": "write notes", "approve_once": True})
-
-    assert payload["status"] == "ok"
-    assert payload["approval_required"] is False
-    assert payload["terminal_reason"] == "done"
-    assert payload["final"] == "Wrote notes."
-    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
-
-
-def test_build_chat_turn_payload_approval_retry_uses_same_session(monkeypatch, tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    def make_write_llm(_config):
-        return FakeLLMClient(
-            actions=[
-                {
-                    "message": "Write.",
-                    "action": {
-                        "name": "write_file",
-                        "args": {"path": "notes.txt", "content": "hello\n", "create_parents": False},
-                    },
-                },
-                {
-                    "message": "Done.",
-                    "action": {
-                        "name": "done",
-                        "args": {"final": "Wrote notes.", "changed_files": ["notes.txt"], "next_steps": []},
-                    },
-                },
-            ]
-        )
-
-    monkeypatch.setattr("agent.web.chats.make_llm", make_write_llm)
-
-    first = build_chat_turn_payload(workspace, {"message": "write notes"})
-    second = build_chat_turn_payload(
-        workspace,
-        {"session_id": first["session_id"], "message": "write notes", "approve_once": True},
-    )
-
-    assert first["approval_required"] is True
-    assert second["session_id"] == first["session_id"]
-    assert second["status"] == "ok"
-    assert second["turn_count"] == 2
-    assert (workspace / "notes.txt").read_text(encoding="utf-8") == "hello\n"
-
-
-def test_static_workbench_assets_exist_and_reference_api() -> None:
-    index = static_file_path("index.html").read_text(encoding="utf-8")
-    script = _read_static_scripts()
-    entry_script = static_file_path("assets/app.js").read_text(encoding="utf-8")
-    sse_script = static_file_path("assets/sse.js").read_text(encoding="utf-8")
-    chat_script = static_file_path("assets/render/chat.js").read_text(encoding="utf-8")
-    diagnostics_script = static_file_path("assets/render/diagnostics.js").read_text(encoding="utf-8")
-    styles = static_file_path("assets/app.css").read_text(encoding="utf-8")
-
-    assert "Agent Workbench" in index
-    for path in JS_MODULES:
-        assert static_file_path(path).is_file()
-    assert 'type="module"' in index
-    assert '"./state.js"' in entry_script
-    assert '"./api.js"' in entry_script
-    assert '"./sse.js"' in entry_script
-    assert 'from "./render/' in entry_script
-    assert "void " not in entry_script
-    assert "EventSource" in sse_script
-    assert '"approval_timed_out",' in sse_script
-    assert (
-        "Run commands execute local processes with the agent's OS permissions; workspace path checks do not fully "
-        "contain file, network, or subprocess access. Approval is required."
-    ) in chat_script
-    assert "运行命令会以 Agent 当前的操作系统权限启动本地进程；工作区路径检查无法完整限制文件、网络或子进程访问。执行前需要你的批准。" in chat_script
-    assert "const reason = friendlyChatText(event.reason);" in chat_script
-    assert "return null" not in sse_script
-    assert "function openChatEventSource" not in chat_script
-    assert "export const " not in "\n".join(
-        static_file_path(path).read_text(encoding="utf-8")
-        for path in JS_MODULES
-        if path.startswith("assets/render/") and path != "assets/render/chat.js"
-    )
-    assert "TOKEN/CODEX" not in index
-    assert "new-task-button" in index
-    assert "聊天" in index
-    assert "文件" in index
-    assert "数据中心" in index
-    assert "设置" in index
-    assert 'data-view="chat"' in index
-    assert 'data-view="editor"' in index
-    assert 'data-view="resources"' in index
-    assert 'data-view="settings"' in index
-    assert "message-input" in index
-    assert 'aria-label="消息"' in index
-    assert "recent-file-list" in index
-    assert "resource-summary-list" in index
-    assert "settings-tool-list" in index
-    assert "settings-key-status" in index
-    assert "settings-web-search" in index
-    assert "settings-computer-read" in index
-    assert 'if (config.approval === "never")' in script
-    assert 'option.textContent = "never (global)";' in script
-    assert "option.disabled = true;" in script
-    assert "globalNeverOption?.remove();" in script
-    assert 'if (els.settingsApproval.value !== "never")' in script
-    assert "payload.approval = els.settingsApproval.value;" in script
-    assert 'data-settings-target="settings-api-section"' in index
-    assert 'data-settings-target="settings-runtime-section"' in index
-    assert 'data-settings-target="settings-tools-section"' in index
-    assert 'id="settings-api-section"' in index
-    assert 'id="settings-runtime-section"' in index
-    assert 'id="settings-tools-section"' in index
-    assert "运行权限" in index
-    assert "审批策略" not in index
-    assert "Codex CLI" not in index
-    assert 'aria-label="文件编辑器"' in index
-    assert "追加消息..." in index
-    assert "chat-thread" in index
-    assert "conversation-tabs" in index
-    assert "left-resizer" in index
-    assert "right-resizer" in index
-    assert "resource-detail-modal" in index
-    assert "context-column" in index
-    assert "stage-column" in index
-    assert "assistant-column" in index
-    assert "tokenicode-shell" in index
-    assert "window-dot" not in index
-    assert "diagnostics-drawer" not in index
-    assert "diagnostics-toggle" not in index
-    assert "rail-diagnostics-toggle" not in index
-    assert "side-tabs" in index
-    assert 'data-side-panel="review"' in index
-    assert 'data-side-panel="terminal"' in index
-    assert 'data-side-panel="files"' in index
-    assert 'data-side-panel="chat"' in index
-    assert 'aria-label="回到聊天"' in index
-    assert "terminal-output" in index
-    assert "side-file-list" in index
-    assert "side-chat-list" in index
-    assert "web-search-toggle" in index
-    assert "computer-read-toggle" in index
-    assert "native-tools-toggle" in index
-    assert "thinking-toggle" in index
-    assert "api-key-chip" not in index
-    assert "mode-chip" not in index
-    assert "sandbox-chip" not in index
-    assert "/api/health" in script
-    assert "/api/config" in script
-    assert "/api/chats" in script
-    assert "/api/runs" in script
-    assert "/api/files" in script
-    assert "/api/file" in script
-    assert "/api/file/save" in script
-    assert "/api/diff" in script
-    assert "/api/snapshot/restore" in script
-    assert "/api/chat/turn" in script
-    assert "/api/chat/start" in script
-    assert "/api/chat/events" in script
-    assert "/api/chat/approval" in script
-    assert "/api/chat/rename" in script
-    assert "/api/chat/delete" in script
-    assert "thinking_text" in script
-    assert "renderConversationTabs" in script
-    assert "chat.title" in script
-    assert "chat-row" in script
-    assert "renderThinkingText" in script
-    assert "renderThinkingTextTyping" in script
-    typing_renderer = chat_script[
-        chat_script.index("function renderThinkingTextTyping") : chat_script.index("function renderProcessCards")
-    ]
-    assert "if (!container.contains(target))" in typing_renderer
-    assert "keydown" in script
-    assert "isComposing" in script
-    assert "shiftKey" in script
-    assert "settingsNavButtons" in script
-    assert "scrollToSetting" in script
-    assert "scrollIntoView" in script
-    assert "computer_read_enabled" in script
-    assert "modeChip" not in script
-    assert "sandboxChip" not in script
-    assert "model_stream_chunk" in script
-    assert "toggleConfigKey" in script
-    assert "renderChipToggles" in script
-    assert "config.allowed_commands" in script
-    assert "命令白名单" in script
-    assert "allowed_commands:" not in script
-    assert "stream-live-text" in styles
-    assert "chip-toggle" in styles
-    assert "Recovered after" not in script
-    assert "invalid_model_response" not in script
-    assert "window.confirm" not in script
-    assert "approval-panel" in index
-    assert "approve-button" in index
-    assert "deny-button" in index
-    assert "file-editor" in index
-    assert "save-file-button" in index
-    assert "showApprovalPanel" in script
-    assert "保存文件" in script
-    assert "恢复" in script
-    assert "refreshWorkbench" in script
-    assert "renderDiagnostics" in script
-    assert 'id="tool-call-list"' in index
-    assert "const warning = call.data?.trace?.warning;" in diagnostics_script
-    assert "warning ? `${warning}\\n${summary}` : summary" in diagnostics_script
-    assert "Provider API key" in script
-    assert 'status.api_key_required ? "缺失" : "未配置（可选）"' in script
-    assert "web_search_enabled" in script
-    assert "display_status" in script
-    assert "repair_count" in script
-    assert "thought-process" in script
-    assert "closeConversationTab" in script
-    assert "tab-close" in script
-    assert "chat-menu-button" in script
-    assert "renameChat" in script
-    assert "deleteChat" in script
-    assert "showActionError" in script
-    assert "backendErrorMessage" in script
-    assert "globalThis.confirm" in script
-    assert "initColumnResize" in script
-    assert "renderPagedList" in script
-    assert "openResourceDetail" in script
-    assert "resourcePanels" in script
-    assert "resourcePreviewItem" in script
-    assert "data-resource-expand" not in index
-    assert "buildPendingProcess" not in script
-    assert "pendingRouteFor" not in script
-    assert "代码/项目修改" not in script
-    assert "网页/视觉设计" not in script
-    assert "EventSource" in script
-    assert "renderLiveTurnIncrement" in script
-    handle_chat_event = sse_script[sse_script.index("function handleChatEvent") :]
-    assert "renderChatThread" not in handle_chat_event
-    assert "renderProcessCards" in script
-    assert "process-step-card" in script
-    assert "submitApproval" in script
-    assert '["approval_granted", "approval_denied", "approval_timed_out"]' in chat_script
-    assert 'event.event === "approval_timed_out"' in chat_script
-    assert 'approval_timed_out: "审批超时"' in chat_script
-    assert 'return "审批超时。";' in chat_script
-    assert "renderMessageBody" in script
-    assert "renderCodeBlock" in script
-    assert "renderMarkdownTable" in script
-    assert 'document.createElement("a")' in script
-    assert 'document.createElement("strong")' in script
-    assert 'article.querySelector(".message-body").textContent = body;' not in script
-    assert "已收到你的输入" not in script
-    assert "details.open = Boolean(options.openThinking);" in script
-    assert 'state.animateLatestRunId = "__pending__";' in script
-    assert "state.animateLatestRunId = turn.run_id;" not in script
-    start_new_chat = script[script.index("function startNewChat()") : script.index("function renderChatThread")]
-    assert 'activateView("chat");' in start_new_chat
-    assert "SEARCH_DEBOUNCE_MS = 200" in script
-    assert "debounce(" in script
-    assert "等待审批" in script
-    assert "快照" in index
-    assert "任务审查" in index
-    assert "补丁审查" in index
-    assert "details-pane" not in index
-    assert "height: 100vh" in styles
-    assert "overflow: hidden" in styles
-    assert "@layer base, layout, components, utilities;" in styles
-    assert ".apix-shell" in styles
-    assert "--surface:" in styles
-    assert "--accent:" in styles
-    assert "--text:" in styles
-    assert "color-scheme" in styles
-    assert ".token-sidebar" in styles
-    assert ".new-task-button" in styles
-    assert ".conversation-tabs" in styles
-    assert ".conversation-tab" in styles
-    assert ".tab-close" in styles
-    assert ".column-resizer" in styles
-    assert ".chat-menu" in styles
-    assert ".pagination-row" in styles
-    assert ".resource-preview-item" in styles
-    assert ".resource-detail-modal" in styles
-    assert ".chat-row" in styles
-    assert ".app-view.active" in styles
-    assert ".side-tabs" in styles
-    assert ".side-panel.active" in styles
-    assert "#side-review #run-list" in styles
-    assert "#selected-run-title" in styles
-    assert ".settings-nav button" in styles
-    assert ".terminal-output" in styles
-    assert ".thought-process" in styles
-    assert ".process-step-card" in styles
-    assert ".copy-code-button" in styles
-    assert ".markdown-table" in styles
-    assert '[data-theme="dark"]' in styles
-    assert ".token-secondary" in styles
-    assert "@keyframes view-rise" in styles
-    assert "@media (prefers-reduced-motion: no-preference)" in styles

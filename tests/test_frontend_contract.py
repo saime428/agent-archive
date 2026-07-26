@@ -19,16 +19,23 @@ def _required(name: str) -> list[str]:
     return _PAYLOAD_CONTRACT[name]["required"]
 
 
-def test_frontend_event_catalog_matches_legacy_and_backend() -> None:
+def test_frontend_event_catalog_matches_frontend_and_backend() -> None:
     fixture = json.loads((ROOT / "frontend" / "src" / "test" / "chat-events.json").read_text(encoding="utf-8"))
     known = fixture["known_events"]
-    legacy_source = (ROOT / "src" / "agent" / "web" / "static" / "assets" / "sse.js").read_text(encoding="utf-8")
-    block = legacy_source.split("const CHAT_EVENT_NAMES = [", 1)[1].split("];", 1)[0]
-    legacy = re.findall(r'"([a-z_]+)"', block)
+    frontend_source = (ROOT / "frontend" / "src" / "api" / "types.ts").read_text(encoding="utf-8")
+    block = frontend_source.split("export const CHAT_EVENT_NAMES = [", 1)[1].split("] as const;", 1)[0]
+    frontend = re.findall(r'"([a-z_]+)"', block)
+    backend_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            ROOT / "src" / "agent" / "core" / "loop.py",
+            ROOT / "src" / "agent" / "web" / "chat_runtime.py",
+        )
+    )
 
-    assert known == [*legacy[:-2], "capability_warning", *legacy[-2:]]
-    assert '"capability_warning"' in (ROOT / "src" / "agent" / "core" / "loop.py").read_text(encoding="utf-8")
-    assert len(known) == 14
+    assert known == frontend
+    assert all(f'"{name}"' in backend_source for name in known)
+    assert len(known) == 18
 
 
 def test_health_payload_carries_required_keys_and_read_only_sections(tmp_path) -> None:
