@@ -975,3 +975,25 @@ def test_phase3_recoverable_task_lifecycle_docs_lock_scope_and_completion_bounda
     assert "3A Lifecycle" in verification
     assert "Project vNext 核心仍未完成" in verification
     assert "Phase 4–5" in verification
+
+
+def test_phase3_memory_lifecycle_docs_lock_scope_and_completion_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-memory-lifecycle-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-25-phase3-memory-lifecycle.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-memory-lifecycle.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3B Memory" in direction
+    assert "candidate 状态只有 pending、accepted、rejected" in spec
+    assert "current active 叶节点" in spec
+    assert "不建数据库" in spec
+    assert "并发 accept/reject 只有一个成功" in plan
+    assert "Project vNext 核心仍未完成" in verification
+    assert "Phase 4–5" in verification
