@@ -34,6 +34,7 @@ from agent.web.files import (
     build_save_file_payload,
     build_search_payload,
 )
+from agent.web.git import build_git_diff_payload, build_git_status_payload
 from agent.web.runs import (
     build_run_detail_payload as _build_run_detail_payload,
     build_runs_payload as _build_runs_payload,
@@ -147,6 +148,18 @@ def create_workbench_handler(
                     return
                 if path == "/api/search":
                     self._send_json(build_search_payload(root, _query_value(parsed.query, "query")))
+                    return
+                if path == "/api/git/status":
+                    self._send_json(build_git_status_payload(root))
+                    return
+                if path == "/api/git/diff":
+                    self._send_json(
+                        build_git_diff_payload(
+                            root,
+                            _query_value(parsed.query, "path"),
+                            _query_value(parsed.query, "area"),
+                        )
+                    )
                     return
                 if path == "/api/file":
                     self._send_json(build_file_payload(root, _query_value(parsed.query, "path")))

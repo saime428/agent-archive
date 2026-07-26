@@ -100,6 +100,7 @@ def test_git_diff_returns_worktree_diff(tmp_path) -> None:
     assert observation.status == "ok"
     assert observation.data is not None
     assert observation.data["exit_code"] == 0
+    assert observation.data["argv"][:4] == ["git", "diff", "--no-ext-diff", "--no-textconv"]
     assert "-old" in observation.data["stdout"]
     assert "+new" in observation.data["stdout"]
 

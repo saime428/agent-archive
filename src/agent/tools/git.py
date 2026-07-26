@@ -112,7 +112,7 @@ def _build_argv(
     if action.action.name == "git_status":
         return ["git", "status", "--short"] if action.action.args["short"] else ["git", "status"]
     if action.action.name == "git_diff":
-        argv = ["git", "diff"]
+        argv = ["git", "diff", "--no-ext-diff", "--no-textconv"]
         if action.action.args["cached"]:
             argv.append("--cached")
         path = action.action.args.get("path")

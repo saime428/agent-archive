@@ -215,6 +215,18 @@ def _wait_for_runtime_event(runtime: ChatRuntime, job_id: str, name: str) -> lis
             "GET", "/api/file?path=README.md", "build_file_payload", _NO_BODY, (_ROOT, "README.md"), {}, id="file"
         ),
         pytest.param(
+            "GET", "/api/git/status", "build_git_status_payload", _NO_BODY, (_ROOT,), {}, id="git-status"
+        ),
+        pytest.param(
+            "GET",
+            "/api/git/diff?path=src%2Fapp.py&area=staged",
+            "build_git_diff_payload",
+            _NO_BODY,
+            (_ROOT, "src/app.py", "staged"),
+            {},
+            id="git-diff",
+        ),
+        pytest.param(
             "GET",
             "/api/diff?path=a&snapshot=b",
             "build_diff_payload",
