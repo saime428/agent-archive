@@ -24,7 +24,7 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
-| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A–3F 已完成；Phase 3G–3I 和最终全量缺陷清零仍未完成 |
+| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A–3G 已完成；Phase 3H–3I 和最终全量缺陷清零仍未完成 |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -44,7 +44,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Phase 3D: stable Eval | Complete | Four fixed FakeLLM cases run through the real loop with deterministic completion/error/Tool metrics, bounded atomic reports, stable exit codes and source/wheel evidence |
 | Phase 3E: Editor/Search | Complete | Lazy desktop Monaco, shared mobile textarea fallback, multi-tab dirty state, bounded recursive search/line jump, snapshot saves, Worker/package/browser evidence are complete |
 | Phase 3F: Git/Diff | Complete | Read-only porcelain status and staged/unstaged diff cover repository boundaries, sandboxing, bounded output, Git edge states, React/browser/source/wheel evidence |
-| Project vNext core (Phase 0–3) | In progress | Phase 3A–3F are complete; Phase 3G–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
+| Phase 3G: Terminal | Complete | Explicit enablement, shared command/path policy, structured argv, cursor output, line-mode stdin, tree stop/timeout/close, React/source/wheel/browser evidence are complete |
+| Project vNext core (Phase 0–3) | In progress | Phase 3A–3G are complete; Phase 3H–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
 | Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones
@@ -358,8 +359,8 @@ Phase 3 productivity remains the required next track. Marketplace, registry, rem
 sources, distribution, and ecosystem UI remain demand-triggered Phase 4–5 items.
 
 Completed slices: Phase 3A recoverable task lifecycle, 3B auditable Memory,
-3C auditable Automation, 3D stable Eval, 3E Editor/Search, and 3F Git/Diff. The next
-required slice is 3G Terminal; this does not declare Phase 3 or Project vNext core complete.
+3C auditable Automation, 3D stable Eval, 3E Editor/Search, 3F Git/Diff, and 3G Terminal. The next
+required slice is 3H Command/Layout; this does not declare Phase 3 or Project vNext core complete.
 
 ## Guardrails
 

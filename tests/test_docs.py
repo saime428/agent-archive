@@ -1136,7 +1136,9 @@ def test_phase3_terminal_docs_lock_line_mode_process_boundary() -> None:
     assert "结构化 argv" in spec
     assert "最多保留 1 MiB" in spec
     assert "不新增 dependency" in plan
-    assert "状态：待实施与独立验收" in verification
+    assert "状态：3G Terminal 已完成" in verification
+    assert "1177 passed" in verification
+    assert "a7f5e2c26c1a3d4e7aba3ece642ee84a990ae60c98d4c39012ece6a2e029f75f" in verification
     assert "3H Command/Layout" in verification
 
 

@@ -27,8 +27,8 @@
 | Providers | Fake、DeepSeek、OpenAI-compatible、显式能力声明与带 auth/smoke 元数据的注册表 | 模型级能力目录、模型选择、更多协议 Adapter 与 Workbench 能力暴露 |
 | Tools 与安全 | Filesystem、Shell、Git、Web、Documents 与 stdio MCP；统一 catalog、schema 校验、sandbox、approval、redaction、snapshot、durable logs | 后续扩展仍必须无例外地接入同一安全链与 trace |
 | 扩展底座 | stdio MCP 动态 Tool 与 managed 配置/启停/live doctor、Skills 三来源与用户级 install/update/package/remove、共享用户存储事务层、Memory、Hooks、Tool catalog | 仍缺自动重连、远程来源、registry 与 Workbench 写接口 |
-| 产品入口 | CLI、Python stdlib Workbench、HTTP JSON/SSE、会话与运行记录；Frontend vNext Phase 1/2 与 Default Entry Cutover 已完成 | 仍缺真正的编辑/终端工作区、统一生态管理入口和旧壳退役证据 |
-| 质量与运维 | pytest、doctor、release doctor、真实 Provider/Workbench 验收经验 | 稳定 eval 集、跨 Interface 契约门禁、CI 发布与安装包闭环 |
+| 产品入口 | CLI、Python stdlib Workbench、HTTP JSON/SSE、会话与运行记录；Frontend vNext Phase 1/2、Default Entry Cutover 与 Phase 3E–3G 开发工作区已完成 | 仍缺命令面板、布局持久化与旧壳退役证据；统一生态管理入口属于需求触发项 |
+| 质量与运维 | pytest、doctor、release doctor、稳定 eval、真实 Provider/Workbench 验收经验 | 仍需最终跨 Interface 缺陷清零；CI 发布与安装包闭环属于需求触发项 |
 | 分发与远程 | 本地源码/包运行、`agent start` | 签名安装包、自动更新、Gateway、远程身份与社区 registry 均为需求触发项 |
 
 结论：项目已经有核心和安全底座，接下来先完成阶段 3 的个人生产力闭环和最终全链路缺陷清零，不应重新造一个 Agent runtime，也不应让商业化分发或社区能力阻塞核心完成。
@@ -150,10 +150,10 @@
 2. Frontend Default Entry Cutover（已完成）：根 `/` 使用 React，`/preview/` 保持兼容，
    `/legacy/` 保留旧 Workbench 回滚入口；旧壳删除必须等待稳定期证据并另行审查。
 3. 阶段 3 的可恢复任务生命周期、Memory 修订/删除/来源、Automation 幂等/通知、稳定 eval、
-   Editor/Search 与 Git/Diff 已分别完成并通过独立验收；下一切片为 3G Terminal。Automation 继续只允许显式
+   Editor/Search、Git/Diff 与 Terminal 已分别完成并通过独立验收；下一切片为 3H Command/Layout。Automation 继续只允许显式
    前台 worker，不开放无人值守高风险审批。
-4. Frontend Phase 3 按独立纵切推进：编辑器与搜索、Git/diff、真实 Terminal 与进程管理、
-   命令面板和布局持久化。每个纵切只消费已经存在且有契约的后端 Interface；缺少后端
+4. Frontend Phase 3 剩余独立纵切为命令面板与布局持久化，以及稳定后旧壳退役。每个纵切只消费
+   已经存在且有契约的后端 Interface；缺少后端
    语义时先写独立后端 spec。
 5. 阶段 0–3 全部闭环后运行最终测试矩阵，覆盖对话、生成、前端、后端/API、CLI、
    打包和真实浏览器；修复全部可复现缺陷并整套复跑后，才允许宣告 Project vNext 核心完成。

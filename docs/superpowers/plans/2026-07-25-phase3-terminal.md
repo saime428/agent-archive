@@ -1,8 +1,9 @@
 # Phase 3G Terminal 与进程管理实施计划
 
 - 日期：2026-07-25
-- 状态：执行中
+- 状态：已完成并通过独立验收
 - 设计：[Phase 3G Terminal 与进程管理](../specs/2026-07-25-phase3-terminal-design.md)
+- 验收：[Phase 3G Terminal 验收记录](../../verification/phase3-terminal.md)
 
 ## 固定边界
 

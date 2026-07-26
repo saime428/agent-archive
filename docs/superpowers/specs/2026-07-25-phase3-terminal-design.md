@@ -1,8 +1,9 @@
 # 设计：Phase 3G Terminal 与进程管理
 
 - 日期：2026-07-25
-- 状态：设计已锁定，待实施与独立验收
+- 状态：已实施并通过独立验收
 - 上位方向：[Phase 3 方向分析与审查](../../project-vnext-phase3-direction-review.md)
+- 验收：[Phase 3G Terminal 验收记录](../../verification/phase3-terminal.md)
 
 ## 目标
 
