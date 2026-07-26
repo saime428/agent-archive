@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,25 @@ def test_reference_eval_rejects_duplicate_case_ids_before_writing(tmp_path: Path
     with pytest.raises(EvalError, match="duplicate eval case id"):
         run_reference_eval(tmp_path)
     assert not (tmp_path / ".agent").exists()
+
+
+def test_reference_eval_reports_metric_mismatch_and_cli_exits_nonzero(tmp_path: Path, monkeypatch) -> None:
+    mismatched = replace(eval_module._REFERENCE_CASES[0], expected_tool_calls=1)
+    monkeypatch.setattr(eval_module, "_REFERENCE_CASES", (mismatched, *eval_module._REFERENCE_CASES[1:]))
+
+    report = run_reference_eval(tmp_path)
+
+    assert report.passed is False
+    assert report.failed_cases == 1
+    assert report.cases[0].failure_detail == "tool_calls: expected 1, got 0"
+
+    monkeypatch.setattr("agent.cli.run_reference_eval", lambda _workspace: report)
+    result = CliRunner().invoke(app, ["eval", "run", "--cwd", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "passed: 3 failed: 1" in result.output
+    assert "detail: tool_calls: expected 1, got 0" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_reference_eval_report_publish_is_atomic_and_cli_success_is_stable(tmp_path: Path, monkeypatch) -> None:
