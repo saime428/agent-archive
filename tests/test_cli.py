@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,6 +11,7 @@ from typer.testing import CliRunner
 
 from agent.cli import app
 from agent.config import AgentConfig
+from agent.core.automation import AutomationStore
 from agent.core.chat import ConversationState
 from agent.core.memory import MemoryStore
 from agent.core.run_control import RunControl
@@ -1771,6 +1773,69 @@ def test_memory_reject_revise_delete_and_history_commands(tmp_path) -> None:
     assert f"deleted: {revised_id}" in delete_result.output
     assert len(delete_result.output.splitlines()) == 1
     assert runner.invoke(app, ["memory", "list", "--cwd", str(workspace)]).output == ""
+
+
+def test_automation_add_enable_worker_and_audit_commands(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    added = runner.invoke(
+        app,
+        ["automation", "add", "inspect parser tests", "--every-minutes", "1", "--cwd", str(workspace)],
+    )
+
+    assert added.exit_code == 0
+    automation_id = added.output.split("added:", 1)[1].strip().split()[0]
+    assert automation_id.startswith("auto_")
+    assert "status: disabled" in added.output
+    listed = runner.invoke(app, ["automation", "list", "--cwd", str(workspace)])
+    assert automation_id in listed.output
+    assert "disabled" in listed.output
+
+    enabled = runner.invoke(app, ["automation", "enable", automation_id, "--cwd", str(workspace)])
+    assert enabled.exit_code == 0
+    assert f"enabled: {automation_id}" in enabled.output
+
+    worked = runner.invoke(app, ["automation", "worker", "--once", "--cwd", str(workspace)])
+    assert worked.exit_code == 0
+    assert "succeeded: 1" in worked.output
+
+    attempts = runner.invoke(app, ["automation", "attempts", "--cwd", str(workspace)])
+    assert attempts.exit_code == 0
+    assert automation_id in attempts.output
+    assert "status: succeeded" in attempts.output
+    history = runner.invoke(app, ["automation", "history", automation_id, "--cwd", str(workspace)])
+    assert history.exit_code == 0
+    assert "disabled" in history.output
+    assert "enabled" in history.output
+    assert runner.invoke(app, ["automation", "notifications", "--cwd", str(workspace)]).output == ""
+
+    disabled = runner.invoke(app, ["automation", "disable", automation_id, "--cwd", str(workspace)])
+    assert disabled.exit_code == 0
+    assert f"disabled: {automation_id}" in disabled.output
+
+
+def test_automation_cancel_and_notifications_commands(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    now = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
+    store = AutomationStore(workspace)
+    definition = store.add_definition(task="cancel me", interval_seconds=60, now=now)
+    store.enable_definition(definition.automation_id, now=now)
+    attempt = store.claim_due(now=now)[0]
+    store.mark_running(attempt.attempt_id, now=now)
+
+    cancelled = runner.invoke(app, ["automation", "cancel", attempt.attempt_id, "--cwd", str(workspace)])
+
+    assert cancelled.exit_code == 0
+    assert f"cancel_requested: {attempt.attempt_id}" in cancelled.output
+    store.recover_incomplete(now=now + timedelta(seconds=1))
+    notifications = runner.invoke(app, ["automation", "notifications", "--cwd", str(workspace)])
+    assert notifications.exit_code == 0
+    assert attempt.attempt_id in notifications.output
+    assert "status: cancelled" in notifications.output
 
 
 def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:

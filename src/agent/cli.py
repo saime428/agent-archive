@@ -6,13 +6,16 @@ import json
 import os
 import platform
 import shutil
+import signal
 from pathlib import Path
+from threading import Event
 
 import typer
 from rich.console import Console
 
 from agent.config import AgentConfig, ConfigDiagnostics, ConfigError, ConfigOverrides, load_config
 from agent.config_write import remove_project_config_keys, save_project_config
+from agent.core.automation import AutomationAttempt, AutomationError, AutomationStore, AutomationWorker
 from agent.core.chat import ChatSession, ConversationState
 from agent.core.hooks import BUILTIN_HOOKS
 from agent.core.loop import run_once
@@ -43,6 +46,7 @@ mcp_app = typer.Typer(help="Manage local MCP server configuration.")
 hooks_app = typer.Typer(help="Inspect run hooks.")
 skills_app = typer.Typer(help="Inspect and load agent skills.")
 memory_app = typer.Typer(help="Review and manage agent memory.")
+automation_app = typer.Typer(help="Manage explicit local automations.")
 provider_app = typer.Typer(help="Inspect and smoke-test LLM providers.")
 release_app = typer.Typer(help="Inspect release readiness.")
 app.add_typer(runs_app, name="runs")
@@ -52,6 +56,7 @@ app.add_typer(mcp_app, name="mcp")
 app.add_typer(hooks_app, name="hooks")
 app.add_typer(skills_app, name="skills")
 app.add_typer(memory_app, name="memory")
+app.add_typer(automation_app, name="automation")
 app.add_typer(provider_app, name="provider")
 app.add_typer(release_app, name="release")
 
@@ -1151,6 +1156,208 @@ def memory_undo(
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     console.file.write(f"undone: {tombstone.supersedes}\n")
+
+
+@automation_app.command("add")
+def automation_add(
+    task: str,
+    every_minutes: int = typer.Option(
+        ...,
+        "--every-minutes",
+        min=1,
+        max=525_600,
+        help="Fixed UTC interval in minutes.",
+    ),
+    skill: list[str] | None = typer.Option(None, "--skill", help="Skill to load for each attempt."),
+    timeout_seconds: int = typer.Option(
+        DEFAULT_RUN_TIMEOUT_SECONDS,
+        "--timeout-seconds",
+        min=MIN_RUN_TIMEOUT_SECONDS,
+        max=MAX_RUN_TIMEOUT_SECONDS,
+        help="Whole-attempt timeout in seconds.",
+    ),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """Add a disabled fixed-interval automation."""
+    try:
+        definition = AutomationStore((cwd or Path.cwd()).resolve()).add_definition(
+            task=task,
+            interval_seconds=every_minutes * 60,
+            skills=tuple(skill or ()),
+            timeout_seconds=timeout_seconds,
+        )
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.file.write(
+        f"added: {definition.automation_id} status: {definition.status} every_minutes: {every_minutes}\n"
+    )
+
+
+@automation_app.command("list")
+def automation_list(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """List current automation definitions."""
+    try:
+        definitions = AutomationStore((cwd or Path.cwd()).resolve()).list_definitions()
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for definition in definitions:
+        skills = ",".join(definition.skills) or "-"
+        console.file.write(
+            f"{definition.automation_id}\tstatus: {definition.status}"
+            f"\tevery_minutes: {definition.interval_seconds // 60}"
+            f"\ttimeout_seconds: {definition.timeout_seconds}\tskills: {skills}\t{definition.task}\n"
+        )
+
+
+@automation_app.command("history")
+def automation_history(
+    automation_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """Show definition enable and disable revisions."""
+    try:
+        history = AutomationStore((cwd or Path.cwd()).resolve()).definition_history(automation_id)
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for definition in history:
+        console.file.write(
+            f"{definition.automation_id}\tstatus: {definition.status}"
+            f"\tanchor: {definition.anchor_at or '-'}\tupdated: {definition.updated_at}\n"
+        )
+
+
+@automation_app.command("enable")
+def automation_enable(
+    automation_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """Enable an automation and make its first slot immediately due."""
+    try:
+        definition = AutomationStore((cwd or Path.cwd()).resolve()).enable_definition(automation_id)
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.file.write(f"enabled: {definition.automation_id} anchor: {definition.anchor_at}\n")
+
+
+@automation_app.command("disable")
+def automation_disable(
+    automation_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """Disable future slots without cancelling a running attempt."""
+    try:
+        definition = AutomationStore((cwd or Path.cwd()).resolve()).disable_definition(automation_id)
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.file.write(f"disabled: {definition.automation_id}\n")
+
+
+@automation_app.command("attempts")
+def automation_attempts(
+    automation_id: str | None = typer.Option(None, "--automation-id", help="Filter by automation id."),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """List current durable automation attempts."""
+    try:
+        attempts = AutomationStore((cwd or Path.cwd()).resolve()).list_attempts(automation_id=automation_id)
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for attempt in attempts:
+        _print_automation_attempt(attempt)
+
+
+@automation_app.command("notifications")
+def automation_notifications(
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """List abnormal terminal attempts as local notifications."""
+    try:
+        notifications = AutomationStore((cwd or Path.cwd()).resolve()).list_notifications()
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    for notification in notifications:
+        _print_automation_attempt(notification)
+
+
+@automation_app.command("cancel")
+def automation_cancel(
+    attempt_id: str,
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """Request cancellation of a claimed or running attempt."""
+    try:
+        attempt = AutomationStore((cwd or Path.cwd()).resolve()).request_cancel(attempt_id)
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    console.file.write(f"cancel_requested: {attempt.attempt_id}\n")
+
+
+@automation_app.command("worker")
+def automation_worker(
+    once: bool = typer.Option(False, "--once", help="Run one recovery and due-claim pass, then exit."),
+    poll_seconds: int = typer.Option(5, "--poll-seconds", min=1, max=3600, help="Foreground poll interval."),
+    cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for automations."),
+) -> None:
+    """Run the explicit foreground automation worker."""
+    worker = AutomationWorker((cwd or Path.cwd()).resolve())
+    stop_event = Event()
+    previous_handlers: dict[signal.Signals, object] = {}
+
+    def request_stop(_signum, _frame) -> None:
+        stop_event.set()
+
+    for signum in (signal.SIGINT, getattr(signal, "SIGTERM", signal.SIGINT)):
+        if signum in previous_handlers:
+            continue
+        previous_handlers[signum] = signal.getsignal(signum)
+        signal.signal(signum, request_stop)
+    try:
+        if once:
+            attempts = worker.run_once(stop_requested=stop_event.is_set)
+            for attempt in attempts:
+                _print_automation_attempt(attempt)
+            succeeded = sum(item.status == "succeeded" for item in attempts)
+            abnormal = len(attempts) - succeeded
+            console.file.write(
+                f"attempts: {len(attempts)} succeeded: {succeeded} abnormal: {abnormal}\n"
+            )
+            if abnormal:
+                raise typer.Exit(code=1)
+            return
+
+        console.file.write("worker: started\n")
+        failures = worker.run_forever(
+            stop_event,
+            poll_seconds=poll_seconds,
+            on_attempt=_print_automation_attempt,
+        )
+        console.file.write(f"worker: stopped failures: {failures}\n")
+        if failures:
+            raise typer.Exit(code=1)
+    except AutomationError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+
+
+def _print_automation_attempt(attempt: AutomationAttempt) -> None:
+    console.file.write(
+        f"{attempt.attempt_id}\tautomation: {attempt.automation_id}\tstatus: {attempt.status}"
+        f"\tscheduled: {attempt.scheduled_for}\trun: {attempt.run_id}"
+        f"\tsummary: {attempt.summary_path or '-'}\terror: {attempt.error or '-'}\n"
+    )
 
 
 def _make_llm(config):
