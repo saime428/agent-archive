@@ -1,7 +1,7 @@
 # Project vNext Phase 3 方向分析与审查
 
 - 日期：2026-07-25
-- 状态：3A Lifecycle 至 3G Terminal 已完成；下一切片为 3H Command/Layout
+- 状态：3A Lifecycle 至 3H Command/Layout 已完成；下一切片为 3I Legacy retirement
 - 上位方向：[Project vNext 总方向](project-vnext-direction.md)
 - 前端子方向：[Frontend vNext 总方向](frontend-vnext-direction.md)
 
@@ -26,7 +26,7 @@ Phase 3 不做一次性大改，固定按以下依赖推进：
 每一项依次经过 spec 审查、implementation plan 审查、实现、五轴审查和真实路径验收；后端
 Interface 不存在时先完成后端切片，前端不先造假入口。
 
-当前进度：3A Lifecycle 至 3G Terminal 已完成并通过独立验收；3H–3I 与最终全链路缺陷清零仍未完成。
+当前进度：3A Lifecycle 至 3H Command/Layout 已完成并通过独立验收；3I 与最终全链路缺陷清零仍未完成。
 
 ## 当前事实与真实缺口
 
@@ -41,7 +41,7 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 | Files | React 文件树、Monaco 多标签、移动 textarea、独立 dirty buffer、递归搜索/行跳转、snapshot 保存 | 无；3E 已完成，后续切片不扩张文件写 Interface |
 | Git | Agent Tool 与 Workbench 都有只读 status/diff；3F 已完成仓库根、sandbox、上限、错误态与 staged/unstaged/untracked 闭环 | 无；后续切片不扩张为 commit、push 或 stage UI |
 | Terminal | 3G 已完成显式启用、结构化 argv、cursor 输出、line-mode stdin、stop/timeout/close、进程树清理与刷新恢复 | 无；后续切片不扩张为 PTY、shell、后台或多会话 Terminal |
-| Product shell | React 已是根入口，legacy 可回滚 | 命令面板、布局持久化、稳定期证据、旧壳和兼容测试删除 |
+| Product shell | React 已是根入口，legacy 可回滚；3H 命令面板与布局持久化已完成 | 稳定期证据、旧壳和兼容测试删除 |
 
 ## 固定语义
 
@@ -111,5 +111,5 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 4. 安全：禁止 Tool 自动重放、无人值守 approval bypass、Terminal 假清理和浏览器 secrets 持久化。
 5. 性能：个人工具默认单 workspace slot；event 采用 append/cursor，搜索和输出必须有界。
 
-审查结论：通过，无未解决 finding。3A Lifecycle 至 3G Terminal 已按各自独立设计和验收记录
-完成；下一步仅进入 3H Command/Layout。
+审查结论：通过，无未解决 finding。3A Lifecycle 至 3H Command/Layout 已按各自独立设计和验收记录
+完成；下一步仅进入 3I Legacy retirement。

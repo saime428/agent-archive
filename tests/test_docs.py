@@ -1160,7 +1160,9 @@ def test_phase3_command_layout_docs_lock_local_only_boundary() -> None:
     assert "Ctrl+K" in spec
     assert "不增加后端 Interface" in spec
     assert "不新增 dependency" in plan
-    assert "状态：待实施与独立验收" in verification
+    assert "状态：3H Command/Layout 已完成" in verification
+    assert "1178 passed" in verification
+    assert "29a921fb64c6f07503fb397b1e7b15ababa57255bb8cfdb43fbac3a08efb93c7" in verification
     assert "3I Legacy retirement" in verification
 
 
