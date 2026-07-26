@@ -24,7 +24,7 @@ workflow is actually useful.
 | Core agent engine | 100% | Required local core route is complete |
 | Visual Workbench product | 100% | Required local visual route is complete |
 | Overall final goal | 100% | Required legacy roadmap is complete; packaging and desktop shell are trigger-based options, while bounded browser config writes are available in `/preview/` |
-| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover 与 Phase 3A Lifecycle 已完成；Phase 3B–3I 和最终全量缺陷清零仍未完成 |
+| Project vNext core (Phase 0–3) | — | In progress: Phase 0–2、default-entry cutover、Phase 3A Lifecycle 与 3B Memory 已完成；Phase 3C–3I 和最终全量缺陷清零仍未完成 |
 
 These percentages are product estimates for the legacy local-baseline roadmap,
 not a claim that the full Project vNext ecosystem is complete.
@@ -39,7 +39,8 @@ not a claim that the full Project vNext ecosystem is complete.
 | Frontend vNext Phase 2: Core functional parity | Complete | Files, Runs, System, bounded non-secret config writes, visual baselines, and visible-browser acceptance are complete |
 | Frontend vNext Default Entry Cutover | Complete | Root `/` serves React; `/preview/` remains compatible and `/legacy/` remains the old Workbench rollback entry |
 | Phase 3A: recoverable task lifecycle | Complete | CLI/HTTP/React share cancel, timeout, workspace lease, durable terminal, restart recovery and safe new-message resume; full source/wheel/browser evidence is recorded |
-| Project vNext core (Phase 0–3) | In progress | Phase 3A is complete; Phase 3B–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
+| Phase 3B: auditable Memory lifecycle | Complete | Candidate accept/reject is single-terminal; revise/delete/history preserve provenance; list/retrieve/Workbench expose only current active leaves; source/wheel/real-CLI evidence is recorded |
+| Project vNext core (Phase 0–3) | In progress | Phase 3A–3B are complete; Phase 3C–3I and the final conversation/generation/frontend/backend/CLI/package/browser bug pass remain |
 | Phase 4–5 demand-triggered pool | Not started by design | Ecosystem UI, distribution, remote, and community work start only after their documented real-user triggers; they do not block core completion |
 
 ## Completed Milestones

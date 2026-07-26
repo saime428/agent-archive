@@ -998,5 +998,7 @@ def test_phase3_memory_lifecycle_docs_lock_scope_and_completion_boundary() -> No
     assert "并发 accept/reject 只有一个成功" in plan
     for command in ("reject", "revise", "delete", "history"):
         assert f"agent memory {command}" in readme
+    assert "状态：3B Memory 已完成" in verification
+    assert "3C Automation" in verification
     assert "Project vNext 核心仍未完成" in verification
     assert "Phase 4–5" in verification

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Phase 3B 可审计 Memory 生命周期完成：保留旧 JSONL，复用共享文件锁与原子发布；candidate accept/reject 只有一个终态，entry revise/delete/history 保留来源与修订链，模型检索和 Workbench 只读取当前 active 叶节点。新增真实 CLI 命令并修复长 UUID 状态行被 Rich 自动折行；源码、wheel 与真实命令验收通过。
 - Phase 3A 可恢复任务生命周期完成：CLI、HTTP/SSE 与 React 共用取消、整轮超时和单 workspace lease；job/event 持久化支持服务重启后的 `interrupted` 终态，异常回合用用户新消息安全 resume 且不重放旧 Tool；受控命令取消会终止父子进程树。源码、wheel、真实服务与可见浏览器验收均已通过。
 - Project vNext 完成定义已按个人生产工具与完整作品重新收口：阶段 0–3 是核心目标，阶段 4–5 改为需求触发项；最终门禁覆盖对话、生成、前端、后端/API、CLI、打包与真实浏览器，并要求修复后整套复跑。
 - 修复异步新会话首次详情读取竞态：`ChatRuntime.start()` 现在只对尚未持久化的 session 在发布 ID 前走既有原子保存路径，避免 React 紧接着读取 `/api/chats/<id>` 时因 `session.json` 尚未生成而短暂返回 500。
