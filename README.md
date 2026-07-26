@@ -332,6 +332,13 @@ The React/Vite Workbench is the default, with stable preview and legacy entries:
 only to development and build workflows. The Python runtime never invokes npm
 and serves the packaged files directly.
 
+The current Files workspace lazy-loads Monaco on desktop, keeps up to 20
+independent tabs, and falls back to a native textarea below 768px. Recursive
+workspace search uses `GET /api/search?query=<text-or-glob>` and opens text
+matches at their line. Saves still use `/api/file/save`, explicit confirmation,
+and a snapshot-backed run; search is read-only and bounded by the workspace
+sandbox.
+
 After changing frontend source, rebuild and verify the complete bundle:
 
 ```powershell
@@ -351,8 +358,9 @@ compatible React entry and `/legacy/` remains the explicit rollback entry during
 the stability window; rolling back the default does not require rebuilding assets
 or migrating workspace data.
 
-Run the complete frontend gate from `frontend/` with `npm run check`. The Phase 2,
-Readiness, and Cutover evidence is recorded under `docs/verification/`.
+Run the complete frontend gate from `frontend/` with `npm run check`. Phase 2,
+Readiness, Cutover, and Phase 3E Editor/Search evidence is recorded under
+`docs/verification/`.
 
 ## v0.7 Product Shell Decision
 

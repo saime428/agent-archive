@@ -693,6 +693,7 @@ test.describe("files", () => {
   }
 
   test("browses directories and previews a text file", async ({ page }) => {
+    const editorWorkerRequest = page.waitForRequest((request) => request.url().includes("editor.worker"));
     await openFiles(page);
 
     await expect(page.getByRole("button", { name: "src", exact: true })).toBeVisible();
@@ -702,6 +703,7 @@ test.describe("files", () => {
     await page.getByRole("button", { name: "返回上级", exact: true }).click();
     await page.getByRole("button", { name: "README.md", exact: true }).click();
     await expect(page.getByText("Hello", { exact: false })).toBeVisible();
+    await expect(editorWorkerRequest).resolves.toBeDefined();
   });
 
   test("edits and saves through snapshot confirmation", async ({ page }) => {

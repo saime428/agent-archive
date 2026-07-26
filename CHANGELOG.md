@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Phase 3E 编辑器与工作区搜索完成：桌面端懒加载 Monaco 单 editor/多 model，移动端使用共享状态的原生 textarea fallback；最多 20 个标签，保留独立 buffer/dirty/view state，关闭、离开与刷新均保护未保存内容。新增独立有界 `/api/search`，复用现有 search Tool、sandbox 与错误语义，支持文本/路径/glob/Unicode 并跳到命中行；保存继续只走显式确认和 snapshot。源码、wheel、detached、真实服务与可见浏览器复验通过，包体和依赖审计满足门槛。
 - Phase 3D 稳定 Eval 完成：4 个内置 FakeLLM case 复用真实 run loop，覆盖直接完成、读文件、错误恢复和审批拒绝；记录完成/错误/Tool/耗时指标，生成有界原子本地报告，并以稳定 CLI 退出码作为离线门禁。验收同时补齐 Automation/Eval 本地状态忽略规则，并修复 Windows 下拒绝 POST 时未消费有界 body 导致的 10053 连接中止；源码、D 盘全量、detached、wheel 与污染配置真实 CLI 复验通过。
 - Phase 3C 可审计 Automation 完成：新增显式前台固定间隔 worker、定义启停、latest-slot 幂等 claim、durable attempt/notification、取消与崩溃恢复；复用同一 Provider/MCP/run lifecycle、workspace lease 与安全链，且不提供自动审批。验收修复缺失 Skill 静默降级、超长异常卡住 running、summary 路径未绑定 run 和多行 CLI 审计四类问题；源码、detached 全量、wheel 与真实 CLI 通过。
 - Phase 3B 可审计 Memory 生命周期完成：保留旧 JSONL，复用共享文件锁与原子发布；candidate accept/reject 只有一个终态，entry revise/delete/history 保留来源与修订链，模型检索和 Workbench 只读取当前 active 叶节点。新增真实 CLI 命令并修复长 UUID 状态行被 Rich 自动折行；源码、wheel 与真实命令验收通过。

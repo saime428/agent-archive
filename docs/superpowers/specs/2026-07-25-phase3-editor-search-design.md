@@ -1,7 +1,7 @@
 # 设计：Phase 3E 编辑器与工作区搜索
 
 - 日期：2026-07-25
-- 状态：设计已锁定，待实施与独立验收
+- 状态：已实施并通过独立验收
 - 上位方向：[Phase 3 方向分析与审查](../../project-vnext-phase3-direction-review.md)
 
 ## 目标
@@ -94,4 +94,3 @@ excerpt 200 字符；超限文件仍可产生路径命中，但不读正文。�
 - 文件创建、重命名、删除、批量替换、正则搜索、索引服务、watcher、ripgrep 进程或搜索历史。
 - LSP、智能补全、diagnostics、format-on-save、协作编辑、split editor、固定/恢复标签或 reload 后 buffer 恢复。
 - Git/Diff、Terminal、Command/Layout、legacy retirement 或 Phase 4-5 需求触发项。
-

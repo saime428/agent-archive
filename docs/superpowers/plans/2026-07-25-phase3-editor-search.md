@@ -1,7 +1,7 @@
 # Phase 3E 编辑器与工作区搜索实施计划
 
 - 日期：2026-07-25
-- 状态：执行中
+- 状态：已完成
 - 设计：[Phase 3E 编辑器与工作区搜索](../specs/2026-07-25-phase3-editor-search-design.md)
 
 ## 固定边界
@@ -53,4 +53,3 @@ view state、jump、Ctrl/Cmd+S 和完整 dispose。FilesView 只管理 tabs/buff
 - 搜索、Monaco model/Worker 和输出均满足固定上限，无静默脏数据丢失；
 - 全量、真实浏览器、wheel、提交后复验和清理通过；
 - Project vNext 核心仍保持未完成。
-

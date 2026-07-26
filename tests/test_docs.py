@@ -1086,7 +1086,9 @@ def test_phase3_editor_search_docs_lock_safe_multi_tab_boundary() -> None:
     assert "最多同时打开 20 个标签" in spec
     assert "小于 768px" in spec
     assert "不新增" in plan
-    assert "状态：待实施与独立验收" in verification
+    assert "状态：3E Editor/Search 已完成" in verification
+    assert "1145 passed" in verification
+    assert "editor.worker" in verification
     assert "3F Git/Diff" in verification
 
 
