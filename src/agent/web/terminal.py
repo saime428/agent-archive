@@ -103,6 +103,10 @@ class TerminalRuntime:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=0,
+                # The stream contract is UTF-8 (see the incremental decoder in
+                # _read_stream); steer Python children onto it regardless of
+                # the host locale. Inert for non-Python programs.
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 **process_group_kwargs(),
             )
             state = _TerminalState(
