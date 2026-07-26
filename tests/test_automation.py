@@ -136,6 +136,18 @@ def test_automation_store_rejects_corrupt_linked_and_non_atomic_state(tmp_path, 
             now=NOW,
         )
 
+    path_store = AutomationStore(tmp_path / "paths")
+    _enabled(path_store)
+    path_attempt = path_store.claim_due(now=NOW)[0]
+    with pytest.raises(AutomationError, match="summary path"):
+        path_store.finish_attempt(
+            path_attempt.attempt_id,
+            status="failed",
+            summary_path="../outside/summary.md",
+            error="invalid summary",
+            now=NOW,
+        )
+
     linked_workspace = tmp_path / "linked"
     linked_root = linked_workspace / ".agent" / "automations"
     linked_root.parent.mkdir(parents=True)
@@ -205,6 +217,32 @@ def test_automation_worker_records_busy_workspace_as_failure_notification(tmp_pa
 
     assert [item.status for item in completed] == ["failed"]
     assert "active agent turn" in (completed[0].error or "").lower()
+    assert store.list_notifications() == completed
+
+
+def test_automation_worker_bounds_and_redacts_runtime_failures(tmp_path) -> None:
+    store = AutomationStore(tmp_path)
+    _enabled(store)
+
+    def fail_runtime(_workspace):
+        raise RuntimeError("Bearer secret-token " + "failure " * 400)
+
+    worker = AutomationWorker(
+        tmp_path,
+        llm_factory=lambda _config: FakeLLMClient(),
+        runtime_factory=fail_runtime,
+        now=lambda: NOW,
+    )
+
+    completed = worker.run_once()
+
+    assert [item.status for item in completed] == ["failed"]
+    error = completed[0].error or ""
+    assert len(error) <= 2_000
+    assert "[REDACTED]" in error
+    assert "secret-token" not in error
+    assert error.endswith("[truncated]")
+    assert store.list_attempts()[0].status == "failed"
     assert store.list_notifications() == completed
 
 

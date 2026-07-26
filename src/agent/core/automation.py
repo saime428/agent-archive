@@ -20,6 +20,7 @@ from agent._user_store import (
 )
 from agent.config import load_config
 from agent.core.actions import ErrorCode
+from agent.core.budget import TRUNCATION_MARKER, truncate_text
 from agent.core.loop import run_once
 from agent.core.redaction import redact_value
 from agent.core.run_control import DEFAULT_RUN_TIMEOUT_SECONDS, RunControl, validate_timeout_seconds
@@ -42,6 +43,7 @@ _MAX_STORE_BYTES = 16 * 1024 * 1024
 _MAX_SKILLS = 32
 _AUTOMATION_ID_PATTERN = re.compile(r"auto_[a-f0-9]{32}\Z", re.ASCII)
 _ATTEMPT_ID_PATTERN = re.compile(r"attempt_[a-f0-9]{32}\Z", re.ASCII)
+_RUN_ID_PATTERN = re.compile(r"run_auto_[a-f0-9]{32}\Z", re.ASCII)
 _DEFINITION_STATUSES = {"disabled", "enabled"}
 _RAW_ATTEMPT_STATUSES = {"claimed", "running", "succeeded", "failed", "cancelled", "timed_out", "interrupted"}
 _TERMINAL_ATTEMPT_STATUSES = {"succeeded", "failed", "cancelled", "timed_out", "interrupted"}
@@ -301,8 +303,7 @@ class AutomationStore:
         if status not in _TERMINAL_ATTEMPT_STATUSES:
             raise AutomationError(f"Invalid terminal automation status: {status}")
         timestamp = _timestamp(now)
-        summary_path = _optional_line(summary_path, label="Automation summary path", max_chars=1_024)
-        error = _optional_text(error, label="Automation error", max_chars=_MAX_ERROR_CHARS)
+        error = _optional_output_text(error, label="Automation error", max_chars=_MAX_ERROR_CHARS)
         if status == "succeeded" and error is not None:
             raise AutomationError("Succeeded automation attempt cannot contain an error.")
         with self._locked():
@@ -310,6 +311,7 @@ class AutomationStore:
             current = _find_attempt(_current_attempts(attempts), attempt_id)
             if current.status in _TERMINAL_ATTEMPT_STATUSES:
                 raise AutomationError(f"Automation attempt {attempt_id} is already terminal.")
+            summary_path = _summary_path(summary_path, current.run_id)
             if self.is_cancel_requested(attempt_id) and status not in {"cancelled", "timed_out"}:
                 status = "cancelled"
                 error = "Automation attempt was cancelled."
@@ -715,15 +717,13 @@ def _attempt_from_record(record: dict[str, Any]) -> AutomationAttempt:
     attempt_id = _require_id(record["attempt_id"], _ATTEMPT_ID_PATTERN, "attempt")
     automation_id = _require_id(record["automation_id"], _AUTOMATION_ID_PATTERN, "automation")
     scheduled_for = _stored_timestamp(record["scheduled_for"])
-    run_id = _line(record["run_id"], label="Automation run id", max_chars=128)
-    if not run_id.startswith("run_"):
-        raise AutomationError("Invalid automation run id.")
+    run_id = _require_id(record["run_id"], _RUN_ID_PATTERN, "automation run")
     status = record["status"]
     if status not in _RAW_ATTEMPT_STATUSES:
         raise AutomationError(f"Unknown automation attempt status: {status!r}.")
     created_at = _stored_timestamp(record["created_at"])
     updated_at = _stored_timestamp(record["updated_at"])
-    summary_path = _optional_line(record["summary_path"], label="Automation summary path", max_chars=1_024)
+    summary_path = _summary_path(record["summary_path"], run_id)
     error = _optional_text(record["error"], label="Automation error", max_chars=_MAX_ERROR_CHARS)
     notification = _optional_text(
         record["notification"],
@@ -886,6 +886,19 @@ def _optional_text(value: Any, *, label: str, max_chars: int) -> str | None:
     return None if value is None else _bounded_text(value, label=label, max_chars=max_chars)
 
 
+def _optional_output_text(value: Any, *, label: str, max_chars: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise AutomationError(f"{label} must be text.")
+    redacted = redact_value(value).value
+    if not redacted.strip():
+        return None
+    if len(redacted) <= max_chars:
+        return redacted
+    return truncate_text(redacted, max_chars - len(TRUNCATION_MARKER)).value
+
+
 def _line(value: Any, *, label: str, max_chars: int) -> str:
     text = _bounded_text(value, label=label, max_chars=max_chars)
     if any(character in text for character in "\0\r\n"):
@@ -895,6 +908,13 @@ def _line(value: Any, *, label: str, max_chars: int) -> str:
 
 def _optional_line(value: Any, *, label: str, max_chars: int) -> str | None:
     return None if value is None else _line(value, label=label, max_chars=max_chars)
+
+
+def _summary_path(value: Any, run_id: str) -> str | None:
+    path = _optional_line(value, label="Automation summary path", max_chars=1_024)
+    if path is not None and path != f".agent/runs/{run_id}/summary.md":
+        raise AutomationError("Invalid automation summary path.")
+    return path
 
 
 def _require_id(value: Any, pattern: re.Pattern[str], label: str) -> str:
@@ -932,7 +952,8 @@ def _parse_timestamp(value: str) -> datetime:
 
 
 def _exception_text(exc: Exception) -> str:
-    return _bounded_text(str(exc) or type(exc).__name__, label="Automation error", max_chars=_MAX_ERROR_CHARS)
+    text = str(exc)
+    return text if text.strip() else type(exc).__name__
 
 
 def _store_message(exc: UserStoreError) -> str:

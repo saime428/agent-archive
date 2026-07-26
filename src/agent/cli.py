@@ -1209,7 +1209,7 @@ def automation_list(
         console.file.write(
             f"{definition.automation_id}\tstatus: {definition.status}"
             f"\tevery_minutes: {definition.interval_seconds // 60}"
-            f"\ttimeout_seconds: {definition.timeout_seconds}\tskills: {skills}\t{definition.task}\n"
+            f"\ttimeout_seconds: {definition.timeout_seconds}\tskills: {skills}\t{_bounded_text(definition.task)}\n"
         )
 
 
@@ -1353,10 +1353,11 @@ def automation_worker(
 
 
 def _print_automation_attempt(attempt: AutomationAttempt) -> None:
+    error = _bounded_text(attempt.error) if attempt.error else "-"
     console.file.write(
         f"{attempt.attempt_id}\tautomation: {attempt.automation_id}\tstatus: {attempt.status}"
         f"\tscheduled: {attempt.scheduled_for}\trun: {attempt.run_id}"
-        f"\tsummary: {attempt.summary_path or '-'}\terror: {attempt.error or '-'}\n"
+        f"\tsummary: {attempt.summary_path or '-'}\terror: {error}\n"
     )
 
 

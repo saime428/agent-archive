@@ -1838,6 +1838,30 @@ def test_automation_cancel_and_notifications_commands(tmp_path) -> None:
     assert "status: cancelled" in notifications.output
 
 
+def test_automation_cli_keeps_task_and_error_on_one_line(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    now = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
+    store = AutomationStore(workspace)
+    definition = store.add_definition(task="inspect\nparser", interval_seconds=60, now=now)
+    store.enable_definition(definition.automation_id, now=now)
+    attempt = store.claim_due(now=now)[0]
+    store.finish_attempt(attempt.attempt_id, status="failed", error="first\nsecond", now=now)
+
+    listed = runner.invoke(app, ["automation", "list", "--cwd", str(workspace)])
+    notifications = runner.invoke(app, ["automation", "notifications", "--cwd", str(workspace)])
+
+    assert listed.exit_code == 0
+    assert listed.output.splitlines() == [
+        f"{definition.automation_id}\tstatus: enabled\tevery_minutes: 1"
+        "\ttimeout_seconds: 900\tskills: -\tinspect parser"
+    ]
+    assert notifications.exit_code == 0
+    assert len(notifications.output.splitlines()) == 1
+    assert "error: first second" in notifications.output
+
+
 def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
