@@ -1038,6 +1038,7 @@ def test_phase3_automation_docs_lock_foreground_worker_and_safety_boundary() -> 
 def test_phase3_stable_eval_docs_lock_deterministic_fake_gate() -> None:
     direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "roadmap-progress.md").read_text(encoding="utf-8")
     spec = (
         ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-stable-eval-design.md"
     ).read_text(encoding="utf-8")
@@ -1058,6 +1059,9 @@ def test_phase3_stable_eval_docs_lock_deterministic_fake_gate() -> None:
     assert "agent eval run" in readme
     assert ".agent/evals/eval_<id>/" in readme
     assert "run_once" in plan
+    assert "状态：3D Eval 已完成" in verification
+    assert "3E Editor/Search" in direction
+    assert "Phase 3D: stable Eval | Complete" in roadmap
     assert "Project vNext 核心仍未完成" in verification
     assert "Phase 4–5" in verification
 

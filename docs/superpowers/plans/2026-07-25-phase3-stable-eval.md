@@ -1,7 +1,7 @@
 # Phase 3D 小而稳定的 Eval 实施计划
 
 - 日期：2026-07-25
-- 状态：计划已审查；待实施
+- 状态：已完成；实现与独立验收通过
 - 设计：[Phase 3D 小而稳定的 Eval](../specs/2026-07-25-phase3-stable-eval-design.md)
 
 ## 固定边界

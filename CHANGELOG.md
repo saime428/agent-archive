@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Phase 3D 稳定 Eval 完成：4 个内置 FakeLLM case 复用真实 run loop，覆盖直接完成、读文件、错误恢复和审批拒绝；记录完成/错误/Tool/耗时指标，生成有界原子本地报告，并以稳定 CLI 退出码作为离线门禁。验收同时补齐 Automation/Eval 本地状态忽略规则，并修复 Windows 下拒绝 POST 时未消费有界 body 导致的 10053 连接中止；源码、D 盘全量、detached、wheel 与污染配置真实 CLI 复验通过。
 - Phase 3C 可审计 Automation 完成：新增显式前台固定间隔 worker、定义启停、latest-slot 幂等 claim、durable attempt/notification、取消与崩溃恢复；复用同一 Provider/MCP/run lifecycle、workspace lease 与安全链，且不提供自动审批。验收修复缺失 Skill 静默降级、超长异常卡住 running、summary 路径未绑定 run 和多行 CLI 审计四类问题；源码、detached 全量、wheel 与真实 CLI 通过。
 - Phase 3B 可审计 Memory 生命周期完成：保留旧 JSONL，复用共享文件锁与原子发布；candidate accept/reject 只有一个终态，entry revise/delete/history 保留来源与修订链，模型检索和 Workbench 只读取当前 active 叶节点。新增真实 CLI 命令并修复长 UUID 状态行被 Rich 自动折行；源码、wheel 与真实命令验收通过。
 - Phase 3A 可恢复任务生命周期完成：CLI、HTTP/SSE 与 React 共用取消、整轮超时和单 workspace lease；job/event 持久化支持服务重启后的 `interrupted` 终态，异常回合用用户新消息安全 resume 且不重放旧 Tool；受控命令取消会终止父子进程树。源码、wheel、真实服务与可见浏览器验收均已通过。

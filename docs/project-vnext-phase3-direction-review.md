@@ -1,7 +1,7 @@
 # Project vNext Phase 3 方向分析与审查
 
 - 日期：2026-07-25
-- 状态：3A Lifecycle、3B Memory 与 3C Automation 已完成；下一切片为 3D Eval
+- 状态：3A Lifecycle、3B Memory、3C Automation 与 3D Eval 已完成；下一切片为 3E Editor/Search
 - 上位方向：[Project vNext 总方向](project-vnext-direction.md)
 - 前端子方向：[Frontend vNext 总方向](frontend-vnext-direction.md)
 
@@ -26,7 +26,7 @@ Phase 3 不做一次性大改，固定按以下依赖推进：
 每一项依次经过 spec 审查、implementation plan 审查、实现、五轴审查和真实路径验收；后端
 Interface 不存在时先完成后端切片，前端不先造假入口。
 
-当前进度：3A Lifecycle、3B Memory 与 3C Automation 已完成并通过独立验收；3D–3I 与最终全链路缺陷清零仍未完成。
+当前进度：3A Lifecycle、3B Memory、3C Automation 与 3D Eval 已完成并通过独立验收；3E–3I 与最终全链路缺陷清零仍未完成。
 
 ## 当前事实与真实缺口
 
@@ -37,7 +37,7 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 | Conversation | CLI `--resume` 与 Web session history 可续聊 | interrupted/cancelled/timed-out turn 必须写入历史；续接不得自动重放可能已有副作用的 Tool |
 | Memory | candidate accept/reject、并发单终态、可审计 revise/delete 链、current-leaf list/retrieve、source run | 无；3B 已完成，后续切片不扩张 Memory 写界面 |
 | Automation | 显式前台 worker、固定间隔定义/启停、幂等 slot claim、同 runtime 执行、取消/恢复与异常通知 | 无；3C 已完成，系统服务、cron、retry 与高风险自动审批仍明确不做 |
-| Eval | 无生产 Module 或稳定任务集 | 小型确定性参考集、完成/错误/Tool 次数/耗时指标、CLI 与回归门禁 |
+| Eval | 4 个内置 FakeLLM case、真实 run loop、完成/错误/Tool/耗时指标、原子本地 report 与稳定 CLI 退出码 | 无；3D 已完成，真实 Provider 只保留为最终可选 smoke，不作为硬门禁 |
 | Files | React 文件树、单文件预览/textarea 保存、snapshot、run diff/restore | Monaco 多标签、未保存状态、递归工作区搜索、键盘工作流 |
 | Git | Agent 有只读 `git_status`/`git_diff` Tool，Runs 可看 snapshot diff | Workbench 当前工作树 status/diff Interface 与视图；继续只读，不顺带做 commit/push |
 | Terminal | Agent `run_command` 是单次、受 policy、最长 120 秒的非交互 Tool | 用户可见的真实子进程、输出续读、输入、停止、超时、进程树清理和刷新后状态 |
@@ -111,5 +111,5 @@ Interface 不存在时先完成后端切片，前端不先造假入口。
 4. 安全：禁止 Tool 自动重放、无人值守 approval bypass、Terminal 假清理和浏览器 secrets 持久化。
 5. 性能：个人工具默认单 workspace slot；event 采用 append/cursor，搜索和输出必须有界。
 
-审查结论：通过，无未解决 finding。3A Lifecycle、3B Memory 与 3C Automation 已按各自独立设计和
-验收记录完成；下一步仅进入 3D Eval，不并行修改前端开发工作区。
+审查结论：通过，无未解决 finding。3A Lifecycle、3B Memory、3C Automation 与 3D Eval 已按各自
+独立设计和验收记录完成；下一步仅进入 3E Editor/Search。
