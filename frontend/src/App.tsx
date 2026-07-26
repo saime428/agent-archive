@@ -9,7 +9,6 @@ import {
   CircleAlert,
   CircleDashed,
   Clock3,
-  Command,
   Folder,
   KeyRound,
   LoaderCircle,
@@ -50,10 +49,12 @@ import {
   type ReactNode,
 } from "react";
 import { ContextField } from "./ContextField";
+import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { api, ApiError } from "./api/client";
 import { isTerminalChatEvent, subscribeChatJob, type StreamStatus } from "./api/sse";
 import type { ChatEvent, ChatPayload, ChatSummary, ChatTurn, HealthPayload } from "./api/types";
 import { chatReducer, initialChatState, recoveringState, type ChatPhase, type ChatState } from "./chat/state";
+import { loadLayout, saveLayout, type WorkspaceView } from "./layout";
 import { useTheme, type ModePreference, type ThemeName } from "./theme";
 import { WorkspacePanel } from "./workspace/WorkspacePanel";
 
@@ -167,12 +168,14 @@ function CommandSpine({
   onOpenWorkspace,
   canvasEnabled,
   onToggleCanvas,
+  commands,
 }: {
   health: HealthPayload | null;
   onOpenSessions: () => void;
   onOpenWorkspace: (event: React.MouseEvent<HTMLButtonElement>) => void;
   canvasEnabled: boolean;
   onToggleCanvas: () => void;
+  commands: PaletteCommand[];
 }) {
   const { theme, mode, setTheme, setMode } = useTheme();
   const modeIcon = mode === "auto" ? <Monitor aria-hidden="true" /> : mode === "dark" ? <Moon aria-hidden="true" /> : <Sun aria-hidden="true" />;
@@ -186,7 +189,7 @@ function CommandSpine({
         <IconButton label="打开工作台" className="mobile-only" onClick={onOpenWorkspace}>
           <PanelRightOpen aria-hidden="true" />
         </IconButton>
-        <Command aria-hidden="true" />
+        <CommandPalette commands={commands} />
         <span>AGENT</span>
         <span className="brand-divider">/</span>
         <strong>{workspaceName(health?.workspace || "Workbench")}</strong>
@@ -622,12 +625,11 @@ export function App() {
   const [pendingUser, setPendingUser] = useState("");
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("");
-  const [railOpen, setRailOpen] = useState(true);
-  const [railWidth, setRailWidth] = useState(326);
+  const [layout, setLayout] = useState(loadLayout);
   const [mobileSessions, setMobileSessions] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [canvasEnabled, setCanvasEnabled] = useState(true);
-  const workspaceOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const { railOpen, railWidth, canvasEnabled, workspaceView } = layout;
+  const [workspaceOpener, setWorkspaceOpener] = useState<HTMLButtonElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -646,11 +648,18 @@ export function App() {
     setChats(payload.chats);
   }, []);
 
-  // Remember which button opened the workspace so focus can return to it on close.
-  const openWorkspace = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-    workspaceOpenerRef.current = event.currentTarget;
+  useEffect(() => saveLayout(layout), [layout]);
+
+  const showWorkspace = useCallback((opener: HTMLButtonElement | null, view?: WorkspaceView) => {
+    if (opener) setWorkspaceOpener(opener);
+    if (view) setLayout((current) => ({ ...current, workspaceView: view }));
     setWorkspaceOpen(true);
   }, []);
+
+  // Remember which button opened the workspace so focus can return to it on close.
+  const openWorkspace = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    showWorkspace(event.currentTarget);
+  }, [showWorkspace]);
 
   // Global refresh for the workspace panel's 10s tick and manual refresh; best-effort.
   const refreshGlobal = useCallback(async () => {
@@ -877,7 +886,8 @@ export function App() {
   const moveRailResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = railResizeRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    setRailWidth(Math.min(420, Math.max(260, drag.startWidth + event.clientX - drag.startX)));
+    const width = Math.min(420, Math.max(260, drag.startWidth + event.clientX - drag.startX));
+    setLayout((current) => ({ ...current, railWidth: width }));
   };
 
   const stopRailResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -889,10 +899,13 @@ export function App() {
   const keyRailResize = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
-      setRailWidth((width) => Math.min(420, Math.max(260, width + (event.key === "ArrowRight" ? 16 : -16))));
+      setLayout((current) => ({
+        ...current,
+        railWidth: Math.min(420, Math.max(260, current.railWidth + (event.key === "ArrowRight" ? 16 : -16))),
+      }));
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      setRailWidth(event.key === "Home" ? 260 : 420);
+      setLayout((current) => ({ ...current, railWidth: event.key === "Home" ? 260 : 420 }));
     }
   };
 
@@ -900,6 +913,31 @@ export function App() {
   const showLive = live.phase !== "idle" && (!activeJob || activeJob.sessionId === sessionId);
   const hasTranscript = Boolean(chat?.turns.length || showLive || pendingUser);
   const spring = reducedMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 320, damping: 32, mass: 0.8 };
+  const paletteCommands: PaletteCommand[] = [
+    { id: "new", label: "新建任务", detail: "回到空白会话", keywords: ["new", "chat"], run: () => newSession() },
+    ...(["files", "git", "terminal", "runs", "system"] as WorkspaceView[]).map((view) => ({
+      id: `workspace-${view}`,
+      label: `打开 ${view[0].toUpperCase()}${view.slice(1)}`,
+      detail: "打开工作台并切换到该视图",
+      keywords: ["workspace", "工作台", view],
+      run: (opener: HTMLButtonElement | null) => showWorkspace(opener, view),
+    })),
+    { id: "refresh", label: "刷新状态与会话", detail: "重新读取健康状态和会话索引", keywords: ["refresh", "reload"], run: () => void refreshGlobal() },
+    {
+      id: "rail",
+      label: railOpen ? "收起会话轨道" : "展开会话轨道",
+      detail: "切换桌面会话导航",
+      keywords: ["rail", "sessions", "layout"],
+      run: () => setLayout((current) => ({ ...current, railOpen: !current.railOpen })),
+    },
+    {
+      id: "canvas",
+      label: canvasEnabled ? "隐藏上下文画布" : "显示上下文画布",
+      detail: "切换背景上下文动画",
+      keywords: ["canvas", "context", "layout"],
+      run: () => setLayout((current) => ({ ...current, canvasEnabled: !current.canvasEnabled })),
+    },
+  ];
 
   const sessionPanel = (
     <SessionPanel
@@ -918,12 +956,19 @@ export function App() {
     <Tooltip.Provider delayDuration={350}>
       <div className="app-shell" data-phase={phase}>
         <ContextField phase={phase} themeKey={`${theme}-${resolvedMode}`} enabled={canvasEnabled} />
-        <CommandSpine health={health} onOpenSessions={() => setMobileSessions(true)} onOpenWorkspace={openWorkspace} canvasEnabled={canvasEnabled} onToggleCanvas={() => setCanvasEnabled((value) => !value)} />
+        <CommandSpine
+          health={health}
+          onOpenSessions={() => setMobileSessions(true)}
+          onOpenWorkspace={openWorkspace}
+          canvasEnabled={canvasEnabled}
+          onToggleCanvas={() => setLayout((current) => ({ ...current, canvasEnabled: !current.canvasEnabled }))}
+          commands={paletteCommands}
+        />
 
         <motion.aside className="session-rail desktop-only" data-expanded={railOpen} animate={{ width: railOpen ? railWidth : 76 }} transition={spring}>
           <div className="rail-cap">
             {railOpen ? <span>SESSIONS / {String(chats.length).padStart(2, "0")}</span> : <span aria-hidden="true">S</span>}
-            <IconButton label={railOpen ? "收起会话轨道" : "展开会话轨道"} onClick={() => setRailOpen((value) => !value)}>
+            <IconButton label={railOpen ? "收起会话轨道" : "展开会话轨道"} onClick={() => setLayout((current) => ({ ...current, railOpen: !current.railOpen }))}>
               {railOpen ? <PanelLeftClose aria-hidden="true" /> : <PanelLeftOpen aria-hidden="true" />}
             </IconButton>
           </div>
@@ -1017,8 +1062,10 @@ export function App() {
           health={health}
           chats={chats}
           onGlobalRefresh={refreshGlobal}
-          openerRef={workspaceOpenerRef}
+          opener={workspaceOpener}
           onOpenSession={selectSession}
+          view={workspaceView}
+          onViewChange={(view) => setLayout((current) => ({ ...current, workspaceView: view }))}
         />
 
         <Dialog.Root open={mobileSessions} onOpenChange={setMobileSessions}>

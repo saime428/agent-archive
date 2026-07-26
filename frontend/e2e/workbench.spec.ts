@@ -19,6 +19,7 @@ let terminalStartRequest: Record<string, unknown> | null = null;
 let terminalInputRequests: Array<Record<string, unknown>> = [];
 let terminalStopRequests = 0;
 let terminalReadySent = false;
+let healthRequests = 0;
 const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
 
 function terminalFixture(after = 0) {
@@ -75,6 +76,7 @@ async function installWorkbenchMocks(page: Page) {
     });
 
     if (path === "/api/health") {
+      healthRequests += 1;
       await json(healthFixture());
       return;
     }
@@ -491,10 +493,14 @@ async function installWorkbenchMocks(page: Page) {
 
 async function emit(page: Page, name: string, payload: object) {
   if (["final", "cancelled", "timed_out"].includes(name)) persistedFinal = payload as ReturnType<typeof finalEvent>;
+  await expect.poll(() => page.evaluate(() => {
+    const sources = (window as unknown as { __agentMockSources: Array<{ closed: boolean }> }).__agentMockSources;
+    return sources.filter((source) => !source.closed).length;
+  })).toBeGreaterThan(0);
   await page.evaluate(
     ({ eventName, eventPayload }) => {
-      const sources = (window as unknown as { __agentMockSources: Array<{ emit: (name: string, payload: object) => void }> }).__agentMockSources;
-      sources.at(-1)?.emit(eventName, eventPayload);
+      const sources = (window as unknown as { __agentMockSources: Array<{ closed: boolean; emit: (name: string, payload: object) => void }> }).__agentMockSources;
+      sources.filter((source) => !source.closed).at(-1)?.emit(eventName, eventPayload);
     },
     { eventName: name, eventPayload: payload },
   );
@@ -721,6 +727,7 @@ test.beforeEach(async ({ page }) => {
   terminalInputRequests = [];
   terminalStopRequests = 0;
   terminalReadySent = false;
+  healthRequests = 0;
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installWorkbenchMocks(page);
 });
@@ -829,6 +836,87 @@ for (const decision of [
     await expect(page.getByText(decision.final, { exact: true })).toBeVisible();
   });
 }
+
+test.describe("command palette and layout", () => {
+  async function runCommand(page: Page, query: string) {
+    await page.keyboard.press("Control+K");
+    const search = page.getByLabel("搜索命令", { exact: true });
+    await expect(search).toBeFocused();
+    await search.fill(query);
+    await page.keyboard.press("Enter");
+  }
+
+  test("filters with the keyboard, executes every workspace command, and preserves modal focus", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    const trigger = page.getByRole("button", { name: "打开命令面板", exact: true });
+    await expect(trigger).toBeVisible();
+
+    await page.keyboard.press("Control+K");
+    const palette = page.getByRole("dialog", { name: "命令面板", exact: true });
+    await expect(palette).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
+
+    for (const view of ["Files", "Git", "Terminal", "Runs", "System"]) {
+      await runCommand(page, `打开 ${view}`);
+      const tab = page.getByRole("button", { name: view, exact: true });
+      await expect(tab).toHaveAttribute("aria-pressed", "true");
+      await page.getByRole("button", { name: "关闭工作台", exact: true }).click();
+      await expect(trigger).toBeFocused();
+    }
+
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.keyboard.press("Control+K");
+    await expect(palette).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
+  test("runs top-level commands and restores only bounded layout state after reload", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`./#/chat/${SESSION_ID}`);
+
+    const resizer = page.getByRole("separator", { name: "调整会话轨道宽度", exact: true });
+    await resizer.press("End");
+    await runCommand(page, "收起会话轨道");
+    await expect(page.getByRole("button", { name: "展开会话轨道", exact: true })).toBeVisible();
+    await runCommand(page, "隐藏上下文画布");
+    await expect(page.locator("canvas.context-field")).toHaveCount(0);
+
+    const requestsBefore = healthRequests;
+    await runCommand(page, "刷新状态");
+    await expect.poll(() => healthRequests).toBeGreaterThan(requestsBefore);
+    await runCommand(page, "打开 Git");
+    await expect(page.getByRole("button", { name: "Git", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "关闭工作台", exact: true }).click();
+    await runCommand(page, "新建任务");
+    await expect(page).toHaveURL(/#\/new$/);
+
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("agent.frontend.layout") || "{}"));
+    expect(stored).toEqual({ railOpen: false, railWidth: 420, canvasEnabled: false, workspaceView: "git" });
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: "展开会话轨道", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "展开会话轨道", exact: true }).click();
+    await expect(page.getByRole("separator", { name: "调整会话轨道宽度", exact: true })).toHaveAttribute("aria-valuenow", "420");
+    await expect(page.locator("canvas.context-field")).toHaveCount(0);
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Git", exact: true })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("shows an empty result and survives malformed persisted layout", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("agent.frontend.layout", "{"));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("./#/new");
+
+    await page.getByRole("button", { name: "打开命令面板", exact: true }).click();
+    await page.getByLabel("搜索命令", { exact: true }).fill("does-not-exist");
+    await expect(page.getByText("没有匹配的命令", { exact: true })).toBeVisible();
+    await expect(page.locator("html")).toHaveJSProperty("scrollWidth", 390);
+  });
+});
 
 test.describe("workspace shell", () => {
   test("opens the workspace plane with five entries and returns focus on close", async ({ page }) => {
@@ -1514,6 +1602,23 @@ for (const variant of [
       animations: "disabled",
       mask: [page.locator(".workspace-refresh-time")],
     });
+    const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
+    expect(dimensions.scrollWidth).toBe(dimensions.width);
+  });
+}
+
+for (const variant of [
+  { name: "command-palette-dark-1440", width: 1440, height: 900 },
+  { name: "command-palette-dark-390", width: 390, height: 844 },
+] as const) {
+  test(`visual ${variant.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: variant.width, height: variant.height });
+    await page.goto("./#/new");
+    await page.getByLabel("显示模式", { exact: true }).selectOption("dark");
+    await page.getByRole("button", { name: "打开命令面板", exact: true }).click();
+    await page.getByLabel("搜索命令", { exact: true }).fill("工作台");
+    await expect(page.getByRole("option")).toHaveCount(5);
+    await expect(page).toHaveScreenshot(`${variant.name}.png`, { animations: "disabled" });
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
     expect(dimensions.scrollWidth).toBe(dimensions.width);
   });

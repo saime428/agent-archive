@@ -1,18 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { FolderTree, GitBranch, LayoutDashboard, ListChecks, RefreshCw, SquareTerminal, X } from "lucide-react";
 
 import { api } from "../api/client";
 import type { ChatSummary, ConfigPayload, HealthPayload, RunsPayload, ToolsPayload } from "../api/types";
+import type { WorkspaceView } from "../layout";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FilesView, type FilesViewHandle } from "./FilesView";
 import { GitView } from "./GitView";
 import { RunsView } from "./RunsView";
 import { SettingsView } from "./SettingsView";
 import { TerminalView } from "./TerminalView";
-
-type WorkspaceView = "files" | "git" | "terminal" | "runs" | "system";
 
 const REFRESH_INTERVAL_MS = 10_000;
 
@@ -32,8 +31,10 @@ interface WorkspacePanelProps {
   health: HealthPayload | null;
   chats: ChatSummary[];
   onGlobalRefresh: () => void | Promise<void>;
-  openerRef: RefObject<HTMLButtonElement | null>;
+  opener: HTMLButtonElement | null;
   onOpenSession: (sessionId: string) => void;
+  view: WorkspaceView;
+  onViewChange: (view: WorkspaceView) => void;
 }
 
 const VIEW_TABS: Array<{ id: WorkspaceView; label: string; icon: typeof FolderTree }> = [
@@ -54,10 +55,11 @@ export function WorkspacePanel({
   health,
   chats,
   onGlobalRefresh,
-  openerRef,
+  opener,
   onOpenSession,
+  view,
+  onViewChange,
 }: WorkspacePanelProps) {
-  const [view, setView] = useState<WorkspaceView>("system");
   const [runs, setRuns] = useState<Resource<RunsPayload>>(idleResource);
   const [config, setConfig] = useState<Resource<ConfigPayload>>(idleResource);
   const [tools, setTools] = useState<Resource<ToolsPayload>>(idleResource);
@@ -72,8 +74,8 @@ export function WorkspacePanel({
   // Resource / memory entries jump into the Runs detail for that run.
   const openRunFromResource = useCallback((runId: string) => {
     setFocusRunId(runId);
-    setView("runs");
-  }, []);
+    onViewChange("runs");
+  }, [onViewChange]);
 
   const loadAll = useCallback(async () => {
     setRuns((prev) => ({ ...prev, loading: true }));
@@ -129,7 +131,7 @@ export function WorkspacePanel({
 
   const requestView = (next: WorkspaceView) => {
     if (next !== "files" && leavingDirtyFiles()) setPendingNav({ kind: "view", view: next });
-    else setView(next);
+    else onViewChange(next);
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -139,7 +141,7 @@ export function WorkspacePanel({
 
   const confirmPendingNav = () => {
     if (!pendingNav) return;
-    if (pendingNav.kind === "view") setView(pendingNav.view);
+    if (pendingNav.kind === "view") onViewChange(pendingNav.view);
     else onOpenChange(false);
     setPendingNav(null);
   };
@@ -164,9 +166,9 @@ export function WorkspacePanel({
             aria-describedby={undefined}
             onCloseAutoFocus={(event) => {
               // Controlled Dialog has no Trigger; return focus to whichever button opened it.
-              if (openerRef.current) {
+              if (opener) {
                 event.preventDefault();
-                openerRef.current.focus();
+                opener.focus();
               }
             }}
           >
