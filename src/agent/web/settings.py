@@ -273,7 +273,7 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
         if key not in allowed:
             continue
         if key == "provider" and value not in PROVIDER_REGISTRY:
-            raise ValueError("provider must be fake, deepseek, or openai-compat.")
+            raise ValueError("provider must be fake, deepseek, openai-compat, or anthropic.")
         if key == "mode" and (not isinstance(value, str) or value not in VALID_VALUES["mode"]):
             raise ValueError("mode must be step, guided, auto, or plan-first.")
         if key == "sandbox" and value not in {"read-only", "workspace-write"}:

@@ -59,6 +59,24 @@ model = "llama3"
 
 With `native_tools = true` the agent uses native function calling with `tool_choice: "auto"` (thinking-mode models such as DeepSeek reject `"required"`); a plain-text reply without a tool call is routed through the repair channel. Endpoints without tool support should keep it `false`.
 
+### Anthropic-native provider (relays)
+
+For endpoints that only speak the Anthropic Messages protocol
+(`/v1/messages`), such as some API relays:
+
+```toml
+# .agent/config.toml
+provider = "anthropic"
+model = "claude-sonnet-5"
+api_key_env = "ANTHROPIC_API_KEY"        # env var holding the key; empty sends no x-api-key header
+# base_url = "https://relay.example.com" # origin only, no /v1; defaults to https://api.anthropic.com
+```
+
+This provider uses the JSON action protocol (`native_tools` stays `false`);
+streaming chat is supported. Relays that expose an OpenAI-compatible endpoint
+can keep using `openai-compat` instead. Verify connectivity with
+`agent provider smoke anthropic`.
+
 ### Local stdio MCP tools
 
 Local MCP servers are configured only in the user-level `~/.agent/mcp.toml`.

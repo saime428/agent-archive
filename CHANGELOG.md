@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Anthropic 原生 Provider：新增 `provider = "anthropic"`，直连只提供 Anthropic Messages 协议（`/v1/messages`）的端点或中转站；复用共享传输/重试/错误原语与通用 `base_url`/`api_key_env` 配置（空 `base_url` 默认官方端点，空 key 不发 `x-api-key`）；system 消息合并进顶层参数、连续同角色消息自动合并以满足严格交替要求；支持流式与 `agent provider smoke anthropic`。本切片仅走 JSON 动作协议（`native_tools=false`），原生工具调用按需另开切片。
+
 ## 2.1.1 - 2026-07-26
 
 - 缺陷修复轮（多代理深度审查 + 逐条实证复现驱动，8/8 确认后修复）：run 收尾先持久化审计日志再做 best-effort 副作用，memory 候选存储写满或锁超时不再吞掉成功 run 的 `tool_calls.jsonl`/`summary.md`（降级为 summary 内警告行）；工具执行新增 `INTERNAL_ERROR` 兜底观察值，意外异常（如合法 `\ud800` 输入触发的 UnicodeEncodeError）不再穿透 run_once 丢失全部记录；run 日志改为临时文件 + 原子替换写入。CLI 共享 Console 关闭 rich markup，模型输出含 `[/x]` 等标记不再崩溃或被重新染色；显式 `--skill` 现在跑前预校验（对齐 automation 先例），拼错立即报错而不是静默忽略，run loop 对默认技能的防注入容错保持不变。OpenAI 兼容 Provider 修复重试路径：429/5xx 错误响应先读净关闭再抛出，keep-alive 连接不再被未读响应毒化（此前重试必抛 `ResponseNotReady`）；裸 socket/协议异常映射入既有可重试错误分类。Workbench 审批事件新增服务端权威 `expires_in_ms`，倒计时不再用任务开始时钟推算，归零不再禁用批准/拒绝按钮（以服务端裁决为准）；SSE 对未知 job 返回合成终止事件而非 400，服务重启后浏览器输入框不再永久锁死。MCP 发现调度死线覆盖 initialize + list_tools 两阶段合法预算，慢但合规的 Server 不再被误判超时。Workbench 终端子进程注入 `PYTHONIOENCODING=utf-8`，非 UTF-8 区域设置下 Python 子进程中文输出不再乱码。

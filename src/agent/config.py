@@ -8,10 +8,10 @@ from typing import Any, Literal
 Mode = Literal["step", "guided", "auto", "plan-first"]
 SandboxMode = Literal["read-only", "workspace-write", "danger-full-access"]
 ApprovalMode = Literal["risky-confirm", "always", "never"]
-Provider = Literal["fake", "deepseek", "openai-compat"]
+Provider = Literal["fake", "deepseek", "openai-compat", "anthropic"]
 
 VALID_VALUES = {
-    "provider": {"fake", "deepseek", "openai-compat"},
+    "provider": {"fake", "deepseek", "openai-compat", "anthropic"},
     "mode": {"step", "guided", "auto", "plan-first"},
     "sandbox": {"read-only", "workspace-write", "danger-full-access"},
     "approval": {"risky-confirm", "always", "never"},

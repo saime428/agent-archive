@@ -5,6 +5,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from agent.config import AgentConfig
+from agent.llm.anthropic import (
+    DEFAULT_ANTHROPIC_BASE_URL,
+    AnthropicClient,
+    smoke_anthropic_provider,
+)
 from agent.llm.base import LLMClient, ProviderCapabilities
 from agent.llm.deepseek import (
     DEFAULT_DEEPSEEK_BASE_URL,
@@ -81,6 +86,27 @@ def _smoke_openai_compat(config: AgentConfig, native: bool) -> SmokeResult:
     )
 
 
+def _make_anthropic(config: AgentConfig) -> AnthropicClient:
+    api_key = os.environ.get(config.api_key_env, "")
+    return AnthropicClient(
+        api_key=api_key,
+        model=config.model,
+        base_url=config.base_url.strip() or DEFAULT_ANTHROPIC_BASE_URL,
+    )
+
+
+def _smoke_anthropic(config: AgentConfig, native: bool) -> SmokeResult:
+    if native:
+        raise ProviderError("anthropic provider does not support native tools; run smoke without --native.")
+    api_key = os.environ.get(config.api_key_env, "")
+    return smoke_anthropic_provider(
+        api_key=api_key,
+        model=config.model,
+        base_url=config.base_url.strip() or DEFAULT_ANTHROPIC_BASE_URL,
+        api_key_env=config.api_key_env,
+    )
+
+
 @dataclass(frozen=True)
 class ProviderSpec:
     display_name: str
@@ -119,6 +145,15 @@ PROVIDER_REGISTRY: dict[str, ProviderSpec] = {
         api_key_required=False,
         requires_base_url=True,
         smoke=_smoke_openai_compat,
+    ),
+    "anthropic": ProviderSpec(
+        display_name="Anthropic 原生 Provider",
+        factory=_make_anthropic,
+        capabilities=AnthropicClient.capabilities,
+        api_key_env=lambda config: config.api_key_env,
+        api_key_required=False,
+        requires_base_url=False,
+        smoke=_smoke_anthropic,
     ),
 }
 
