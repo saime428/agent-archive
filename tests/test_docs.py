@@ -1142,6 +1142,28 @@ def test_phase3_terminal_docs_lock_line_mode_process_boundary() -> None:
     assert "3H Command/Layout" in verification
 
 
+def test_phase3_command_layout_docs_lock_local_only_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-command-layout-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-25-phase3-command-layout.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-command-layout.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3H Command/Layout" in direction
+    assert "agent.frontend.layout" in spec
+    assert "Ctrl+K" in spec
+    assert "不增加后端 Interface" in spec
+    assert "不新增 dependency" in plan
+    assert "状态：待实施与独立验收" in verification
+    assert "3I Legacy retirement" in verification
+
+
 def test_phase3_local_runtime_state_is_gitignored() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
