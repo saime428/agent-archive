@@ -1092,6 +1092,29 @@ def test_phase3_editor_search_docs_lock_safe_multi_tab_boundary() -> None:
     assert "3F Git/Diff" in verification
 
 
+def test_phase3_git_diff_docs_lock_read_only_workspace_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-git-diff-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-25-phase3-git-diff.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-git-diff.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3F Git/Diff" in direction
+    assert "GET /api/git/status" in spec
+    assert "GET /api/git/diff?path=" in spec
+    assert "--no-ext-diff" in spec
+    assert "最多返回前 1,000 项" in spec
+    assert "不新增 dependency" in plan
+    assert "状态：待实施与独立验收" in verification
+    assert "3G Terminal" in verification
+
+
 def test_phase3_local_runtime_state_is_gitignored() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
