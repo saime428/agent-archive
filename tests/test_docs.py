@@ -1195,3 +1195,9 @@ def test_phase3_local_runtime_state_is_gitignored() -> None:
 
     assert ".agent/automations/" in gitignore
     assert ".agent/evals/" in gitignore
+
+
+def test_python_wheel_sources_have_stable_lf_checkout_contract() -> None:
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()
+
+    assert "*.py text eol=lf" in attributes

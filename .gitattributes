@@ -1,3 +1,4 @@
+*.py text eol=lf
 frontend/index.html -text
 src/agent/web/static/preview/** -text
 # Bundled third-party template literals contain whitespace-only lines.
