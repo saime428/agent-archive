@@ -151,6 +151,8 @@ class ChatRuntime:
         self._prune()
         job = self._get_job(job_id)
         with job.condition:
+            if job.approval_decision == "timed_out":
+                raise ValueError("chat approval has expired.")
             if job.done or job.status in _TERMINAL_STATUSES:
                 raise ValueError("chat job is already finished.")
             if not job.approval_pending:
@@ -351,6 +353,7 @@ class ChatRuntime:
             record["elapsed_ms"] = max(0, int((now - job.started_at) * 1000))
             record = self._append_event_file(job.job_id, record)
             if record.get("event") == "approval_required":
+                job.approval_decision = None
                 job.approval_pending = True
                 job.approval_deadline = now + self._approval_timeout
             job.events.append(record)
@@ -400,6 +403,7 @@ class ChatRuntime:
                     deadline = job.approval_deadline
                     remaining = (deadline - self._clock()) if deadline is not None else 0.0
                     if remaining <= 0:
+                        job.approval_decision = "timed_out"
                         job.approval_pending = False
                         job.approval_deadline = None
                         return "timed_out"

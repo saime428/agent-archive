@@ -1679,7 +1679,7 @@ def test_chat_runtime_times_out_and_rejects_late_decision(tmp_path) -> None:
     names = [event["event"] for event in complete["events"]]
 
     assert names.index("approval_required") < names.index("approval_timed_out") < names.index("final")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"chat approval has expired\."):
         runtime.decide(job_id=started["job_id"], approve=True)
     assert not (tmp_path / "notes.txt").exists()
 
