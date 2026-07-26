@@ -687,6 +687,19 @@ worker is active; no service or cron job is installed. Approval-required
 actions fail instead of being auto-approved. Disabling stops future attempts;
 use `cancel` to request cancellation of an active attempt.
 
+Run the fixed offline evaluation gate:
+
+```powershell
+agent eval run
+```
+
+The four built-in FakeLLM cases exercise direct completion, file reading,
+recoverable errors, and blocked approval-required writes through the real run
+loop. Project provider, secrets, Skills, hooks, and MCP configuration do not
+affect this gate. Results and underlying run logs are written to
+`.agent/evals/eval_<id>/`; duration is observational and is not a pass/fail
+threshold.
+
 Hooks are disabled by default. When explicitly enabled in config, in-process
 hooks are logged under `.agent/runs/<run-id>/hooks.jsonl`.
 
