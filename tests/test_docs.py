@@ -1002,3 +1002,25 @@ def test_phase3_memory_lifecycle_docs_lock_scope_and_completion_boundary() -> No
     assert "3C Automation" in verification
     assert "Project vNext 核心仍未完成" in verification
     assert "Phase 4–5" in verification
+
+
+def test_phase3_automation_docs_lock_foreground_worker_and_safety_boundary() -> None:
+    direction = (ROOT / "docs" / "project-vnext-phase3-direction-review.md").read_text(encoding="utf-8")
+    spec = (
+        ROOT / "docs" / "superpowers" / "specs" / "2026-07-25-phase3-automation-design.md"
+    ).read_text(encoding="utf-8")
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-25-phase3-automation.md"
+    ).read_text(encoding="utf-8")
+    verification_path = ROOT / "docs" / "verification" / "phase3-automation.md"
+
+    assert verification_path.is_file()
+    verification = verification_path.read_text(encoding="utf-8")
+
+    assert "3C Automation" in direction
+    assert "automation_id + scheduled_for" in spec
+    assert "不提供 approval handler" in spec
+    assert "不实现 cron" in spec
+    assert "RunControl" in plan
+    assert "Project vNext 核心仍未完成" in verification
+    assert "Phase 4–5" in verification
