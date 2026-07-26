@@ -2404,3 +2404,14 @@ def test_config_unset_falls_back(tmp_path) -> None:
     missing = runner.invoke(app, ["config", "unset", "model", "--cwd", str(workspace)])
     assert missing.exit_code == 1
     assert "Key is not set in project config" in missing.output
+
+def test_run_rejects_unknown_skill_before_running(tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    result = runner.invoke(app, ["run", "--cwd", str(workspace), "--skill", "does-not-exist", "inspect project"])
+
+    assert result.exit_code == 1
+    assert "Unknown skill: does-not-exist" in result.output
+    assert "run_id:" not in result.output

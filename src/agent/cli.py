@@ -65,7 +65,9 @@ app.add_typer(release_app, name="release")
 
 WORKBENCH_PORT_ATTEMPTS = 200
 MCP_CLI_TEXT_LIMIT = 512
-console = Console(highlight=False)
+# markup=False: console.print interpolates model/observation text, and rich
+# markup in that untrusted text could restyle output or raise MarkupError.
+console = Console(highlight=False, markup=False)
 DOCUMENT_DEPENDENCIES = {
     "pypdf": "pypdf",
     "defusedxml": "defusedxml",
@@ -194,6 +196,21 @@ def release_doctor(
         console.print(f"config warning: {warning}")
 
 
+def _validate_selected_skills(workspace: Path, skill: list[str] | None) -> None:
+    # Mirror the automation attempt guard: an explicitly selected skill that
+    # cannot load fails the command up front instead of being silently dropped
+    # by the run loop's fail-safe (which exists to keep corrupt or disabled
+    # skill bodies out of the model, not to hide --skill typos).
+    if not skill:
+        return
+    try:
+        # Probe only; run_once loads skills again under its own budget.
+        load_selected_skills(workspace, skill, max_chars=20_000)
+    except SkillError as exc:
+        console.print(str(exc))
+        raise typer.Exit(code=1) from exc
+
+
 @app.command()
 def run(
     task: str,
@@ -235,6 +252,8 @@ def run(
     except ConfigError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
+
+    _validate_selected_skills(workspace, skill)
 
     close_error: McpRuntimeError | None = None
     try:
@@ -400,6 +419,8 @@ def chat(
     except ConfigError as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
+
+    _validate_selected_skills(workspace, skill)
 
     runtime = McpStdioRuntime(workspace)
     close_error: McpRuntimeError | None = None
