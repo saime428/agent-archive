@@ -16,8 +16,8 @@ def test_package_version_matches_v21_route() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     init_text = (ROOT / "src" / "agent" / "__init__.py").read_text(encoding="utf-8")
 
-    assert pyproject["project"]["version"] == "2.1.1"
-    assert '__version__ = "2.1.1"' in init_text
+    assert pyproject["project"]["version"] == "2.2.0"
+    assert '__version__ = "2.2.0"' in init_text
 
 
 def test_document_reader_extra_declares_optional_parsers_and_xml_hardening() -> None:

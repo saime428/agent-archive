@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.2.0 - 2026-07-27
+
 - Anthropic 原生 Provider：新增 `provider = "anthropic"`，直连只提供 Anthropic Messages 协议（`/v1/messages`）的端点或中转站；复用共享传输/重试/错误原语与通用 `base_url`/`api_key_env` 配置（空 `base_url` 默认官方端点，空 key 不发 `x-api-key`）；system 消息合并进顶层参数、连续同角色消息自动合并以满足严格交替要求；支持流式与 `agent provider smoke anthropic`。本切片仅走 JSON 动作协议（`native_tools=false`），原生工具调用按需另开切片。
 
 ## 2.1.1 - 2026-07-26
