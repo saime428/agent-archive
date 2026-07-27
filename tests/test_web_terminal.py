@@ -364,14 +364,25 @@ def test_terminal_http_start_poll_input_and_stop(tmp_path: Path) -> None:
         assert status == 200
         terminal_id = str(started["terminal_id"])
 
-        status, output = _request(
-            host,
-            port,
-            "GET",
-            f"/api/terminal?terminal_id={terminal_id}&after={started['next']}&timeout=1",
-        )
-        assert status == 200
-        assert "ready" in "".join(event["text"] for event in output["events"])
+        # A single 1s poll has to cover a cold interpreter spawn, which a loaded CI
+        # runner does not always finish in time. Poll to a deadline like _wait_for,
+        # advancing the cursor so text split across polls is not lost.
+        deadline = time.monotonic() + 10.0
+        after = int(started["next"])
+        seen = ""
+        while time.monotonic() < deadline:
+            status, output = _request(
+                host,
+                port,
+                "GET",
+                f"/api/terminal?terminal_id={terminal_id}&after={after}&timeout=1",
+            )
+            assert status == 200
+            seen += "".join(str(event["text"]) for event in output["events"])
+            after = int(output["next"])
+            if "ready" in seen:
+                break
+        assert "ready" in seen
 
         status, payload = _request(
             host,
