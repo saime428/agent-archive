@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-react";
 
 import { api } from "../api/client";
 import type { GitDiffPayload, GitStatusEntry, GitStatusPayload } from "../api/types";
+import { Orb } from "../Orb";
 
 type GitArea = "staged" | "unstaged";
 
@@ -117,7 +118,7 @@ export function GitView() {
       </div>
 
       <div className="git-status" aria-live="polite">
-        {statusLoading ? <p className="overview-note" role="status">正在读取 Git 状态…</p> : null}
+        {statusLoading ? <p className="overview-note" role="status"><Orb state="searching" /> 正在读取 Git 状态…</p> : null}
         {statusError ? <p className="overview-error" role="alert" data-payload>{statusError}</p> : null}
         {status?.is_repository && status.truncated ? (
           <p className="overview-note">状态项至少 {status.entry_count} 条，仅显示前 {status.entry_count} 条。</p>
@@ -198,7 +199,7 @@ export function GitView() {
                 {selected.untracked ? (
                   <p className="overview-note">Untracked 文件没有 Git diff；请到 Files 中查看内容。</p>
                 ) : null}
-                {diffLoading ? <p className="overview-note" role="status">正在读取 {area} diff…</p> : null}
+                {diffLoading ? <p className="overview-note" role="status"><Orb state="searching" /> 正在读取 {area} diff…</p> : null}
                 {diffError ? <p className="overview-error" role="alert" data-payload>{diffError}</p> : null}
                 {diff?.truncated ? <p className="overview-tag" data-tone="warning">Diff 已截断</p> : null}
                 {diff && !diff.diff ? <p className="overview-note">该区域没有可显示的差异。</p> : null}

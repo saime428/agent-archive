@@ -380,6 +380,15 @@ Run the complete frontend gate from `frontend/` with `npm run check`. Phase 2,
 Readiness, Cutover, and Phase 3E–3I evidence is recorded under
 `docs/verification/`.
 
+Pending states render a `thinking-orbs` canvas indicator whose shape tracks what
+the agent is actually doing: reasoning, streaming, reading, writing, running a
+command, waiting for approval, rebuilding, or connecting. The mapping lives in
+`frontend/src/Orb.tsx`; unknown actions, including every MCP tool, fall back to
+the generic `working` orb. Settled phases (`idle`, `final`, `error`) and button
+busy states keep their existing icons on purpose. Each animating orb costs
+roughly 1.3 FPS, so a view shows at most one; `prefers-reduced-motion: reduce`
+pins every orb to a single static frame.
+
 ## v0.7 Product Shell Decision
 
 v0.7 starts by keeping the Workbench shell boring: no Vue, Vite, Electron, or

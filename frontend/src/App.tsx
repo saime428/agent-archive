@@ -54,6 +54,7 @@ import { api, ApiError } from "./api/client";
 import { isTerminalChatEvent, subscribeChatJob, type StreamStatus } from "./api/sse";
 import type { ChatEvent, ChatPayload, ChatSummary, ChatTurn, HealthPayload } from "./api/types";
 import { chatReducer, initialChatState, recoveringState, type ChatPhase, type ChatState } from "./chat/state";
+import { Orb, resolveChatOrbState } from "./Orb";
 import { loadLayout, saveLayout, type WorkspaceView } from "./layout";
 import { useTheme, type ModePreference, type ThemeName } from "./theme";
 import { WorkspacePanel } from "./workspace/WorkspacePanel";
@@ -149,7 +150,7 @@ function StatusMark({ health }: { health: HealthPayload | null }) {
   if (!health) {
     return (
       <span className="command-status" data-tone="muted">
-        <LoaderCircle className="spin" aria-hidden="true" /> Connecting
+        <Orb state="connecting" /> Connecting
       </span>
     );
   }
@@ -427,6 +428,9 @@ function LiveTurn({
   onDecision: (approved: boolean) => void;
   onRecover: () => void;
 }) {
+  // One orb for the whole turn: the label already renders for every phase, so a
+  // single indicator here covers all of them without stacking canvases.
+  const orbState = resolveChatOrbState(live.phase, live.lastAction, live.streamKind);
   return (
     <section className="turn live-turn" aria-label="当前回合">
       {pendingUser ? (
@@ -437,11 +441,11 @@ function LiveTurn({
       ) : null}
       <div className="utterance agent-utterance">
         <span className="utterance-label">
-          <Activity aria-hidden="true" /> AGENT / {live.phase.toUpperCase()}
+          {orbState ? <Orb state={orbState} /> : <Activity aria-hidden="true" />} AGENT / {live.phase.toUpperCase()}
         </span>
         {streamStatus === "retrying" || streamStatus === "recovering" ? (
           <div className="inline-notice" data-tone="warning">
-            <WifiOff aria-hidden="true" />
+            {streamStatus === "retrying" ? <Orb state="connecting" /> : <WifiOff aria-hidden="true" />}
             {streamStatus === "retrying" ? "连接中断，正在重连一次。" : "实时连接不可用，正在读取持久化历史。"}
           </div>
         ) : null}
@@ -488,7 +492,9 @@ function LiveTurn({
           </div>
         ) : null}
         {live.phase === "thinking" && !live.stream.thinking ? (
-          <span className="thinking-indicator"><LoaderCircle className="spin" aria-hidden="true" /> 正在建立执行路径</span>
+          // The label orb above already carries the pending signal; a second
+          // spinner on the same turn would just be noise.
+          <span className="thinking-indicator">正在建立执行路径</span>
         ) : null}
       </div>
     </section>

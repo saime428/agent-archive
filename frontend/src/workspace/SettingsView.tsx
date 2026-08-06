@@ -10,6 +10,7 @@ import type {
   RunListItem,
   ToolsPayload,
 } from "../api/types";
+import { Orb } from "../Orb";
 
 interface SettingsViewProps {
   health: HealthPayload | null;
@@ -155,7 +156,7 @@ export function SettingsView({
             <p className="overview-note">密钥只能在终端或 .agent/secrets.env 配置，浏览器不接收密钥。</p>
           </>
         ) : (
-          <p className="overview-note">加载中。</p>
+          <p className="overview-note" role="status"><Orb state="searching" /> 加载中。</p>
         )}
       </RunSectionLike>
 
@@ -173,7 +174,7 @@ export function SettingsView({
             <LabeledList label="检查" items={risk.checks} />
           </>
         ) : (
-          <p className="overview-note">加载中。</p>
+          <p className="overview-note" role="status">加载中。</p>
         )}
       </RunSectionLike>
 
@@ -218,14 +219,14 @@ export function SettingsView({
             <p className="overview-note">只读视图：确认或撤销 memory 请使用终端命令。</p>
           </>
         ) : (
-          <p className="overview-note">加载中。</p>
+          <p className="overview-note" role="status">加载中。</p>
         )}
       </RunSectionLike>
 
       <RunSectionLike title="Settings">
         {configError ? <p className="overview-error" data-payload>{configError}</p> : null}
         {!form ? (
-          <p className="overview-note">加载中。</p>
+          <p className="overview-note" role="status">加载中。</p>
         ) : (
           <form
             className="settings-form"
@@ -332,7 +333,7 @@ export function SettingsView({
             ))}
           </ul>
         ) : (
-          <p className="overview-note">加载中。</p>
+          <p className="overview-note" role="status">加载中。</p>
         )}
       </RunSectionLike>
 

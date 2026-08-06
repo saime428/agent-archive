@@ -1530,6 +1530,9 @@ for (const variant of visualVariants) {
     await page.goto("./#/new");
     await page.getByLabel("主题", { exact: true }).selectOption(variant.theme);
     await page.getByLabel("显示模式", { exact: true }).selectOption(variant.mode);
+    // Canvas orbs paint via requestAnimationFrame, which `animations: "disabled"`
+    // does not stop; reduced motion pins them to one deterministic frame.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page).toHaveScreenshot(`${variant.name}.png`, { animations: "disabled" });
 
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
@@ -1567,6 +1570,9 @@ for (const variant of workspaceVisuals) {
       await expect(page.getByRole("heading", { name: "Settings readiness", exact: true })).toBeVisible();
     }
 
+    // Canvas orbs paint via requestAnimationFrame, which `animations: "disabled"`
+    // does not stop; reduced motion pins them to one deterministic frame.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page).toHaveScreenshot(`${variant.name}.png`, {
       animations: "disabled",
       // Keep wall-clock text out of the approved image.
@@ -1598,6 +1604,9 @@ for (const variant of [
       await expect(page.getByText("Terminal 默认关闭。请在项目终端显式启用：", { exact: true })).toBeVisible();
     }
 
+    // Canvas orbs paint via requestAnimationFrame, which `animations: "disabled"`
+    // does not stop; reduced motion pins them to one deterministic frame.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page).toHaveScreenshot(`${variant.name}.png`, {
       animations: "disabled",
       mask: [page.locator(".workspace-refresh-time")],
@@ -1618,6 +1627,9 @@ for (const variant of [
     await page.getByRole("button", { name: "打开命令面板", exact: true }).click();
     await page.getByLabel("搜索命令", { exact: true }).fill("工作台");
     await expect(page.getByRole("option")).toHaveCount(5);
+    // Canvas orbs paint via requestAnimationFrame, which `animations: "disabled"`
+    // does not stop; reduced motion pins them to one deterministic frame.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page).toHaveScreenshot(`${variant.name}.png`, { animations: "disabled" });
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
     expect(dimensions.scrollWidth).toBe(dimensions.width);

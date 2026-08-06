@@ -17,6 +17,7 @@ import { api } from "../api/client";
 import type { FilesPayload, SearchPayload } from "../api/types";
 import { useTheme } from "../theme";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { Orb } from "../Orb";
 
 const MonacoEditor = lazy(() => import("./MonacoEditor"));
 const MAX_OPEN_TABS = 20;
@@ -431,7 +432,7 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
               <p className="overview-error" data-payload>{fileError}</p>
             </div>
           ) : null}
-          {openingPath ? <p className="overview-note" role="status">正在打开 {openingPath}…</p> : null}
+          {openingPath ? <p className="overview-note" role="status"><Orb state="searching" /> 正在打开 {openingPath}…</p> : null}
 
           {!selected ? (
             fileError ? null : <p className="overview-note">选择左侧文件或搜索结果以打开。</p>
@@ -464,7 +465,7 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
               {jumpLine !== null ? <p className="files-jump-status">已跳转到第 {jumpLine} 行</p> : null}
 
               {desktopEditor ? (
-                <Suspense fallback={<div className="files-editor-loading" role="status">编辑器加载中…</div>}>
+                <Suspense fallback={<div className="files-editor-loading" role="status"><Orb state="working" /> 编辑器加载中…</div>}>
                   <MonacoEditor
                     path={selected.path}
                     value={selected.buffer}

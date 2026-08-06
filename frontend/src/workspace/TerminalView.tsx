@@ -3,6 +3,7 @@ import { Play, RefreshCw, Send, Square } from "lucide-react";
 
 import { api } from "../api/client";
 import type { TerminalEvent, TerminalPayload, TerminalStatus } from "../api/types";
+import { Orb } from "../Orb";
 
 
 const STATUS_LABELS: Record<TerminalStatus, string> = {
@@ -179,7 +180,7 @@ export function TerminalView() {
         </div>
       </div>
 
-      {loading ? <p className="overview-note" role="status">正在读取 Terminal 状态…</p> : null}
+      {loading ? <p className="overview-note" role="status"><Orb state="connecting" /> 正在读取 Terminal 状态…</p> : null}
       {error ? <p className="overview-error" role="alert" data-payload>{error}</p> : null}
 
       {terminal && !terminal.enabled && !hasProcess ? (

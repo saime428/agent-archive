@@ -28,7 +28,8 @@
     "monaco-editor": "0.56.0",
     "motion": "12.42.2",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "thinking-orbs": "0.2.0"
   },
   "overrides": {
     "dompurify": "3.4.12"
