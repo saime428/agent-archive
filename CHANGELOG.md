@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Orb 状态自动化证据：新增 `renders a distinct orb per state`（dark / light 各一），9 个状态各开独立 browser context 驱动真实事件路径，断言 canvas 着色像素 > 20 且 9 个位图两两不同——把两个 phase 指向同一动画的映射回归会让该集合塌缩。原计划的 18 张像素基线**已验证不可用并全部废弃**：容器截图完全不合成 canvas（每模式只剩 6 个唯一哈希，恰好等于 6 种标签文字，orb 不渲染也照样通过），改夹 canvas 元素后仍有 5 个状态输出 113 字节空 PNG，而同一元素的 `getImageData` 明确报告有着色像素。证据与两个驱动陷阱（`breathing` 必须用非终态的 `error` 事件，`connecting` 的终端路由延迟不能加 `times: 1`）记于 `docs/verification/thinking-orbs-state-baselines.md`。
+
 - 阶段指示器：引入 `thinking-orbs@0.2.0`（MIT，canvas，零运行时依赖，gzip +6,102 B），把后端早已区分、前端此前丢弃的活动语义显示出来。`resolveChatOrbState` 把 `ChatPhase` + `tool_start.action` + `model_stream_chunk.kind` 映射到 9 种 orb：思考 `solving`、思维链流式 `weaving`、正文流式 `composing`、读取/检索类工具 `searching`、写入类工具 `shaping`、命令与 MCP 工具 `working`、等待审批 `listening`、历史重建 `breathing`、连接中 `connecting`；`idle`/`final`/`error` 三个终态不显示 orb，按钮内 busy spinner 保持 `LoaderCircle` 不变。零后端与 schema 改动。主题不使用上游 `theme="auto"`（其检测的 `data-theme="dark|light"` 与本项目"`data-theme` 存主题名、深浅在 `data-mode`"不兼容，会退化为跟随系统而在应用内切换模式时画反），改为显式传 `resolvedMode`，并以系统深色 + 应用内浅色、系统浅色 + 应用内深色两组截图取证。canvas 一律 `aria-hidden`，既有 `role="status"` 文案全部保留、不新增 live region。视觉基线新增 `emulateMedia({ reducedMotion: "reduce" })`，因为 Playwright 的 `animations: "disabled"` 停不掉 canvas 的 `requestAnimationFrame`。并发帧开销实测后按设计约定收敛：Settings 五个区块同时 pending 时五球 48.9 FPS、单球 54.3 FPS，故只保留区块级单个 orb。
 
 ## 2.2.0 - 2026-07-27

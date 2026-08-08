@@ -1724,3 +1724,158 @@ test("records the 30 second stream and canvas frame budget", async ({ page }, te
   await page.getByRole("button", { name: "关闭上下文画布", exact: true }).click();
   await expect(page.locator("canvas.context-field")).toHaveCount(0);
 });
+
+// Orb state baselines. The 9 indicator states are only visible while a turn is
+// pending, so no full-page baseline can ever capture them; each case drives the
+// real event path, freezes the canvas with reduced motion, and clips the row that
+// holds the orb. Reduced-motion frames were verified to be both distinguishable
+// per state and byte-identical across runs before these baselines were adopted.
+type OrbCase = {
+  state: string;
+  container: string;
+  drive: (page: Page) => Promise<void>;
+};
+
+async function startTurn(page: Page) {
+  await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Orb baseline fixture");
+  await page.getByRole("button", { name: "发送", exact: true }).click();
+}
+
+async function driveToolStart(page: Page, action: string) {
+  await startTurn(page);
+  await emit(page, "tool_start", {
+    event: "tool_start",
+    sequence: 0,
+    elapsed_ms: 20,
+    run_id: "run_orb",
+    action_index: 1,
+    action,
+    message: `Running ${action}.`,
+    args: {},
+  });
+}
+
+const orbCases: OrbCase[] = [
+  {
+    state: "solving",
+    container: ".live-turn .agent-utterance .utterance-label",
+    drive: async (page) => {
+      await startTurn(page);
+      await emit(page, "model_call_start", { event: "model_call_start", sequence: 0, elapsed_ms: 5 });
+    },
+  },
+  {
+    state: "weaving",
+    container: ".live-turn .agent-utterance .utterance-label",
+    drive: async (page) => {
+      await startTurn(page);
+      await emit(page, "model_stream_chunk", {
+        event: "model_stream_chunk", sequence: 0, elapsed_ms: 8, kind: "thinking", text: "reasoning", chunk_chars: 9,
+      });
+    },
+  },
+  {
+    state: "composing",
+    container: ".live-turn .agent-utterance .utterance-label",
+    drive: async (page) => {
+      await startTurn(page);
+      await emit(page, "model_stream_chunk", {
+        event: "model_stream_chunk", sequence: 0, elapsed_ms: 8, kind: "content", text: "answer", chunk_chars: 6,
+      });
+    },
+  },
+  { state: "searching", container: ".live-turn .agent-utterance .utterance-label", drive: (page) => driveToolStart(page, "search_files") },
+  { state: "shaping", container: ".live-turn .agent-utterance .utterance-label", drive: (page) => driveToolStart(page, "apply_patch") },
+  { state: "working", container: ".live-turn .agent-utterance .utterance-label", drive: (page) => driveToolStart(page, "run_command") },
+  {
+    state: "listening",
+    container: ".live-turn .agent-utterance .utterance-label",
+    drive: async (page) => {
+      await startTurn(page);
+      await emit(page, "approval_required", {
+        event: "approval_required",
+        sequence: 0,
+        elapsed_ms: 30,
+        run_id: "run_orb",
+        action_index: 1,
+        action: "run_command",
+        message: "Inspect the local workspace.",
+        args: { argv: ["git", "status", "--short"] },
+        reason: "This action starts a local process.",
+      });
+    },
+  },
+  {
+    state: "breathing",
+    container: ".live-turn .agent-utterance .utterance-label",
+    drive: async (page) => {
+      await startTurn(page);
+      // `error` is deliberately not in TERMINAL_EVENTS, so the live turn survives;
+      // `failed` would trigger settleJob and wipe the turn before the button renders.
+      await emit(page, "error", { event: "error", sequence: 0, elapsed_ms: 40, error: "fixture failure" });
+      // Recovery is transient: it ends the moment the history fetch resolves, so
+      // hold that fetch open to keep the phase observable.
+      // times: 1 so the delay cannot leak into a later case in the loop below.
+      await page.route("**/api/chats/*", async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        await route.fallback();
+      }, { times: 1 });
+      await page.getByRole("button", { name: "从历史重建", exact: true }).click();
+    },
+  },
+  {
+    state: "connecting",
+    // The Terminal view's own loading state is a far steadier home for this orb
+    // than StatusMark, whose health probe resolves before a screenshot can land.
+    container: '.terminal-view p.overview-note[role="status"]',
+    drive: async (page) => {
+      // The view polls terminal twice on mount; delaying only the first would let
+      // the second clear the loading state before the screenshot lands.
+      await page.route("**/api/terminal*", async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        await route.fallback();
+      });
+      await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+      await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    },
+  },
+];
+
+// Playwright cannot be made to composite this 20px canvas reliably: a clip of the
+// surrounding row drops the canvas pixels entirely, and an element clip returns a
+// blank PNG for five of the nine states even while getImageData reports ink. The
+// canvas bitmap itself is stable and reproducible, so assert on that instead.
+for (const mode of ["dark", "light"] as const) {
+  test(`renders a distinct orb per state in ${mode} mode`, async ({ browser }) => {
+    test.setTimeout(120_000);
+    const frames = new Map<string, string>();
+    for (const orbCase of orbCases) {
+      // A fresh page per state: the mock backend keeps job state across navigations,
+      // so reusing one page lets an earlier turn disable the next composer.
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await installWorkbenchMocks(page);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.setViewportSize({ width: 900, height: 700 });
+      await page.goto("./#/new");
+      await page.getByLabel("显示模式", { exact: true }).selectOption(mode);
+      await orbCase.drive(page);
+      const canvas = page.locator(`${orbCase.container} canvas`);
+      await expect(canvas).toBeVisible();
+      await expect.poll(async () => canvas.evaluate((node) => {
+        const element = node as HTMLCanvasElement;
+        const pixels = element.getContext("2d")?.getImageData(0, 0, element.width, element.height).data;
+        if (!pixels) return 0;
+        let painted = 0;
+        for (let index = 3; index < pixels.length; index += 4) if (pixels[index] !== 0) painted += 1;
+        return painted;
+      }), { timeout: 10_000 }).toBeGreaterThan(20);
+      frames.set(orbCase.state, await canvas.evaluate((node) => (node as HTMLCanvasElement).toDataURL()));
+      await context.close();
+    }
+    expect(frames.size).toBe(orbCases.length);
+    // Nine states must paint nine different orbs; a mapping regression that points
+    // two phases at one animation collapses this set.
+    expect(new Set(frames.values()).size).toBe(orbCases.length);
+  });
+}
