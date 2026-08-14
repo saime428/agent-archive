@@ -1,10 +1,24 @@
 # Agent
 
-A minimal Python CLI agent core for local code-development workflows.
+A local coding agent core in Python: models emit structured actions, the core
+validates and executes them behind hard safety boundaries, and every run leaves
+a durable, redacted record.
 
-The v0.1 release focuses on a safe core: structured actions, bounded tool output,
-workspace sandboxing, approval fail-fast behavior, dry-run support, durable logs,
-redaction, snapshots, and fake-model end-to-end runs.
+**v2.2.0** · ~17k lines of source, ~19k lines of tests (988 cases) · Python 3.11+ · runs against your own provider
+
+| Area | What it does |
+| --- | --- |
+| Agent loop | Models emit structured JSON actions; the core validates, executes, and feeds bounded observations back with a consecutive-error budget |
+| Tools | File, shell, git, web, and document (PDF / DOCX / XLSX / PPTX) tools behind one action/observation protocol |
+| Providers | Anthropic-native, DeepSeek, any OpenAI-compatible endpoint (including local Ollama), plus a FakeLLM so end-to-end tests need no network |
+| MCP | Local stdio Model Context Protocol servers via the official SDK 1.28.1; every exposed tool call is separately approval-gated |
+| Safety | Workspace sandbox, approval gates, dry-run, snapshots before writes, redacted durable logs, per-source context budgets — see [Safety Model](#safety-model) |
+| Interfaces | `agent run` (one-shot), `agent chat` (terminal, resumable), `agent start` (local React Workbench with SSE streaming) |
+| Extensions | Managed skills and MCP configuration with atomic, crash-recoverable writes under `~/.agent/` |
+
+> This README doubles as the working document for each release slice. Start with
+> **Quickstart** below; the `v0.x` sections further down are kept as historical
+> decision records rather than current-state documentation.
 
 ## Quickstart
 
