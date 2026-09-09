@@ -937,6 +937,13 @@ select {
   white-space: nowrap;
 }
 
+.live-turn .agent-utterance > .utterance-label {
+  position: static;
+  width: auto;
+  margin-bottom: 8px;
+  justify-content: flex-start;
+}
+
 .thinking-block {
   margin: 0 0 18px;
   color: var(--text-dim);

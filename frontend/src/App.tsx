@@ -40,6 +40,7 @@ import { motion, useReducedMotion } from "motion/react";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -340,6 +341,14 @@ function HistoryTurn({ turn, index, originalThinking }: { turn: ChatTurn; index:
 
 function processDescription(event: ChatEvent) {
   switch (event.event) {
+    case "chat_started":
+      return "回合已开始";
+    case "model_call_start":
+      return "正在请求模型";
+    case "model_stream_start":
+      return "模型流已开始";
+    case "model_stream_chunk":
+      return event.text;
     case "action_parsed":
       return `已解析 ${event.action}`;
     case "tool_start":
@@ -431,6 +440,8 @@ function LiveTurn({
   // One orb for the whole turn: the label already renders for every phase, so a
   // single indicator here covers all of them without stacking canvases.
   const orbState = resolveChatOrbState(live.phase, live.lastAction, live.streamKind);
+  const [phaseDetailsOpen, setPhaseDetailsOpen] = useState(false);
+  const phaseDetailsId = useId();
   return (
     <section className="turn live-turn" aria-label="当前回合">
       {pendingUser ? (
@@ -441,8 +452,19 @@ function LiveTurn({
       ) : null}
       <div className="utterance agent-utterance">
         <span className="utterance-label">
-          {orbState ? <Orb state={orbState} /> : <Activity aria-hidden="true" />} AGENT / {live.phase.toUpperCase()}
+          {orbState ? (
+            <button className="icon-button" type="button" aria-label="阶段详情"
+              aria-expanded={phaseDetailsOpen} aria-controls={phaseDetailsId}
+              onClick={() => setPhaseDetailsOpen((open) => !open)}>
+              <Orb state={orbState} />
+            </button>
+          ) : <Activity aria-hidden="true" />} AGENT / {live.phase.toUpperCase()}
         </span>
+        {orbState ? (
+          <section id={phaseDetailsId} className="thinking-block" aria-label="阶段详情" hidden={!phaseDetailsOpen}>
+            <pre data-payload>{`当前状态：${live.phase} / ${orbState}\n事件类型：${live.phaseEvent?.event ?? "暂无（本地状态）"}\n最近活动：${live.phaseEvent ? processDescription(live.phaseEvent) : live.phase === "recovering" ? "正在读取持久化历史" : "等待服务端事件"}`}</pre>
+          </section>
+        ) : null}
         {streamStatus === "retrying" || streamStatus === "recovering" ? (
           <div className="inline-notice" data-tone="warning">
             {streamStatus === "retrying" ? <Orb state="connecting" /> : <WifiOff aria-hidden="true" />}

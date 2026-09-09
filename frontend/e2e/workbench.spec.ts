@@ -732,6 +732,42 @@ test.beforeEach(async ({ page }) => {
   await installWorkbenchMocks(page);
 });
 
+test("orb phase details follow SSE activity and support click and keyboard", async ({ page }) => {
+  await page.goto("./#/new");
+  await startTurn(page);
+  const toggle = page.getByRole("button", { name: "阶段详情", exact: true });
+  const details = page.getByRole("region", { name: "阶段详情", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(details).toContainText("等待服务端事件");
+
+  const action = { run_id: "run_orb", action_index: 1, action: "read_file", message: "Read", args: {} };
+  await emit(page, "tool_start", { ...action, event: "tool_start", sequence: 0, elapsed_ms: 1 });
+  await expect(details).toContainText("当前状态：tool / searching");
+  await expect(details).toContainText("事件类型：tool_start");
+  await expect(details).toContainText("最近活动：正在执行 read_file");
+  await emit(page, "observation", { ...action, event: "observation", sequence: 1, elapsed_ms: 2, status: "ok", summary: "Latest file activity" });
+  await expect(details).toContainText("事件类型：observation");
+  await expect(details).toContainText("最近活动：Latest file activity");
+  await expect(details).not.toContainText("正在执行 read_file");
+  await emit(page, "capability_warning", { event: "capability_warning", sequence: 2, elapsed_ms: 3, run_id: "run_orb", requested: "native", fallback: "json" });
+  await expect(details).toContainText("事件类型：observation");
+
+  await emit(page, "model_stream_chunk", { event: "model_stream_chunk", sequence: 3, elapsed_ms: 4, kind: "thinking", text: "Latest reasoning", chunk_chars: 16 });
+  await expect(details).toContainText("当前状态：stream / weaving");
+  await expect(details).toContainText("事件类型：model_stream_chunk");
+  await expect(details).toContainText("最近活动：Latest reasoning");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(details).toBeHidden();
+  await page.keyboard.press("Space");
+  await expect(details).toBeVisible();
+  await emit(page, "final", finalEvent(4));
+  await expect(toggle).toHaveCount(0);
+  await expect(details).toHaveCount(0);
+});
+
 test("streams a real turn into a durable final state", async ({ page }) => {
   await page.goto("./#/new");
   await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Run the browser fixture");

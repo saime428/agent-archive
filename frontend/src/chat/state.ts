@@ -15,6 +15,8 @@ export interface ChatState {
   lastAction: string | null;
   /** Kind of the most recent model stream chunk, for the phase indicator. */
   streamKind: StreamKind | null;
+  /** Latest phase-driving SSE event; warnings do not replace it. */
+  phaseEvent: ChatEvent | null;
 }
 
 export const initialChatState: ChatState = {
@@ -28,11 +30,12 @@ export const initialChatState: ChatState = {
   notices: [],
   lastAction: null,
   streamKind: null,
+  phaseEvent: null,
 };
 
 export function chatReducer(state: ChatState, event: ChatEvent): ChatState {
   if (event.sequence <= state.lastSequence) return state;
-  const next = { ...state, lastSequence: event.sequence };
+  const next = { ...state, lastSequence: event.sequence, phaseEvent: event.event === "capability_warning" ? state.phaseEvent : event };
 
   switch (event.event) {
     case "chat_started":
@@ -75,5 +78,5 @@ export function chatReducer(state: ChatState, event: ChatEvent): ChatState {
 }
 
 export function recoveringState(state: ChatState): ChatState {
-  return { ...state, phase: "recovering" };
+  return { ...state, phase: "recovering", phaseEvent: null };
 }
