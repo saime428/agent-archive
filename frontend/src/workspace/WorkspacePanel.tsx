@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { FolderTree, GitBranch, LayoutDashboard, ListChecks, RefreshCw, SquareTerminal, X } from "lucide-react";
 
@@ -36,6 +36,10 @@ interface WorkspacePanelProps {
   onViewChange: (view: WorkspaceView) => void;
 }
 
+export interface WorkspacePanelHandle {
+  requestView: (view: WorkspaceView) => void;
+}
+
 const VIEW_TABS: Array<{ id: WorkspaceView; label: string; icon: typeof FolderTree }> = [
   { id: "files", label: "Files", icon: FolderTree },
   { id: "git", label: "Git", icon: GitBranch },
@@ -48,7 +52,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败。";
 }
 
-export function WorkspacePanel({
+export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelProps>(function WorkspacePanel({
   open,
   onOpenChange,
   health,
@@ -58,7 +62,7 @@ export function WorkspacePanel({
   onOpenSession,
   view,
   onViewChange,
-}: WorkspacePanelProps) {
+}: WorkspacePanelProps, ref) {
   const [runs, setRuns] = useState<Resource<RunsPayload>>(idleResource);
   const [config, setConfig] = useState<Resource<ConfigPayload>>(idleResource);
   const [tools, setTools] = useState<Resource<ToolsPayload>>(idleResource);
@@ -157,6 +161,8 @@ export function WorkspacePanel({
     if (next !== "files" && leavingDirtyFiles()) setPendingNav({ kind: "view", view: next });
     else onViewChange(next);
   };
+
+  useImperativeHandle(ref, () => ({ requestView }));
 
   const handleOpenChange = (next: boolean) => {
     if (!next && leavingDirtyFiles()) setPendingNav({ kind: "close" });
@@ -271,7 +277,7 @@ export function WorkspacePanel({
       </> : null}
     </dialog>
   );
-}
+});
 
 // At-a-glance strip only; readiness / risk / memory / settings / tools detail lives in
 // SettingsView below it so the System view stays one continuous surface, not a card wall.

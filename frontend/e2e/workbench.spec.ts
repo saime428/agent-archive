@@ -1232,6 +1232,30 @@ test.describe("files", () => {
     await expect(page.getByRole("button", { name: "System", exact: true })).toHaveCount(0);
   });
 
+  test("guards unsaved edits when a command switches the workspace view", async ({ page }) => {
+    await openFiles(page);
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await replaceDesktopEditor(page, "unsaved command draft");
+
+    const switchToGit = async () => {
+      await page.getByRole("button", { name: "打开命令面板", exact: true }).click();
+      await page.getByLabel("搜索命令", { exact: true }).fill("打开 Git");
+      await page.getByRole("option", { name: /打开 Git/ }).click();
+    };
+
+    await switchToGit();
+    await expect(page.getByRole("dialog", { name: "未保存修改", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+    await expect(page.locator(".view-lines")).toContainText("unsaved command draft");
+    await expect(page.getByRole("button", { name: "Files", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+    await switchToGit();
+    await page.getByRole("button", { name: "丢弃并继续", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Git", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".view-lines")).toHaveCount(0);
+  });
+
   test("keeps the dirty buffer when save fails", async ({ page }) => {
     await openFiles(page);
     await page.getByRole("button", { name: "README.md", exact: true }).click();

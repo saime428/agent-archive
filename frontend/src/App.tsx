@@ -58,7 +58,7 @@ import { chatReducer, initialChatState, recoveringState, type ChatPhase, type Ch
 import { Orb, resolveChatOrbState } from "./Orb";
 import { loadLayout, saveLayout, type WorkspaceView } from "./layout";
 import { useTheme, type ModePreference, type ThemeName } from "./theme";
-import { WorkspacePanel } from "./workspace/WorkspacePanel";
+import { WorkspacePanel, type WorkspacePanelHandle } from "./workspace/WorkspacePanel";
 
 const ACTIVE_JOB_KEY = "agent.frontend.active-job";
 const RESUMABLE_REASONS = new Set(["cancelled", "timed_out", "interrupted", "failed"]);
@@ -660,6 +660,7 @@ export function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const { railOpen, railWidth, canvasEnabled, workspaceView } = layout;
   const [workspaceOpener, setWorkspaceOpener] = useState<HTMLButtonElement | null>(null);
+  const workspaceRef = useRef<WorkspacePanelHandle>(null);
   const [error, setError] = useState<string | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -680,11 +681,18 @@ export function App() {
 
   useEffect(() => saveLayout(layout), [layout]);
 
+  const requestWorkspaceView = useCallback((view: WorkspaceView) => {
+    workspaceRef.current?.requestView(view);
+  }, []);
+
   const showWorkspace = useCallback((opener: HTMLButtonElement | null, view?: WorkspaceView) => {
     if (opener) setWorkspaceOpener(opener);
-    if (view) setLayout((current) => ({ ...current, workspaceView: view }));
+    if (view) {
+      if (workspaceOpen) requestWorkspaceView(view);
+      else setLayout((current) => ({ ...current, workspaceView: view }));
+    }
     setWorkspaceOpen(true);
-  }, []);
+  }, [requestWorkspaceView, workspaceOpen]);
 
   // Remember which button opened the workspace so focus can return to it on close.
   const openWorkspace = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
@@ -950,6 +958,8 @@ export function App() {
       label: `打开 ${view[0].toUpperCase()}${view.slice(1)}`,
       detail: "打开工作台并切换到该视图",
       keywords: ["workspace", "工作台", view],
+      // command.run executes only after a palette action, never during render.
+      // eslint-disable-next-line react-hooks/refs
       run: (opener: HTMLButtonElement | null) => showWorkspace(opener, view),
     })),
     { id: "refresh", label: "刷新状态与会话", detail: "重新读取健康状态和会话索引", keywords: ["refresh", "reload"], run: () => void refreshGlobal() },
@@ -1086,6 +1096,7 @@ export function App() {
         </button>
 
         <WorkspacePanel
+          ref={workspaceRef}
           open={workspaceOpen}
           onOpenChange={setWorkspaceOpen}
           health={health}
