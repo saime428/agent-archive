@@ -138,7 +138,7 @@ export function SettingsView({
     <section className="settings-view" aria-labelledby="system-heading">
       <h2 id="system-heading" className="sr-only">System</h2>
 
-      <RunSectionLike title="Settings readiness">
+      <RunSectionLike title="配置检查">
         {readiness ? (
           <>
             <p className="overview-tag" data-tone={readiness.status === "ready" ? "ok" : "warning"}>
@@ -160,7 +160,7 @@ export function SettingsView({
         )}
       </RunSectionLike>
 
-      <RunSectionLike title="Workspace risk">
+      <RunSectionLike title="工作区风险">
         {risk ? (
           <>
             <p className="overview-tag" data-tone={risk.risk_level === "low" ? "ok" : "warning"}>{risk.risk_level}</p>
@@ -178,7 +178,7 @@ export function SettingsView({
         )}
       </RunSectionLike>
 
-      <RunSectionLike title="Memory review">
+      <RunSectionLike title="记忆审阅">
         {memory ? (
           <>
             <div className="run-key-row">
@@ -223,7 +223,7 @@ export function SettingsView({
         )}
       </RunSectionLike>
 
-      <RunSectionLike title="Settings">
+      <RunSectionLike title="运行设置">
         {configError ? <p className="overview-error" data-payload>{configError}</p> : null}
         {!form ? (
           <p className="overview-note" role="status">加载中。</p>
@@ -319,7 +319,7 @@ export function SettingsView({
         )}
       </RunSectionLike>
 
-      <RunSectionLike title="Tools">
+      <RunSectionLike title="可用工具">
         {tools ? (
           <ul className="tools-list">
             {tools.tools.map((tool) => (
@@ -337,7 +337,7 @@ export function SettingsView({
         )}
       </RunSectionLike>
 
-      <RunSectionLike title="Resources">
+      <RunSectionLike title="工作区资源">
         <div className="resource-grid">
           <div className="run-list-block">
             <span className="run-key"><MessageSquare aria-hidden="true" /> 会话 ({chats.length})</span>

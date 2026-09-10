@@ -70,15 +70,9 @@ interface ActiveJob {
 
 type SessionAction = { kind: "rename" | "delete"; chat: ChatSummary } | null;
 
-const PHASE_COPY: Record<ChatPhase, { eyebrow: string; title: string; detail: string }> = {
-  idle: { eyebrow: "SYSTEM READY", title: "READY", detail: "Describe the outcome. The agent will expose the path." },
-  thinking: { eyebrow: "MODEL TRACE", title: "THINK", detail: "Building the next executable step." },
-  stream: { eyebrow: "LIVE RESPONSE", title: "FLOW", detail: "The answer is arriving from the active run." },
-  tool: { eyebrow: "LOCAL ACTION", title: "EXEC", detail: "The run is touching real tools and evidence." },
-  approval: { eyebrow: "HUMAN GATE", title: "DECIDE", detail: "Execution is paused until you choose." },
-  final: { eyebrow: "RUN COMPLETE", title: "DONE", detail: "The result is persisted in this session." },
-  error: { eyebrow: "RUN INTERRUPTED", title: "FAULT", detail: "The failure is visible and recoverable." },
-  recovering: { eyebrow: "HISTORY FALLBACK", title: "SYNC", detail: "Reconstructing the durable session state." },
+const PHASE_COPY: Record<ChatPhase, string> = {
+  idle: "准备就绪", thinking: "正在思考", stream: "正在生成", tool: "执行工具",
+  approval: "等待审批", final: "已完成", error: "运行中断", recovering: "恢复历史",
 };
 
 function readActiveJob(): ActiveJob | null {
@@ -151,7 +145,7 @@ function StatusMark({ health }: { health: HealthPayload | null }) {
   if (!health) {
     return (
       <span className="command-status" data-tone="muted">
-        <Orb state="connecting" /> Connecting
+        <Orb state="connecting" /> 连接中
       </span>
     );
   }
@@ -159,7 +153,7 @@ function StatusMark({ health }: { health: HealthPayload | null }) {
   return (
     <span className="command-status" data-tone={ready ? "ok" : "warning"}>
       {ready ? <KeyRound aria-hidden="true" /> : <TriangleAlert aria-hidden="true" />}
-      {ready ? "Key ready" : "Key missing"}
+      {ready ? "密钥就绪" : "缺少密钥"}
     </span>
   );
 }
@@ -192,7 +186,7 @@ function CommandSpine({
           <PanelRightOpen aria-hidden="true" />
         </IconButton>
         <CommandPalette commands={commands} />
-        <span>AGENT</span>
+        <span>Workbench</span>
         <span className="brand-divider">/</span>
         <strong>{workspaceName(health?.workspace || "Workbench")}</strong>
       </div>
@@ -313,11 +307,11 @@ function HistoryTurn({ turn, index, originalThinking }: { turn: ChatTurn; index:
   return (
     <section className="turn" aria-label={`历史回合 ${index + 1}`}>
       <div className="utterance user-utterance">
-        <span className="utterance-label">YOU / {String(index + 1).padStart(2, "0")}</span>
+        <span className="utterance-label">你</span>
         <p data-payload>{turn.user}</p>
       </div>
       <div className="utterance agent-utterance">
-        <span className="utterance-label"><Bot aria-hidden="true" /> AGENT / ARCHIVED</span>
+        <span className="utterance-label"><Bot aria-hidden="true" /> Agent</span>
         {thinking ? (
           <details className="thinking-block">
             <summary>{originalThinking ? "查看思维链" : "查看公开工作过程"}</summary>
@@ -325,11 +319,12 @@ function HistoryTurn({ turn, index, originalThinking }: { turn: ChatTurn; index:
           </details>
         ) : null}
         {turn.process.length ? (
-          <ol className="process-list">
+          <details className="thinking-block activity-history"><summary>执行记录 · {turn.process.length}</summary><ol className="process-list">
             {turn.process.map((step, stepIndex) => <li data-payload key={`${stepIndex}-${step}`}>{step}</li>)}
-          </ol>
+          </ol></details>
         ) : null}
-        <div className="final-copy" data-payload>{turn.final || turn.last_observation_summary || "本回合没有可展示的最终内容。"}</div>
+        <div className="final-copy" data-payload>{turn.final || "本回合没有最终回答。"}</div>
+        {turn.last_observation_summary ? <details className="thinking-block"><summary>观察摘要</summary><pre data-payload>{turn.last_observation_summary}</pre></details> : null}
         <span className="terminal-meta">
           {turn.status === "completed" ? <CheckCircle2 aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
           {turn.status} / {turn.terminal_reason || "complete"}
@@ -393,7 +388,7 @@ function ApprovalCard({
       <div className="approval-heading">
         <TriangleAlert aria-hidden="true" />
         <div>
-          <span>HUMAN GATE</span>
+          <span>需要你的决定</span>
           <h3>批准前请核对真实影响</h3>
         </div>
         <time><Clock3 aria-hidden="true" /> {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</time>
@@ -446,22 +441,25 @@ function LiveTurn({
     <section className="turn live-turn" aria-label="当前回合">
       {pendingUser ? (
         <div className="utterance user-utterance">
-          <span className="utterance-label">YOU / LIVE</span>
+          <span className="utterance-label">你</span>
           <p data-payload>{pendingUser}</p>
         </div>
       ) : null}
       <div className="utterance agent-utterance">
-        <span className="utterance-label">
+        <span className="utterance-label phase-status">
           {orbState ? (
-            <button className="icon-button" type="button" aria-label="阶段详情"
+            <button className="phase-toggle" type="button" aria-label="阶段详情"
               aria-expanded={phaseDetailsOpen} aria-controls={phaseDetailsId}
               onClick={() => setPhaseDetailsOpen((open) => !open)}>
               <Orb state={orbState} />
+              <span>{PHASE_COPY[live.phase]}</span>
+              <ChevronRight className="phase-chevron" aria-hidden="true" />
             </button>
-          ) : <Activity aria-hidden="true" />} AGENT / {live.phase.toUpperCase()}
+          ) : <><Activity aria-hidden="true" /> {PHASE_COPY[live.phase]}</>}
+          {orbState && live.phaseEvent ? <span className="phase-activity" data-payload>{processDescription(live.phaseEvent)}</span> : null}
         </span>
         {orbState ? (
-          <section id={phaseDetailsId} className="thinking-block" aria-label="阶段详情" hidden={!phaseDetailsOpen}>
+          <section id={phaseDetailsId} className="thinking-block phase-details" aria-label="阶段详情" hidden={!phaseDetailsOpen}>
             <pre data-payload>{`当前状态：${live.phase} / ${orbState}\n事件类型：${live.phaseEvent?.event ?? "暂无（本地状态）"}\n最近活动：${live.phaseEvent ? processDescription(live.phaseEvent) : live.phase === "recovering" ? "正在读取持久化历史" : "等待服务端事件"}`}</pre>
           </section>
         ) : null}
@@ -502,8 +500,9 @@ function LiveTurn({
         ) : null}
         {live.final ? (
           <div className="final-result">
-            <span><CheckCircle2 aria-hidden="true" /> FINAL / {live.final.display_status}</span>
-            <div className="final-copy" data-payload>{live.final.final || live.final.last_observation_summary}</div>
+            <span><CheckCircle2 aria-hidden="true" /> 执行结果 · {live.final.display_status}</span>
+            <div className="final-copy" data-payload>{live.final.final || "本回合没有最终回答。"}</div>
+            {live.final.last_observation_summary ? <details className="thinking-block"><summary>观察摘要</summary><pre data-payload>{live.final.last_observation_summary}</pre></details> : null}
           </div>
         ) : null}
         {live.error ? (
@@ -558,7 +557,6 @@ function Composer({
 
   return (
     <form className="composer" onSubmit={submit}>
-      <div className="composer-index" aria-hidden="true">PROMPT / 01</div>
       <textarea
         ref={textarea}
         value={value}
@@ -588,20 +586,13 @@ function Composer({
 }
 
 function EmptyStage({ phase }: { phase: ChatPhase }) {
-  const copy = PHASE_COPY[phase];
   return (
     <div className="empty-stage">
-      <span className="stage-index">00 / NEW RUN</span>
-      <div className="stage-title" aria-hidden="true">
-        <span>{copy.title.slice(0, Math.ceil(copy.title.length / 2))}</span>
-        <span>{copy.title.slice(Math.ceil(copy.title.length / 2))}</span>
-      </div>
       <div className="stage-intro">
-        <span>{copy.eyebrow}</span>
-        <h1>从清晰目标<br />开始。</h1>
-        <p>{copy.detail}</p>
+        <span><Bot aria-hidden="true" /> {PHASE_COPY[phase]}</span>
+        <h1>今天，一起完成什么？</h1>
+        <p>描述目标，或从一个问题开始。<br />执行过程、需要确认的操作和结果，都会留在这里。</p>
       </div>
-      <div className="stage-axis" aria-hidden="true"><span>CONTEXT</span><ChevronRight /><span>ACTION</span><ChevronRight /><span>EVIDENCE</span></div>
     </div>
   );
 }
@@ -993,8 +984,8 @@ export function App() {
 
   return (
     <Tooltip.Provider delayDuration={350}>
-      <div className="app-shell" data-phase={phase}>
-        <ContextField phase={phase} themeKey={`${theme}-${resolvedMode}`} enabled={canvasEnabled} />
+      <div className="app-shell" data-phase={phase} data-workspace-open={workspaceOpen}>
+        <ContextField phase={phase} themeKey={`${theme}-${resolvedMode}`} enabled={canvasEnabled && !hasTranscript && !showLive && !pendingUser} />
         <CommandSpine
           health={health}
           onOpenSessions={() => setMobileSessions(true)}
@@ -1006,7 +997,7 @@ export function App() {
 
         <motion.aside className="session-rail desktop-only" data-expanded={railOpen} animate={{ width: railOpen ? railWidth : 76 }} transition={spring}>
           <div className="rail-cap">
-            {railOpen ? <span>SESSIONS / {String(chats.length).padStart(2, "0")}</span> : <span aria-hidden="true">S</span>}
+            {railOpen ? <span>会话 <span className="rail-count">{chats.length}</span></span> : <span aria-hidden="true">A</span>}
             <IconButton label={railOpen ? "收起会话轨道" : "展开会话轨道"} onClick={() => setLayout((current) => ({ ...current, railOpen: !current.railOpen }))}>
               {railOpen ? <PanelLeftClose aria-hidden="true" /> : <PanelLeftOpen aria-hidden="true" />}
             </IconButton>
@@ -1021,7 +1012,7 @@ export function App() {
             onSelect={selectSession}
             onAction={setSessionAction}
           />
-          <div className="rail-footer"><Wifi aria-hidden="true" />{railOpen && <span>LOCAL / CONNECTED</span>}</div>
+          <div className="rail-footer"><Wifi aria-hidden="true" />{railOpen && <span>本地工作区</span>}</div>
           <div
             className="rail-resizer"
             role="separator"
@@ -1042,10 +1033,9 @@ export function App() {
         <main className="chat-stage" style={{ "--rail-width": railOpen ? `${railWidth}px` : "76px" } as React.CSSProperties}>
           <div className="stage-header">
             <div>
-              <span>{sessionId ? "ACTIVE SESSION" : "UNBOUND SESSION"}</span>
-              <h2 data-payload>{chat?.title || "New task"}</h2>
+              <h2 data-payload>{chat?.title || "新任务"}</h2>
             </div>
-            {sessionId ? <code>{sessionId.slice(0, 8)}</code> : <code>LOCAL / DRAFT</code>}
+            <span className="stage-state">{PHASE_COPY[phase]}</span>
           </div>
 
           {error ? (
@@ -1092,7 +1082,7 @@ export function App() {
           onClick={openWorkspace}
         >
           <PanelRightOpen aria-hidden="true" />
-          <span>WORKSPACE</span>
+          <span>工作台</span>
         </button>
 
         <WorkspacePanel

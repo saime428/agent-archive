@@ -780,7 +780,7 @@ test("streams a real turn into a durable final state", async ({ page }) => {
   await emit(page, "final", finalEvent(3));
 
   await expect(page.getByText("E2E final result.", { exact: true })).toBeVisible();
-  await expect(page.locator("canvas.context-field")).toHaveAttribute("data-frame", "static");
+  await expect(page.locator("canvas.context-field")).toHaveCount(0);
 });
 
 test("keeps a finished background job out of the current route", async ({ page }) => {
@@ -792,7 +792,7 @@ test("keeps a finished background job out of the current route", async ({ page }
 
   await emit(page, "final", finalEvent(1, "Background result."));
 
-  await expect(page.getByRole("heading", { name: "New task", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "新任务", exact: true })).toBeVisible();
   await expect(page.getByText("Background result.", { exact: true })).toHaveCount(0);
 });
 
@@ -906,8 +906,13 @@ test.describe("command palette and layout", () => {
 
     await page.getByRole("button", { name: "打开工作台", exact: true }).click();
     await page.keyboard.press("Control+K");
-    await expect(palette).toHaveCount(0);
+    await expect(palette).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => page.locator(".workspace-plane").evaluate((node) => node.matches(":modal"))).toBe(true);
+    await page.keyboard.press("Control+K");
+    await expect(palette).toHaveCount(0);
   });
 
   test("runs top-level commands and restores only bounded layout state after reload", async ({ page }) => {
@@ -969,7 +974,7 @@ test.describe("workspace shell", () => {
     await expect(page.getByRole("button", { name: "Terminal", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Runs", exact: true })).toBeVisible();
     // Default view is System Overview with real health-derived signals.
-    await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "系统概览", exact: true })).toBeVisible();
     await expect(page.getByText("FakeLLM ready.", { exact: true })).toBeVisible();
     // No PHASE 02 placeholder text once the real entry exists.
     await expect(page.getByText("PHASE 02 / WORKSPACE")).toHaveCount(0);
@@ -1031,7 +1036,7 @@ test.describe("terminal", () => {
     await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("ready");
 
     await page.getByLabel("Terminal stdin", { exact: true }).fill("hello");
-    await page.getByRole("button", { name: "发送", exact: true }).click();
+    await page.getByRole("dialog", { name: "工作台", exact: true }).getByRole("button", { name: "发送", exact: true }).click();
     await expect.poll(() => terminalInputRequests).toEqual([{ terminal_id: "terminal_mock", data: "hello" }]);
     await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("hello");
 
@@ -1146,6 +1151,45 @@ test.describe("files", () => {
     await expect(page.getByText("已保存", { exact: false })).toBeVisible();
   });
 
+  test("keeps chat usable beside tools and preserves drafts across modality changes", async ({ page }) => {
+    await openFiles(page);
+    const panel = page.getByRole("dialog", { name: "工作台", exact: true });
+    const composer = page.getByLabel("向 Agent 发送消息", { exact: true });
+    await composer.fill("Keep this chat draft");
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate((node) => node.matches(":modal"))).toBe(false);
+    const chatBounds = await page.locator(".chat-stage").boundingBox();
+    const panelBounds = await panel.boundingBox();
+    expect(chatBounds!.x + chatBounds!.width).toBeLessThanOrEqual(panelBounds!.x + 1);
+    await page.getByRole("button", { name: "README.md", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+    await replaceDesktopEditor(page, "preserved file draft");
+    const editor = await page.locator(".monaco-editor").elementHandle();
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(true);
+    expect(await editor!.evaluate((node) => node.isConnected)).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByRole("textbox", { name: "文件编辑器", exact: true })).toHaveValue("preserved file draft");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    const confirm = page.getByRole("dialog", { name: "确认保存", exact: true });
+    await expect(confirm).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(false);
+    expect(await confirm.evaluate((node) => node.matches(":modal") && node.contains(document.activeElement))).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(true);
+    expect(await confirm.evaluate((node) => node.matches(":modal") && node.contains(document.activeElement))).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(confirm).toBeHidden();
+    await expect(panel).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(false);
+    await expect(page.locator(".view-lines")).toContainText("preserved file draft");
+    await expect(composer).toHaveValue("Keep this chat draft");
+    await composer.fill("Chat remains interactive");
+    await expect(panel).toBeVisible();
+  });
+
   test("keeps truncated files read-only", async ({ page }) => {
     await openFiles(page);
     await page.getByRole("button", { name: "big.txt", exact: true }).click();
@@ -1170,7 +1214,10 @@ test.describe("files", () => {
 
     expect(await page.evaluate(() => !window.dispatchEvent(new Event("beforeunload", { cancelable: true })))).toBe(true);
 
-    // Escape should not silently discard the dirty buffer.
+    // The editor consumes Escape; closing from the panel must still guard edits.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".view-lines")).toContainText("Dirty edit");
+    await page.getByRole("button", { name: "关闭工作台", exact: true }).focus();
     await page.keyboard.press("Escape");
     const guard = page.getByRole("dialog", { name: "未保存修改", exact: true });
     await expect(guard).toBeVisible();
@@ -1281,9 +1328,9 @@ test.describe("runs", () => {
     await openRuns(page);
     await page.getByRole("button", { name: "run_e2e", exact: true }).click();
 
-    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Replay", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Snapshots", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "结果核对", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "执行回放", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "文件快照", exact: true })).toBeVisible();
     await expect(page.getByText("只读", { exact: true }).first()).toBeVisible();
   });
 
@@ -1335,16 +1382,16 @@ test.describe("system", () => {
   test("renders readiness, risk, memory and tools as readable detail", async ({ page }) => {
     await openSystem(page);
 
-    await expect(page.getByRole("heading", { name: "Settings readiness", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "配置检查", exact: true })).toBeVisible();
     await expect(page.getByText("Settings are readable.", { exact: false })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Workspace risk", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "工作区风险", exact: true })).toBeVisible();
 
     // Memory stays read-only: entries are visible, no accept/reject controls exist.
-    await expect(page.getByRole("heading", { name: "Memory review", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "记忆审阅", exact: true })).toBeVisible();
     await expect(page.getByText("候选记忆：项目使用 pytest。", { exact: false })).toBeVisible();
     await expect(page.getByRole("button", { name: "接受", exact: true })).toHaveCount(0);
 
-    await expect(page.getByRole("heading", { name: "Tools", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "可用工具", exact: true })).toBeVisible();
     await expect(page.getByText("read_file", { exact: false }).first()).toBeVisible();
   });
 
@@ -1384,11 +1431,11 @@ test.describe("system", () => {
   test("opens a run detail from the resource list", async ({ page }) => {
     await openSystem(page);
 
-    await page.getByRole("heading", { name: "Resources", exact: true }).scrollIntoViewIfNeeded();
+    await page.getByRole("heading", { name: "工作区资源", exact: true }).scrollIntoViewIfNeeded();
     await page.getByRole("button", { name: /run_e2e/ }).last().click();
 
     // Cross-view jump lands on the Runs detail for that run.
-    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "结果核对", exact: true })).toBeVisible();
   });
 });
 
@@ -1403,7 +1450,7 @@ test.describe("workspace layout and a11y", () => {
     return page.evaluate(() => document.body.scrollWidth > window.innerWidth);
   }
 
-  for (const width of [1440, 390, 320]) {
+  for (const width of [1440, 1280, 390, 320]) {
     test(`keeps the workspace free of horizontal overflow at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await openWorkspace(page, "System");
@@ -1435,14 +1482,14 @@ test.describe("workspace layout and a11y", () => {
   test("never paints one column's text over its neighbour", async ({ page }) => {
     await page.setViewportSize({ width: 1712, height: 1080 });
     await openWorkspace(page, "System");
-    await page.getByRole("heading", { name: "Resources", exact: true }).scrollIntoViewIfNeeded();
+    await page.getByRole("heading", { name: "工作区资源", exact: true }).scrollIntoViewIfNeeded();
 
     const resourceOverlap = await page.evaluate(() => {
       const grid = document.querySelector(".resource-grid");
       if (!grid) return "missing";
       const columns = [...grid.children].map((column) => column.getBoundingClientRect());
       const columnsOverlap = columns.some((box, index) =>
-        columns.slice(index + 1).some((other) => box.right > other.left && box.left < other.right),
+        columns.slice(index + 1).some((other) => box.right > other.left && box.left < other.right && box.bottom > other.top && box.top < other.bottom),
       );
       // Any text wider than its own box must be clipped, never painted outside it.
       const spillingText = [...grid.querySelectorAll<HTMLElement>(".resource-link > span:first-child")]
@@ -1453,14 +1500,14 @@ test.describe("workspace layout and a11y", () => {
 
     await page.getByRole("button", { name: "Runs", exact: true }).click();
     await page.getByRole("button", { name: "run_20260725_045603_309947", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "结果核对", exact: true })).toBeVisible();
 
     const runsOverlap = await page.evaluate(() => {
       const track = document.querySelector(".runs-index-track")?.getBoundingClientRect();
       const detail = document.querySelector(".runs-detail")?.getBoundingClientRect();
       if (!track || !detail) return "missing";
       return {
-        columnsOverlap: track.right > detail.left,
+        columnsOverlap: track.right > detail.left && track.bottom > detail.top,
         indexBlownOut: (document.querySelector(".runs-index") as HTMLElement).scrollWidth
           > (document.querySelector(".runs-index") as HTMLElement).clientWidth,
       };
@@ -1486,13 +1533,13 @@ test.describe("workspace layout and a11y", () => {
     const opener = page.getByRole("button", { name: "打开工作台", exact: true });
     await opener.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "系统概览", exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Runs", exact: true }).focus();
     await page.keyboard.press("Enter");
     await page.getByRole("button", { name: "run_e2e", exact: true }).focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("heading", { name: "Task Review", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "结果核对", exact: true })).toBeVisible();
 
     // Escape closes the plane and focus returns to the opener.
     await page.keyboard.press("Escape");
@@ -1557,11 +1604,13 @@ const visualVariants = [
   { name: "b-dark-mobile-390", width: 390, height: 844, theme: "b", mode: "dark" },
   { name: "b-dark-mobile-320", width: 320, height: 568, theme: "b", mode: "dark" },
   { name: "a-dark-desktop", width: 1440, height: 900, theme: "a", mode: "dark" },
+  { name: "a-light-desktop", width: 1440, height: 900, theme: "a", mode: "light" },
   { name: "c-light-desktop", width: 1440, height: 900, theme: "c", mode: "light" },
+  { name: "c-dark-desktop", width: 1440, height: 900, theme: "c", mode: "dark" },
 ] as const;
 
 for (const variant of visualVariants) {
-  test(`visual ${variant.name}`, async ({ page }) => {
+  test(`visual ${variant.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: variant.width, height: variant.height });
     await page.goto("./#/new");
     await page.getByLabel("主题", { exact: true }).selectOption(variant.theme);
@@ -1569,10 +1618,31 @@ for (const variant of visualVariants) {
     // Canvas orbs paint via requestAnimationFrame, which `animations: "disabled"`
     // does not stop; reduced motion pins them to one deterministic frame.
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.screenshot({ path: testInfo.outputPath("review.png"), animations: "disabled" });
     await expect(page).toHaveScreenshot(`${variant.name}.png`, { animations: "disabled" });
 
     const dimensions = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.body.scrollWidth }));
     expect(dimensions.scrollWidth).toBe(dimensions.width);
+  });
+}
+
+for (const variant of [
+  { width: 1440, mode: "dark" }, { width: 1440, mode: "light" }, { width: 390, mode: "dark" },
+] as const) {
+  test(`visual execution ${variant.width} ${variant.mode}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: variant.width, height: 900 });
+    await page.goto("./#/new");
+    await page.getByLabel("显示模式", { exact: true }).selectOption(variant.mode);
+    await startTurn(page);
+    await emit(page, "approval_required", {
+      event: "approval_required", sequence: 0, elapsed_ms: 12, run_id: "run_orb", action_index: 1,
+      action: "write_file", message: "更新工作区说明", args: { path: "README.md" }, reason: "写入前请确认目标文件。",
+    });
+    await page.getByRole("button", { name: "阶段详情", exact: true }).click();
+    await expect(page.getByRole("region", { name: "阶段详情", exact: true })).toContainText("approval_required");
+    await page.clock.pauseAt(new Date());
+    await page.screenshot({ path: testInfo.outputPath("review.png"), animations: "disabled" });
+    await expect(page).toHaveScreenshot(`execution-${variant.width}-${variant.mode}.png`, { animations: "disabled", mask: [page.locator(".approval-heading time")] });
   });
 }
 
@@ -1601,9 +1671,9 @@ for (const variant of workspaceVisuals) {
     } else if (variant.state === "run-attention") {
       await page.getByRole("button", { name: "Runs", exact: true }).click();
       await page.getByRole("button", { name: "run_attn", exact: true }).click();
-      await expect(page.getByRole("heading", { name: "Failure", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "失败详情", exact: true })).toBeVisible();
     } else {
-      await expect(page.getByRole("heading", { name: "Settings readiness", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "配置检查", exact: true })).toBeVisible();
     }
 
     // Canvas orbs paint via requestAnimationFrame, which `animations: "disabled"`

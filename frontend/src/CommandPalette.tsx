@@ -30,7 +30,7 @@ export function CommandPalette({ commands }: { commands: PaletteCommand[] }) {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "k") return;
       event.preventDefault();
       if (open) changeOpen(false);
-      else if (!document.querySelector('[role="dialog"]')) changeOpen(true);
+      else if (!document.querySelector('[role="dialog"], dialog:modal')) changeOpen(true);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);

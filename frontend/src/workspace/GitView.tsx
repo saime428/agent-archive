@@ -166,7 +166,7 @@ export function GitView() {
           </div>
 
           <div className="git-detail">
-            {!selected ? <p className="overview-note">选择左侧文件以查看差异。</p> : (
+            {!selected ? <p className="overview-note">选择文件以查看差异。</p> : (
               <>
                 <div className="git-detail-head">
                   <span className="git-detail-path" title={selected.path} data-payload>{selected.path}</span>

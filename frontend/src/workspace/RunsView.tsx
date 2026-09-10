@@ -161,32 +161,32 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
               <p className="overview-error" data-payload>{detailError}</p>
             </div>
           ) : !detail ? (
-            <p className="overview-note">选择左侧运行以查看详情。</p>
+            <p className="overview-note">选择运行记录以查看详情。</p>
           ) : (
             <div className="runs-detail-body">
-              <RunSection title="Summary">
+              <RunSection title="运行摘要">
                 <pre className="runs-pre" data-payload>{detail.summary}</pre>
               </RunSection>
 
-              <RunSection title="Task Review">
+              <RunSection title="结果核对">
                 <KeyRow label="最近动作" value={detail.review.latest_action} />
                 <KeyRow label="最后观察" value={detail.review.last_observation_summary} />
                 <LabeledList label="变更文件" items={detail.review.changed_files} empty="无变更文件。" />
                 <LabeledList label="人工检查" items={detail.review.manual_checks} />
               </RunSection>
 
-              <RunSection title="Workflow">
+              <RunSection title="验证与后续步骤">
                 <CommandList commands={detail.workflow.verification_commands} />
                 <LabeledList label="步骤" items={detail.workflow.review_steps} />
               </RunSection>
 
-              <RunSection title="Failure">
+              <RunSection title="失败详情">
                 <KeyRow label="状态" value={detail.failure.status} />
                 <KeyRow label="失败数" value={String(detail.failure.failure_count)} />
                 <LabeledList label="下一步检查" items={detail.failure.next_checks} />
               </RunSection>
 
-              <RunSection title="Patch Review">
+              <RunSection title="改动审阅">
                 <p className="overview-tag" data-tone={detail.patch_review.risk_level === "low" ? "ok" : "warning"}>
                   {detail.patch_review.risk_level}
                 </p>
@@ -195,7 +195,7 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
                 <KeyRow label="下一步" value={detail.patch_review.next_action} />
               </RunSection>
 
-              <RunSection title="Recovery">
+              <RunSection title="恢复操作">
                 <KeyRow label="状态" value={detail.recovery.status} />
                 <KeyRow label="可回滚" value={detail.recovery.rollback_available ? "是" : "否"} />
                 <p className="overview-note" data-payload>{detail.recovery.summary}</p>
@@ -203,7 +203,7 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
                 <KeyRow label="下一步" value={detail.recovery.next_action} />
               </RunSection>
 
-              <RunSection title="Replay">
+              <RunSection title="执行回放">
                 <div className="replay-controls">
                   <span className="overview-tag" data-tone="ok">只读</span>
                   <input
@@ -238,7 +238,7 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
                 )}
               </RunSection>
 
-              <RunSection title="Snapshots">
+              <RunSection title="文件快照">
                 {detail.snapshots.length === 0 ? (
                   <p className="overview-note">无 snapshot。</p>
                 ) : (
@@ -262,7 +262,7 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
 
               {diffError ? <p className="overview-error" data-payload>{diffError}</p> : null}
               {diff ? (
-                <RunSection title="Diff">
+                <RunSection title="差异">
                   <div className="diff-status">
                     {diff.truncated ? <span className="overview-tag" data-tone="warning">已截断</span> : null}
                     {diff.snapshot_missing ? <span className="overview-tag" data-tone="warning">snapshot 缺失</span> : null}
@@ -275,7 +275,7 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
                 </RunSection>
               ) : null}
 
-              <RunSection title="Trace">
+              <RunSection title="事件记录">
                 <ol className="trace-list">
                   {detail.tool_calls.map((call) => (
                     <li key={call.line_number} className="trace-item" data-payload>

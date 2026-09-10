@@ -435,7 +435,7 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
           {openingPath ? <p className="overview-note" role="status"><Orb state="searching" /> 正在打开 {openingPath}…</p> : null}
 
           {!selected ? (
-            fileError ? null : <p className="overview-note">选择左侧文件或搜索结果以打开。</p>
+            fileError ? null : <p className="overview-note">选择文件或搜索结果以打开。</p>
           ) : (
             <>
               <div className="files-detail-head">

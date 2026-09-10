@@ -1,5 +1,4 @@
-import * as Dialog from "@radix-ui/react-dialog";
-import type { ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -12,8 +11,8 @@ interface ConfirmDialogProps {
   children: ReactNode;
 }
 
-// Radix Dialog gives focus trap, Escape, and focus return for free — used by every
-// workspace confirmation (save, discard, restore, close guard) so none reimplement it.
+// Native nested dialogs stay above the workspace's mobile top layer, contain
+// focus and return it to the invoking control on close.
 export function ConfirmDialog({
   open,
   title,
@@ -24,25 +23,28 @@ export function ConfirmDialog({
   onConfirm,
   children,
 }: ConfirmDialogProps) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog || !open) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, [open]);
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="confirm-dialog" aria-describedby={undefined}>
-          <Dialog.Title className="confirm-title">{title}</Dialog.Title>
-          <div className="confirm-body">{children}</div>
-          <div className="files-confirm-actions">
-            <button type="button" className="files-action primary" disabled={confirmDisabled} onClick={onConfirm}>
-              {confirmLabel}
-            </button>
-            <Dialog.Close asChild>
-              <button type="button" className="files-action" disabled={confirmDisabled}>
-                {cancelLabel}
-              </button>
-            </Dialog.Close>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <dialog ref={ref} className="confirm-dialog" aria-labelledby={titleId}
+      onCancel={(event) => { event.preventDefault(); event.stopPropagation(); if (!confirmDisabled) onOpenChange(false); }}
+      onKeyDown={(event) => event.stopPropagation()}>
+      <h2 id={titleId} className="confirm-title">{title}</h2>
+      <div className="confirm-body">{children}</div>
+      <div className="files-confirm-actions">
+        <button type="button" className="files-action primary" disabled={confirmDisabled} onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+        <button type="button" className="files-action" disabled={confirmDisabled} onClick={() => onOpenChange(false)}>
+          {cancelLabel}
+        </button>
+      </div>
+    </dialog>
   );
 }

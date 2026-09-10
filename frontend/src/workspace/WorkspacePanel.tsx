@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { FolderTree, GitBranch, LayoutDashboard, ListChecks, RefreshCw, SquareTerminal, X } from "lucide-react";
 
@@ -65,11 +64,36 @@ export function WorkspacePanel({
   const [tools, setTools] = useState<Resource<ToolsPayload>>(idleResource);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const reducedMotion = useReducedMotion();
-  // Same spring as the desktop session rail so both planes move with one motion language.
-  const spring = reducedMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 320, damping: 32, mass: 0.8 };
+  const panelRef = useRef<HTMLDialogElement>(null);
   const filesRef = useRef<FilesViewHandle>(null);
   const [pendingNav, setPendingNav] = useState<{ kind: "view"; view: WorkspaceView } | { kind: "close" } | null>(null);
   const [focusRunId, setFocusRunId] = useState<string | undefined>(undefined);
+
+  // Retain the editor and polling effects across breakpoints. Native modality
+  // provides an inert background and focus containment only on small screens.
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const media = window.matchMedia("(min-width: 1280px)");
+    const sync = () => {
+      const focused = document.activeElement;
+      const confirmation = panel.querySelector<HTMLDialogElement>("dialog:modal");
+      confirmation?.close();
+      panel.close();
+      if (media.matches) panel.show();
+      else panel.showModal();
+      confirmation?.showModal();
+      if (focused instanceof HTMLElement && panel.contains(focused)) focused.focus();
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => {
+      media.removeEventListener("change", sync);
+      panel.close();
+      opener?.focus();
+    };
+  }, [open, opener]);
 
   // Resource / memory entries jump into the Runs detail for that run.
   const openRunFromResource = useCallback((runId: string) => {
@@ -147,40 +171,17 @@ export function WorkspacePanel({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
-      <AnimatePresence>
-        {open ? (
-        <Dialog.Portal forceMount>
-          <Dialog.Overlay asChild forceMount>
-            <motion.div
-              className="workspace-overlay"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={reducedMotion ? { duration: 0 } : { duration: 0.18 }}
-            />
-          </Dialog.Overlay>
-          <Dialog.Content
-            asChild
-            forceMount
-            aria-describedby={undefined}
-            onCloseAutoFocus={(event) => {
-              // Controlled Dialog has no Trigger; return focus to whichever button opened it.
-              if (opener) {
-                event.preventDefault();
-                opener.focus();
-              }
-            }}
-          >
-            <motion.div
-              className="workspace-plane"
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={spring}
-            >
+    <dialog ref={panelRef} className="workspace-plane" aria-label="工作台"
+      onCancel={(event) => { event.preventDefault(); handleOpenChange(false); }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        if ((event.target as HTMLElement).closest("dialog") !== event.currentTarget) return;
+        event.preventDefault();
+        handleOpenChange(false);
+      }}>
+      {open ? <>
           <header className="workspace-head">
-            <Dialog.Title className="workspace-title">工作台</Dialog.Title>
+            <h2 className="workspace-title">工作台</h2>
             <nav className="workspace-tabs" aria-label="工作台视图">
               {VIEW_TABS.map((tab) => {
                 const Icon = tab.icon;
@@ -205,11 +206,9 @@ export function WorkspacePanel({
               <button type="button" className="icon-button" aria-label="刷新工作台" onClick={() => void loadAll()}>
                 <RefreshCw aria-hidden="true" />
               </button>
-              <Dialog.Close asChild>
-                <button type="button" className="icon-button" aria-label="关闭工作台">
+                <button type="button" className="icon-button" aria-label="关闭工作台" onClick={() => handleOpenChange(false)}>
                   <X aria-hidden="true" />
                 </button>
-              </Dialog.Close>
             </div>
           </header>
 
@@ -269,12 +268,8 @@ export function WorkspacePanel({
               {pendingNav?.kind === "close" ? "关闭工作台" : "切换视图"}？
             </p>
           </ConfirmDialog>
-            </motion.div>
-          </Dialog.Content>
-        </Dialog.Portal>
-        ) : null}
-      </AnimatePresence>
-    </Dialog.Root>
+      </> : null}
+    </dialog>
   );
 }
 
@@ -295,12 +290,12 @@ function SystemOverview({
   return (
     <section className="workspace-section" aria-labelledby="system-overview-heading">
       <h2 id="system-overview-heading" className="workspace-section-title">
-        System overview
+        系统概览
       </h2>
 
       <div className="overview-grid">
         <article className="overview-card">
-          <h3>Provider</h3>
+          <h3>模型服务</h3>
           <p className="overview-lead" data-payload>
             {health ? `${health.provider} / ${health.model}` : "加载中"}
           </p>
@@ -315,7 +310,7 @@ function SystemOverview({
         </article>
 
         <article className="overview-card">
-          <h3>Activity</h3>
+          <h3>工作区活动</h3>
           <dl className="overview-signals">
             <div><dt>chats</dt><dd>{chats.length}</dd></div>
             <div><dt>runs</dt><dd>{runs.data?.runs.length ?? "…"}</dd></div>
