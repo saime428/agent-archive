@@ -165,6 +165,7 @@ function CommandSpine({
   canvasEnabled,
   onToggleCanvas,
   commands,
+  onCommandPaletteOpenChange,
 }: {
   health: HealthPayload | null;
   onOpenSessions: () => void;
@@ -172,6 +173,7 @@ function CommandSpine({
   canvasEnabled: boolean;
   onToggleCanvas: () => void;
   commands: PaletteCommand[];
+  onCommandPaletteOpenChange: (open: boolean) => void;
 }) {
   const { theme, mode, setTheme, setMode } = useTheme();
   const modeIcon = mode === "auto" ? <Monitor aria-hidden="true" /> : mode === "dark" ? <Moon aria-hidden="true" /> : <Sun aria-hidden="true" />;
@@ -185,7 +187,7 @@ function CommandSpine({
         <IconButton label="打开工作台" className="mobile-only" onClick={onOpenWorkspace}>
           <PanelRightOpen aria-hidden="true" />
         </IconButton>
-        <CommandPalette commands={commands} />
+        <CommandPalette commands={commands} onOpenChange={onCommandPaletteOpenChange} />
         <span>Workbench</span>
         <span className="brand-divider">/</span>
         <strong>{workspaceName(health?.workspace || "Workbench")}</strong>
@@ -657,6 +659,7 @@ export function App() {
   const [filter, setFilter] = useState("");
   const [layout, setLayout] = useState(loadLayout);
   const [mobileSessions, setMobileSessions] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const { railOpen, railWidth, canvasEnabled, workspaceView } = layout;
   const [workspaceOpener, setWorkspaceOpener] = useState<HTMLButtonElement | null>(null);
@@ -1003,6 +1006,7 @@ export function App() {
           canvasEnabled={canvasEnabled}
           onToggleCanvas={() => setLayout((current) => ({ ...current, canvasEnabled: !current.canvasEnabled }))}
           commands={paletteCommands}
+          onCommandPaletteOpenChange={setCommandPaletteOpen}
         />
 
         <motion.aside className="session-rail desktop-only" data-expanded={railOpen} animate={{ width: railOpen ? railWidth : 76 }} transition={spring}>
@@ -1106,6 +1110,7 @@ export function App() {
           onOpenSession={selectSession}
           view={workspaceView}
           onViewChange={(view) => setLayout((current) => ({ ...current, workspaceView: view }))}
+          deferModal={commandPaletteOpen || mobileSessions || Boolean(sessionAction)}
         />
 
         <Dialog.Root open={mobileSessions} onOpenChange={setMobileSessions}>

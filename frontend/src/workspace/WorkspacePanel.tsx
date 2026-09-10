@@ -34,6 +34,7 @@ interface WorkspacePanelProps {
   onOpenSession: (sessionId: string) => void;
   view: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
+  deferModal: boolean;
 }
 
 export interface WorkspacePanelHandle {
@@ -62,6 +63,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
   onOpenSession,
   view,
   onViewChange,
+  deferModal,
 }: WorkspacePanelProps, ref) {
   const [runs, setRuns] = useState<Resource<RunsPayload>>(idleResource);
   const [config, setConfig] = useState<Resource<ConfigPayload>>(idleResource);
@@ -85,18 +87,22 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
       const confirmation = panel.querySelector<HTMLDialogElement>("dialog:modal");
       confirmation?.close();
       panel.close();
-      if (media.matches) panel.show();
+      if (media.matches || deferModal) panel.show();
       else panel.showModal();
       confirmation?.showModal();
-      if (focused instanceof HTMLElement && panel.contains(focused)) focused.focus();
+      if (focused instanceof HTMLElement && (deferModal || panel.contains(focused))) focused.focus();
     };
     sync();
     media.addEventListener("change", sync);
     return () => {
       media.removeEventListener("change", sync);
       panel.close();
-      opener?.focus();
     };
+  }, [deferModal, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    return () => opener?.focus();
   }, [open, opener]);
 
   // Resource / memory entries jump into the Runs detail for that run.

@@ -10,7 +10,7 @@ export interface PaletteCommand {
   run: (opener: HTMLButtonElement | null) => void;
 }
 
-export function CommandPalette({ commands }: { commands: PaletteCommand[] }) {
+export function CommandPalette({ commands, onOpenChange }: { commands: PaletteCommand[]; onOpenChange: (open: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -23,7 +23,8 @@ export function CommandPalette({ commands }: { commands: PaletteCommand[] }) {
       setActiveIndex(0);
     }
     setOpen(next);
-  }, []);
+    onOpenChange(next);
+  }, [onOpenChange]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {

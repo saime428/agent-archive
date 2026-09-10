@@ -915,6 +915,46 @@ test.describe("command palette and layout", () => {
     await expect(palette).toHaveCount(0);
   });
 
+  test("keeps an external dialog usable while the workspace crosses the modal breakpoint", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.keyboard.press("Control+K");
+
+    const panel = page.locator(".workspace-plane");
+    const search = page.getByLabel("搜索命令", { exact: true });
+    await expect(search).toBeFocused();
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await search.fill("打开 Git");
+    await expect(search).toBeFocused();
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(false);
+
+    await page.keyboard.press("Escape");
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(false);
+    await page.keyboard.press("Control+K");
+    await expect(search).toBeFocused();
+  });
+
+  test("preserves a session rename draft across the workspace modal breakpoint", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`./#/chat/${SESSION_ID}`);
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "重命名会话", exact: true }).first().click();
+
+    const panel = page.locator(".workspace-plane");
+    const title = page.getByLabel("会话名称", { exact: true });
+    await title.fill("保留的重命名草稿");
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await expect(title).toHaveValue("保留的重命名草稿");
+    await expect(title).toBeFocused();
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(false);
+
+    await page.getByRole("button", { name: "取消", exact: true }).click();
+    await expect.poll(() => panel.evaluate((node) => node.matches(":modal"))).toBe(true);
+  });
+
   test("runs top-level commands and restores only bounded layout state after reload", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`./#/chat/${SESSION_ID}`);
