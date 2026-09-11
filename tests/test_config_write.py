@@ -32,6 +32,17 @@ def test_save_strips_string_values(tmp_path) -> None:
     assert config.default_skills == ("a",)
 
 
+def test_save_round_trips_unicode_and_toml_control_characters(tmp_path) -> None:
+    model = 'model-🚀-"quoted"-\n-\x7f'
+
+    path = save_project_config(tmp_path, {"model": model})
+
+    config, _diagnostics = load_config(tmp_path, home=tmp_path / "home")
+    assert config.model == model
+    assert "🚀" in path.read_text(encoding="utf-8")
+    assert "\\u007f" in path.read_text(encoding="utf-8")
+
+
 def test_save_rejects_unknown_key(tmp_path) -> None:
     with pytest.raises(ValueError, match="Unknown config key"):
         save_project_config(tmp_path, {"nope": 1})
