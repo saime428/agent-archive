@@ -174,7 +174,7 @@ def _read_skill(path: Path, *, source: str, include_body: bool, max_chars: int |
         # utf-8-sig so a SKILL.md saved by a Windows editor keeps working, the
         # same tolerance the user MCP configuration reader already applies.
         text = path.read_text(encoding="utf-8-sig")
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         raise SkillError(f"Could not read skill {path}: {exc}") from exc
     metadata, body = _parse_skill(text, path)
     truncated = False
@@ -299,7 +299,25 @@ class SkillStore:
             disabled = self._read_state(root) if root is not None else frozenset()
             directories, unrecognized = self._store_entries(root)
             occupied = {directory.name for directory in directories}
-            installed = {directory.name for directory in self._installed_directories(root)}
+            installed: set[str] = set()
+            invalid: dict[str, str] = {}
+            for directory in self._installed_directories(root):
+                try:
+                    metadata = _read_skill(
+                        directory / _SKILL_DOCUMENT,
+                        source="user",
+                        include_body=False,
+                        max_chars=None,
+                    )
+                    if metadata.name != directory.name:
+                        raise SkillError(
+                            f"Installed skill directory {directory.name!r} does not match its "
+                            f"frontmatter name {metadata.name!r}."
+                        )
+                except SkillError as exc:
+                    invalid[directory.name] = str(exc)
+                else:
+                    installed.add(directory.name)
         for name in unrecognized:
             items.append(
                 SkillInventoryItem(
@@ -314,6 +332,17 @@ class SkillStore:
                 )
             )
         for name in sorted(occupied | set(disabled)):
+            if name in invalid:
+                items.append(
+                    SkillInventoryItem(
+                        name=name,
+                        source="user",
+                        enabled=False,
+                        status="invalid",
+                        message=invalid[name],
+                    )
+                )
+                continue
             if name in occupied and name not in installed:
                 items.append(
                     SkillInventoryItem(
@@ -755,7 +784,10 @@ class SkillStore:
         return name
 
     def _file_sources(self) -> dict[str, str]:
-        return {path.parent.name: source for path, source in _packaged_skill_paths(self._workspace)}
+        return {
+            _read_skill(path, source=source, include_body=False, max_chars=None).name: source
+            for path, source in _packaged_skill_paths(self._workspace)
+        }
 
     def _agent_root(self, *, create: bool) -> Path | None:
         root = self._home / ".agent"
@@ -845,7 +877,7 @@ class SkillStore:
             if path.stat().st_size > _MAX_STATE_BYTES:
                 raise SkillError("User skill state is too large.")
             values = _load_json(path.read_text(encoding="utf-8"))
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             raise SkillError("Could not read user skill state.") from exc
         if not isinstance(values, dict) or set(values) != _STATE_FIELDS:
             raise SkillError("User skill state has unknown or missing fields.")

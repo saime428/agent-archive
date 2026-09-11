@@ -196,6 +196,16 @@ def test_state_only_orphan_is_visible_but_never_blocks_discovery(tmp_path) -> No
     assert {item.name: item for item in store.inventory()}["reviewer"].enabled is True
 
 
+def test_invalid_utf8_state_is_reported_as_a_skill_error(tmp_path) -> None:
+    store, _, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    (home / ".agent" / "skills-state.json").write_bytes(b"\xff")
+
+    with pytest.raises(SkillError, match="read user skill state"):
+        store.inventory()
+    assert store.doctor(default_skills=[]).healthy is False
+
+
 def test_remove_only_targets_user_skills(tmp_path) -> None:
     store, workspace, home = _store(tmp_path)
     _project_skill(workspace, "planner")
@@ -231,6 +241,20 @@ def test_frontmatter_name_is_authoritative_over_the_source_directory(tmp_path) -
     assert (home / ".agent" / "skills" / "alpha" / "SKILL.md").is_file()
     assert not (home / ".agent" / "skills" / "alpha-v3").exists()
     assert discover_skills(workspace, home=home)["alpha"].source == "user"
+
+
+def test_install_rejects_project_skill_with_the_same_frontmatter_name(tmp_path) -> None:
+    store, workspace, _ = _store(tmp_path)
+    project = workspace / ".agent" / "skills" / "downloaded-alpha"
+    project.mkdir(parents=True)
+    (project / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Project skill\n---\nProject body.\n",
+        encoding="utf-8",
+    )
+    candidate = _write_candidate(tmp_path / "candidates", "source-alpha", frontmatter_name="alpha")
+
+    with pytest.raises(SkillError, match="conflict"):
+        store.install(candidate)
 
 
 def test_installed_directory_name_must_match_its_frontmatter(tmp_path) -> None:
@@ -698,6 +722,31 @@ def test_doctor_reports_a_directory_without_a_document(tmp_path) -> None:
 
     assert report.healthy is False
     assert any("reviewer" in problem for problem in report.problems)
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        b"broken document\n",
+        b"\xff",
+        b"---\nname: impostor\ndescription: Wrong identity\n---\nBody.\n",
+    ],
+)
+def test_inventory_and_doctor_report_invalid_installed_documents(tmp_path, document: bytes) -> None:
+    store, workspace, home = _store(tmp_path)
+    store.install(_FIXTURE_SKILL)
+    installed = home / ".agent" / "skills" / "reviewer" / "SKILL.md"
+    installed.write_bytes(document)
+
+    item = {value.name: value for value in store.inventory()}["reviewer"]
+    report = store.doctor(default_skills=["reviewer"])
+
+    assert (item.status, item.enabled) == ("invalid", False)
+    assert item.message
+    assert report.healthy is False
+    assert any("reviewer" in problem for problem in report.problems)
+    with pytest.raises(SkillError):
+        discover_skills(workspace, home=home)
 
 
 def test_archive_rejects_stream_and_trailing_punctuation_member_names(tmp_path) -> None:
