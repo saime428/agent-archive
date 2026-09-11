@@ -21,6 +21,7 @@ from agent.config import AgentConfig
 from agent.core.chat import ConversationState
 from agent.core.run_lease import WorkspaceRunLease
 from agent.llm.fake import FakeLLMClient
+from agent.llm.openai_compat import ProviderError
 from agent.web import chat_runtime
 from agent.web import chats
 from agent.web import server
@@ -1769,6 +1770,40 @@ def test_chat_runtime_reports_worker_errors_and_completes(tmp_path, failure: str
     summary = tmp_path / ".agent" / "runs" / started["run_id"] / "summary.md"
     assert "- terminal_reason: failed" in summary.read_text(encoding="utf-8")
     assert not (tmp_path / ".agent" / "chat-jobs" / "active.json").exists()
+
+
+def test_chat_runtime_keeps_provider_failure_audit_and_marks_job_failed(tmp_path) -> None:
+    class WriteThenFailLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def chat(self, _messages, *, temperature=None):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "notes.txt", "content": "audit\n", "create_parents": False},
+                    },
+                }
+            raise ProviderError("provider secret sk-web-secret")
+
+    runtime = ChatRuntime(tmp_path, llm_factory=lambda _config: WriteThenFailLLM())
+    started = runtime.start(message="write then fail", session_id=None)
+    _wait_for_runtime_event(runtime, started["job_id"], "approval_required")
+    runtime.decide(job_id=started["job_id"], approve=True)
+    complete = _wait_for_runtime_done(runtime, started["job_id"])
+
+    assert complete["status"] == "failed"
+    assert [event["event"] for event in complete["events"]][-1] == "failed"
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "audit\n"
+    run_dir = tmp_path / ".agent" / "runs" / started["run_id"]
+    assert len((run_dir / "tool_calls.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+    summary = (run_dir / "summary.md").read_text(encoding="utf-8")
+    assert "- action: provider_error" in summary
+    assert "- completed: false" in summary
+    assert "sk-web-secret" not in summary
 
 
 def test_chat_runtime_start_failures_do_not_call_llm_factory(tmp_path) -> None:

@@ -42,6 +42,7 @@ from agent.core.tool_catalog import (
 )
 from agent.core.tool_schemas import build_tool_schemas, native_tool_names
 from agent.llm.base import LLMClient, resolve_capabilities
+from agent.llm.openai_compat import ProviderError
 from agent.policy.approvals import classify_action
 from agent.policy.sandbox import WorkspaceSandbox
 from agent.tools.filesystem import execute_tool
@@ -239,6 +240,50 @@ def run_once(
             break
         except _RunStopped as stopped:
             record_stop(stopped.reason, model_call_index)
+            break
+        except ProviderError as exc:
+            action = InternalAction(
+                run_id=context.run_id,
+                action_id=format_action_id(model_call_index),
+                created_at=context.created_at,
+                message="Model provider request failed.",
+                action=ActionCall(name="provider_error", args={}),
+            )
+            observation = make_error_observation(
+                action.action_id,
+                action.run_id,
+                observation_index=model_call_index,
+                code=ErrorCode.INTERNAL_ERROR,
+                message="Model provider request failed.",
+                details={"failure_source": "provider", "error_type": type(exc).__name__},
+            )
+            observation, replacements = _prepare_observation(observation, context.budget)
+            actions.append(action)
+            observations.append(observation)
+            observation_redaction_replacements.append(replacements)
+            traces.append(
+                TraceRecord(
+                    phase="model",
+                    action_index=model_call_index,
+                    observation_index=model_call_index,
+                    repair_attempt=None,
+                    terminal=True,
+                    policy_decision=None,
+                    policy_reason=None,
+                    config=_trace_config(effective_config, tool_catalog),
+                )
+            )
+            _emit_event(
+                event_handler,
+                "observation",
+                _event_action_payload(
+                    context.run_id,
+                    model_call_index,
+                    action,
+                    status=observation.status,
+                    summary=observation.summary,
+                ),
+            )
             break
         trace_warning = None
         if use_native and isinstance(raw_response, dict):

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent.config import AgentConfig
 from agent.core.loop import run_once
 from agent.llm.fake import FakeLLMClient
+from agent.llm.openai_compat import ProviderError
 
 
 def _done_envelope(final: str = "native done") -> dict:
@@ -107,6 +110,46 @@ class StreamingNativeLLM(ScriptedNativeLLM):
         yield ("thinking", "considering")
         yield ("args", '{"final"')
         return response
+
+
+class ProviderFailingNativeLLM(ScriptedNativeLLM):
+    def chat_tools(self, messages: list[dict], tools: list[dict], *, temperature: float | None = None):
+        if self._index:
+            raise ProviderError("native provider failed")
+        return super().chat_tools(messages, tools, temperature=temperature)
+
+    def stream_chat_tools(self, messages: list[dict], tools: list[dict], *, temperature: float | None = None):
+        if self._index:
+            raise ProviderError("native stream provider failed")
+        response = super().chat_tools(messages, tools, temperature=temperature)
+        yield ("args", "write")
+        return response
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_native_provider_error_after_write_finalizes_failed_run(tmp_path, stream: bool) -> None:
+    write = {
+        "message": "Write.",
+        "action": {
+            "name": "write_file",
+            "args": {"path": "native.txt", "content": "audit\n", "create_parents": False},
+        },
+    }
+    result = run_once(
+        "native write then fail",
+        ProviderFailingNativeLLM([write]),
+        cwd=tmp_path,
+        run_id=f"run_native_provider_failure_{stream}",
+        config=AgentConfig(native_tools=True),
+        approval_handler=lambda _action: True,
+        stream_handler=(lambda _text: None) if stream else None,
+    )
+
+    assert result.action.action.name == "provider_error"
+    assert result.observation.error is not None
+    assert result.observation.error.details["failure_source"] == "provider"
+    assert (tmp_path / "native.txt").read_text(encoding="utf-8") == "audit\n"
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_native_streaming_emits_tagged_chunk_events(tmp_path) -> None:

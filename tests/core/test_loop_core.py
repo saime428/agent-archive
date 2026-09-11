@@ -14,6 +14,7 @@ from agent.core.run_control import RunControl
 from agent.core.skills import SkillStore
 from agent.config import AgentConfig
 from agent.llm.fake import FakeLLMClient
+from agent.llm.openai_compat import ProviderError
 
 
 RUN_COMMAND_APPROVAL_REASON = (
@@ -2872,3 +2873,83 @@ def test_unexpected_tool_exception_finalizes_with_internal_error(tmp_path) -> No
     ]
     assert len(records) == 2
     assert (run_dir / "summary.md").exists()
+
+
+class _ProviderFailureAfterWriteLLM:
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def chat(self, _messages: list[dict], *, temperature: float | None = None) -> dict:
+        self._calls += 1
+        if self._calls == 1:
+            return {
+                "message": "Write.",
+                "action": {
+                    "name": "write_file",
+                    "args": {"path": "notes.txt", "content": "audit\n", "create_parents": False},
+                },
+            }
+        raise ProviderError("provider failed with secret sk-test-secret")
+
+
+def test_provider_error_after_write_finalizes_failed_run_without_secret(tmp_path) -> None:
+    result = run_once(
+        "write then fail",
+        _ProviderFailureAfterWriteLLM(),
+        cwd=tmp_path,
+        run_id="run_provider_failure",
+        approval_handler=lambda _action: True,
+    )
+
+    assert result.action.action.name == "provider_error"
+    assert result.observation.status == "error"
+    assert result.observation.error is not None
+    assert result.observation.error.code == ErrorCode.INTERNAL_ERROR
+    assert result.observation.error.details["failure_source"] == "provider"
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "audit\n"
+    records = result.tool_calls_path.read_text(encoding="utf-8").splitlines()
+    assert len(records) == 2
+    assert "sk-test-secret" not in "\n".join(records)
+    summary = result.summary_path.read_text(encoding="utf-8")
+    assert "- completed: false" in summary
+    assert "sk-test-secret" not in summary
+
+
+class _StreamingProviderFailureAfterWriteLLM:
+    def __init__(self) -> None:
+        self._calls = 0
+
+    def chat(self, _messages: list[dict], *, temperature: float | None = None) -> dict:
+        raise AssertionError("streaming path expected")
+
+    def stream_chat(self, _messages: list[dict], *, temperature: float | None = None):
+        self._calls += 1
+        if self._calls == 1:
+            yield json.dumps(
+                {
+                    "message": "Write.",
+                    "action": {
+                        "name": "write_file",
+                        "args": {"path": "stream.txt", "content": "audit\n", "create_parents": False},
+                    },
+                }
+            )
+            return
+        raise ProviderError("stream provider failed")
+
+
+def test_streaming_provider_error_after_write_finalizes_failed_run(tmp_path) -> None:
+    result = run_once(
+        "stream write then fail",
+        _StreamingProviderFailureAfterWriteLLM(),
+        cwd=tmp_path,
+        run_id="run_stream_provider_failure",
+        approval_handler=lambda _action: True,
+        stream_handler=lambda _text: None,
+    )
+
+    assert result.action.action.name == "provider_error"
+    assert result.observation.error is not None
+    assert result.observation.error.details["failure_source"] == "provider"
+    assert (tmp_path / "stream.txt").read_text(encoding="utf-8") == "audit\n"
+    assert len(result.tool_calls_path.read_text(encoding="utf-8").splitlines()) == 2

@@ -431,10 +431,13 @@ class ChatRuntime:
             )
             payload = chats.build_chat_turn_response(self._workspace, session, result, diagnostics)
             terminal_reason = str(payload.get("terminal_reason") or "")
+            error = result.observation.error
             if terminal_reason == "cancelled":
                 self._finish_job(job, "cancelled", {"event": "cancelled", **payload})
             elif terminal_reason == "timed_out":
                 self._finish_job(job, "timed_out", {"event": "timed_out", **payload})
+            elif error is not None and (error.details or {}).get("failure_source") == "provider":
+                self._finish_job(job, "failed", {"event": "failed", "error": error.message, **payload})
             else:
                 self._finish_job(job, "completed", {"event": "final", **payload})
         except Exception as exc:  # worker failures are durable and visible through SSE
