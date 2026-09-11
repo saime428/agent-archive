@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from agent.core.redaction import redact_record
+
 
 HookHandler = Callable[[dict[str, Any]], None]
 
@@ -78,7 +80,7 @@ def _append_hook_records(path: Path, records: list[HookRecord]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         for record in records:
-            handle.write(json.dumps(asdict(record), ensure_ascii=True) + "\n")
+            handle.write(json.dumps(redact_record(asdict(record)).value, ensure_ascii=True) + "\n")
 
 
 def _now() -> str:

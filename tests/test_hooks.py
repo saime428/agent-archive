@@ -4,6 +4,7 @@ import json
 
 from agent.config import AgentConfig
 from agent.core.actions import ErrorCode
+from agent.core.hooks import BUILTIN_HOOKS, run_hooks
 from agent.core.loop import run_once
 from agent.llm.fake import FakeLLMClient
 
@@ -75,6 +76,30 @@ def test_nonblocking_hook_failure_is_logged_without_blocking_run(tmp_path) -> No
 
     assert result.observation.status == "ok"
     assert "Hook failed." in text
+
+
+def test_hook_log_redacts_payload_and_error_secrets(tmp_path, monkeypatch) -> None:
+    token = "synthetic-audit-token"
+
+    def failing_hook(_payload) -> None:
+        raise RuntimeError(f"hook leaked Bearer {token}")
+
+    monkeypatch.setitem(BUILTIN_HOOKS, "secret_failure", failing_hook)
+    path = tmp_path / "hooks.jsonl"
+
+    run_hooks(
+        event="before_run",
+        enabled_hooks=("secret_failure",),
+        blocking_hooks=(),
+        payload={"task": f"Authorization: Bearer {token}"},
+        log_path=path,
+    )
+
+    text = path.read_text(encoding="utf-8")
+    record = json.loads(text)
+    assert token not in text
+    assert record["payload"]["task"] == "[REDACTED]"
+    assert record["error"] == "hook leaked [REDACTED]"
 
 
 def test_blocking_hook_failure_returns_error_observation(tmp_path) -> None:
