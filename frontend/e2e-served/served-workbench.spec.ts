@@ -247,6 +247,7 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   expect(rootBody.toString("utf8")).not.toContain("tokenicode-shell");
 
   const errors = collectBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
@@ -255,7 +256,10 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   await expect(page.getByText(/FakeLLM received task: cutover smoke/)).toBeVisible();
 
   await page.getByRole("button", { name: "打开工作台", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "System overview", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "系统概览", exact: true })).toBeVisible();
+  await expect.poll(() => page.locator(".workspace-plane").evaluate((node) => node.matches(":modal"))).toBe(false);
+  await page.getByLabel("向 Agent 发送消息", { exact: true }).focus();
+  await expect(page.getByLabel("向 Agent 发送消息", { exact: true })).toBeFocused();
 
   await page.getByRole("button", { name: "Git", exact: true }).click();
   await page.getByRole("button", { name: "README.md staged unstaged", exact: true }).click();
@@ -279,6 +283,15 @@ test("serves the tracked React workbench from the default entry", async ({ page,
   await page.locator(".monaco-editor").click({ position: { x: 180, y: 24 } });
   await page.keyboard.press("Control+a");
   await page.keyboard.insertText("# Cutover seed\nupdated\n");
+
+  await page.getByRole("button", { name: "打开命令面板", exact: true }).click();
+  await page.getByLabel("搜索命令", { exact: true }).fill("打开 Git");
+  await page.getByRole("option", { name: /打开 Git/ }).click();
+  await expect(page.getByRole("dialog", { name: "未保存修改", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "继续编辑", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Files", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".view-lines")).toContainText("updated");
+
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "确认保存", exact: true })).toBeVisible();
 
@@ -336,7 +349,8 @@ test("runs and stops a real interactive terminal process", async ({ page, reques
   expect(await pidIsAlive(parentPid)).toBe(true);
 
   await page.getByLabel("Terminal stdin", { exact: true }).fill("hello");
-  await page.getByRole("button", { name: "发送", exact: true }).click();
+  await page.getByRole("dialog", { name: "工作台", exact: true })
+    .getByRole("button", { name: "发送", exact: true }).click();
   await expect(page.getByLabel("Terminal 输出", { exact: true })).toContainText("got:hello", { timeout: 10_000 });
   await page.getByRole("button", { name: "停止", exact: true }).click();
 
