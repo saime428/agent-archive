@@ -26,6 +26,22 @@ def _root(tmp_path) -> Path:
     return root
 
 
+def _make_directory_link(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except (NotImplementedError, OSError) as exc:
+        if os.name == "nt":
+            junction = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                capture_output=True,
+                check=False,
+            )
+            if junction.returncode == 0:
+                return
+        pytest.skip(f"directory links are unavailable: {exc}")
+
+
 def test_store_lock_is_exclusive_and_released_on_exit(tmp_path) -> None:
     root = _root(tmp_path)
 
@@ -299,6 +315,63 @@ def test_remove_tree_deletes_nested_content_without_following_links(tmp_path) ->
     assert not target.exists()
     assert (outside / "keep.txt").read_text(encoding="utf-8") == "keep"
     assert linked or True
+
+
+def test_remove_tree_rejects_a_linked_root_without_touching_its_target(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+    target = tmp_path / "tree"
+    _make_directory_link(target, outside)
+
+    with pytest.raises(UserStoreError, match="remove"):
+        user_store.remove_tree(target, message="Could not remove the tree.")
+
+    assert user_store.lexists(target)
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_skill_recovery_rejects_a_linked_new_target_and_keeps_transaction(tmp_path) -> None:
+    from agent.core.skills import SkillError, SkillStore
+
+    workspace = tmp_path / "workspace"
+    home = tmp_path / "home"
+    workspace.mkdir()
+    root = home / ".agent"
+    skills = root / "skills"
+    skills.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "keep.txt"
+    marker.write_text("keep", encoding="utf-8")
+    target = skills / "reviewer"
+    _make_directory_link(target, outside)
+    tx = user_store.allocate_transaction(
+        root,
+        prefix="skill",
+        owner_marker=b"agent:skill-transaction:v1\n",
+    )
+    user_store.write_record(
+        root,
+        tx,
+        {
+            "version": 1,
+            "module": "skill",
+            "operation": "install",
+            "name": "reviewer",
+            "old_disabled": False,
+            "old_directory": False,
+            "phase": "prepared",
+        },
+    )
+
+    with pytest.raises(SkillError, match="remove"):
+        SkillStore(workspace, home=home).inventory()
+
+    assert user_store.lexists(target)
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert (tx / "record.json").is_file()
 
 
 def _crash_worker(mode: str, *, workspace: Path, home: Path, crash_at: str, extra: list[str] | None = None) -> int:

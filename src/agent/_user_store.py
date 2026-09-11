@@ -414,6 +414,7 @@ def write_record(root: Path, tx: Path, record: dict[str, Any]) -> None:
 
 def remove_tree(path: Path, *, message: str) -> None:
     """Delete a validated store-owned directory tree without following links."""
+    require_real_directory(path, message=message)
     stack = [path]
     directories: list[Path] = []
     while stack:
