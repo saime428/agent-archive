@@ -7,12 +7,12 @@
 | 块 | 范围 | 状态 | 结论/证据 |
 | --- | --- | --- | --- |
 | 1 | 构建、打包、CI、实际 Web 入口、文档契约 | 进行中 | 核对 React 源码与提交的静态产物是否一致 |
-| 2 | HTTP 路由、请求验证、文件/Git/终端 API | 待审 | |
-| 3 | Sandbox、审批、文件/命令/文档/Web 工具、脱敏 | 待审 | |
-| 4 | Action、执行循环、预算、取消/超时、lease、恢复与运行存储 | 待审 | |
-| 5 | Provider、流解析、能力声明、配置与 secrets | 待审 | |
-| 6 | MCP、Skills、用户存储与扩展生命周期 | 待审 | |
-| 7 | Chat、Memory、Automation、Eval、CLI、上下文与 hooks | 待审 | |
+| 2 | HTTP 路由、请求验证、文件/Git/终端 API | 进行中 | 已读 server、files、terminal；其余路由和测试关联仍在核对 |
+| 3 | Sandbox、审批、文件/命令/文档/Web 工具、脱敏 | 进行中 | Windows 保护路径大小写问题已修；文档工具等仍在审 |
+| 4 | Action、执行循环、预算、取消/超时、lease、恢复与运行存储 | 进行中 | 模型请求失败导致已执行动作缺少运行日志，已复现、修复中 |
+| 5 | Provider、流解析、能力声明、配置与 secrets | 进行中 | 已读 Provider 主要请求/解析路径；配置 Unicode 写入已修，尚未结束关联测试审查 |
+| 6 | MCP、Skills、用户存储与扩展生命周期 | 进行中 | 恢复清理根目录链接风险已复现、修复中；Skills 元数据问题待独立处理 |
+| 7 | Chat、Memory、Automation、Eval、CLI、上下文与 hooks | 进行中 | 已读 chat、chat_runtime、hooks；其余模块待审 |
 | 8 | 全部前端组件、API/SSE、编辑/终端/设置、可访问性及测试覆盖 | 待审 | 最近改版审查仅是已有证据，不能替代全模块审查 |
 
 ## 已知前端修复
@@ -22,3 +22,16 @@
 - 该修复后的验证为 38 条单元测试通过、72 条 Playwright 通过、1 条可选性能采样跳过，以及 typecheck/lint/UI policy/build 通过。
 
 审查与复现临时输出：`D:\CodexScratch\repository-review-2026-09-10`。本记录随各块完成更新，不以局部通过宣称全仓库完成。
+
+## 2026-09-10 继续检查的落点
+
+- 修复前 Python 全套：1183 passed；该结果仅是基线，不代表代码审查完成。
+- `119d75c`：Windows 不存在路径的 `.ENV`、`.GIT` 等大小写变体绕过写保护；共享路径检查使用平台大小写规范化。相关测试 54 passed。
+- `f632fdc`：配置包含非 BMP Unicode 时写出非法 TOML；保留 Unicode 并转义 DEL。相关测试 63 passed。
+- `ead9e09`：正式 `agent web` 服务的 tracked bundle 落后于 React 源码；重新生成并补真实服务验证。build:preview、5 条 served E2E、7 条静态资源测试通过。
+- 待收尾：模型写文件后下一次请求抛 ProviderError，`tool_calls.jsonl` 与摘要未生成；用临时工作区和模拟 Provider 复现。
+- 待收尾：Skills 事务恢复清理的根目录若为目录链接，会进入外部目录删除内容；Astra 使用隔离临时目录复现，GPT-5.6 正在修共享清理函数。
+- 待处理：hook 日志未使用现有脱敏函数；模拟 Authorization Bearer 字符串能原样落盘，现有 redactor 能识别同一字符串。
+- 块 6 另外两项已报告的 Skills 元数据问题仍需收尾：目录名与声明名称不一致时冲突判断错误；doctor 未解析损坏 SKILL.md 却报告健康。
+
+尚不能宣布任何未闭合的大块全部完成；完整前端审查、Memory、Automation、Eval、CLI，以及上述模块剩余调用者/测试核对仍在清单内。
