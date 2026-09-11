@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from agent.core.actions import ErrorCode
@@ -149,5 +151,28 @@ def test_resolve_write_path_rejects_pycache_directory(tmp_path) -> None:
 
     with pytest.raises(SandboxError) as exc_info:
         sandbox.resolve_write_path("__pycache__/cache.pyc")
+
+    assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows paths are case-insensitive")
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".AGENT/config.toml",
+        "nested/.GIT/config",
+        ".SVN/wc.db",
+        ".HG/store/data",
+        "NODE_MODULES/pkg/index.js",
+        ".ENV",
+        "__PYCACHE__/cache.pyc",
+        ".PYTEST_CACHE/state",
+    ],
+)
+def test_resolve_write_path_rejects_case_variants_on_windows(tmp_path, path: str) -> None:
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    with pytest.raises(SandboxError) as exc_info:
+        sandbox.resolve_write_path(path, create_parents=True)
 
     assert exc_info.value.code == ErrorCode.SANDBOX_VIOLATION

@@ -112,9 +112,10 @@ def _nearest_existing_parent(path: Path) -> Path:
 
 def _has_protected_write_part(path: Path, root: Path) -> bool:
     try:
-        relative_parts = path.relative_to(root).parts
+        relative_parts = tuple(os.path.normcase(part) for part in path.relative_to(root).parts)
     except ValueError:
         return True
-    if relative_parts and relative_parts[0] == ".agent":
+    if relative_parts and relative_parts[0] == os.path.normcase(".agent"):
         return True
-    return any(part in PROTECTED_WRITE_PARTS for part in relative_parts)
+    protected_parts = {os.path.normcase(part) for part in PROTECTED_WRITE_PARTS}
+    return any(part in protected_parts for part in relative_parts)
