@@ -392,6 +392,8 @@ def _result_terminal_reason(result: RunResult) -> str:
     error = result.observation.error
     if error is None:
         return "stopped"
+    if (error.details or {}).get("failure_source") == "provider":
+        return "failed"
     if error.code == ErrorCode.CANCELLED:
         return "cancelled"
     if error.code == ErrorCode.TIMEOUT and (error.details or {}).get("stop_reason") == "timed_out":

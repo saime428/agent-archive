@@ -1804,6 +1804,8 @@ def test_chat_runtime_keeps_provider_failure_audit_and_marks_job_failed(tmp_path
     assert "- action: provider_error" in summary
     assert "- completed: false" in summary
     assert "sk-web-secret" not in summary
+    turn = chats.build_chat_payload(tmp_path, started["session_id"])["turns"][-1]
+    assert turn["terminal_reason"] == "failed"
 
 
 def test_chat_runtime_start_failures_do_not_call_llm_factory(tmp_path) -> None:

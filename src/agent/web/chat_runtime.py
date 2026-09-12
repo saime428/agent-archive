@@ -436,7 +436,7 @@ class ChatRuntime:
                 self._finish_job(job, "cancelled", {"event": "cancelled", **payload})
             elif terminal_reason == "timed_out":
                 self._finish_job(job, "timed_out", {"event": "timed_out", **payload})
-            elif error is not None and (error.details or {}).get("failure_source") == "provider":
+            elif terminal_reason == "failed" and error is not None:
                 self._finish_job(job, "failed", {"event": "failed", "error": error.message, **payload})
             else:
                 self._finish_job(job, "completed", {"event": "final", **payload})
