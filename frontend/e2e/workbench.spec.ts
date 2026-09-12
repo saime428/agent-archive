@@ -1378,6 +1378,24 @@ test.describe("files", () => {
 
     expect(savedFileRequests).toEqual([{ path: "README.md", content: "mobile dirty" }]);
   });
+
+  test("keeps the native editor cursor after jumping from search", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("./#/new");
+    await page.getByRole("button", { name: "打开工作台", exact: true }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+    const search = page.getByRole("searchbox", { name: "递归搜索工作区", exact: true });
+    await search.fill("needle");
+    await search.press("Enter");
+    await page.getByRole("button", { name: "src/app.py 第 2 行", exact: true }).click();
+    await page.getByRole("button", { name: "编辑", exact: true }).click();
+
+    const editor = page.getByRole("textbox", { name: "文件编辑器", exact: true });
+    await editor.press("Control+End");
+    await editor.pressSequentially("XYZ");
+
+    await expect(editor).toHaveValue("# Readme\nHelloXYZ");
+  });
 });
 
 test.describe("runs", () => {

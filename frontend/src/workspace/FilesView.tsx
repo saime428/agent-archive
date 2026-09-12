@@ -95,12 +95,12 @@ function NativeEditor({
 
   useEffect(() => {
     if (!ref.current || jumpLine === null) return;
-    const lines = value.split("\n");
+    const lines = ref.current.value.split("\n");
     const line = Math.min(Math.max(jumpLine, 1), lines.length);
     const offset = lines.slice(0, line - 1).reduce((total, item) => total + item.length + 1, 0);
     ref.current.focus();
     ref.current.setSelectionRange(offset, offset);
-  }, [jumpKey, jumpLine, value]);
+  }, [jumpKey, jumpLine]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
