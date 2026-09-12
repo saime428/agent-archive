@@ -234,6 +234,24 @@ def test_memory_rejects_corrupt_and_linked_storage(tmp_path) -> None:
         MemoryStore(linked_workspace).list_candidates()
 
 
+@pytest.mark.parametrize("status", [[], {}])
+@pytest.mark.parametrize("record_type", ["candidate", "entry"])
+def test_memory_rejects_non_string_record_status(tmp_path, record_type: str, status) -> None:
+    store = MemoryStore(tmp_path)
+    candidate = store.add_candidate(source_run_id="run_1", source_excerpt="parser memory")
+    if record_type == "candidate":
+        path = store.candidates_path
+    else:
+        store.accept_candidate(candidate.candidate_id)
+        path = store.entries_path
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["status"] = status
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    with pytest.raises(MemoryError, match="status"):
+        (store.list_candidates if record_type == "candidate" else store.list_entries)()
+
+
 def test_memory_rejects_empty_and_oversized_revisions(tmp_path) -> None:
     store = MemoryStore(tmp_path)
     candidate = store.add_candidate(source_run_id="run_1", source_excerpt="bounded memory")

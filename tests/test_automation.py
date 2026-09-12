@@ -175,6 +175,24 @@ def test_automation_store_rejects_corrupt_linked_and_non_atomic_state(tmp_path, 
     assert store.definitions_path.read_bytes() == before
 
 
+@pytest.mark.parametrize("status", [[], {}])
+@pytest.mark.parametrize("record_type", ["definition", "attempt"])
+def test_automation_rejects_non_string_record_status(tmp_path, record_type: str, status) -> None:
+    store = AutomationStore(tmp_path)
+    definition = _enabled(store)
+    if record_type == "definition":
+        path = store.definitions_path
+    else:
+        store.claim_due(now=NOW)
+        path = store.attempts_path
+    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    records[-1]["status"] = status
+    path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+
+    with pytest.raises(AutomationError, match="status"):
+        (store.list_definitions if record_type == "definition" else store.list_attempts)()
+
+
 def test_automation_worker_runs_once_closes_runtime_and_does_not_repeat_slot(tmp_path) -> None:
     store = AutomationStore(tmp_path)
     _enabled(store)

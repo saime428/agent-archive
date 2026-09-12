@@ -1862,6 +1862,33 @@ def test_automation_cli_keeps_task_and_error_on_one_line(tmp_path) -> None:
     assert "error: first second" in notifications.output
 
 
+def test_memory_and_automation_cli_report_non_string_status_records(tmp_path) -> None:
+    runner = CliRunner()
+    memory_workspace = tmp_path / "memory"
+    memory_workspace.mkdir()
+    memory = MemoryStore(memory_workspace)
+    memory.add_candidate(source_run_id="run_1", source_excerpt="parser memory")
+    candidate = json.loads(memory.candidates_path.read_text(encoding="utf-8"))
+    candidate["status"] = []
+    memory.candidates_path.write_text(json.dumps(candidate) + "\n", encoding="utf-8")
+
+    automation_workspace = tmp_path / "automation"
+    automation_workspace.mkdir()
+    automation = AutomationStore(automation_workspace)
+    automation.add_definition(task="inspect parser", interval_seconds=60)
+    definition = json.loads(automation.definitions_path.read_text(encoding="utf-8"))
+    definition["status"] = {}
+    automation.definitions_path.write_text(json.dumps(definition) + "\n", encoding="utf-8")
+
+    memory_result = runner.invoke(app, ["memory", "review", "--cwd", str(memory_workspace)])
+    automation_result = runner.invoke(app, ["automation", "list", "--cwd", str(automation_workspace)])
+
+    assert memory_result.exit_code == 1
+    assert "status" in memory_result.output
+    assert automation_result.exit_code == 1
+    assert "status" in automation_result.output
+
+
 def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"

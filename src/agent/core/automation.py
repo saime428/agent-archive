@@ -677,7 +677,7 @@ def _definition_from_record(record: dict[str, Any]) -> AutomationDefinition:
     skills = _skills(record["skills"])
     timeout_seconds = _timeout_seconds(record["timeout_seconds"])
     status = record["status"]
-    if status not in _DEFINITION_STATUSES:
+    if not isinstance(status, str) or status not in _DEFINITION_STATUSES:
         raise AutomationError(f"Unknown automation definition status: {status!r}.")
     anchor_at = record["anchor_at"]
     if anchor_at is not None:
@@ -719,7 +719,7 @@ def _attempt_from_record(record: dict[str, Any]) -> AutomationAttempt:
     scheduled_for = _stored_timestamp(record["scheduled_for"])
     run_id = _require_id(record["run_id"], _RUN_ID_PATTERN, "automation run")
     status = record["status"]
-    if status not in _RAW_ATTEMPT_STATUSES:
+    if not isinstance(status, str) or status not in _RAW_ATTEMPT_STATUSES:
         raise AutomationError(f"Unknown automation attempt status: {status!r}.")
     created_at = _stored_timestamp(record["created_at"])
     updated_at = _stored_timestamp(record["updated_at"])

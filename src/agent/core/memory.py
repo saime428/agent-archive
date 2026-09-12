@@ -288,7 +288,7 @@ def _candidate_from_record(record: dict[str, Any]) -> MemoryCandidate:
     source_excerpt = _memory_text(record["source_excerpt"], label="Memory candidate")
     created_at = _created_at(record["created_at"])
     status = record["status"]
-    if status not in _CANDIDATE_STATUSES:
+    if not isinstance(status, str) or status not in _CANDIDATE_STATUSES:
         raise MemoryError(f"Unknown memory candidate status: {status!r}.")
     return MemoryCandidate(candidate_id, source_run_id, source_excerpt, created_at, status)
 
@@ -302,7 +302,7 @@ def _entry_from_record(record: dict[str, Any]) -> MemoryEntry:
     source_excerpt = _memory_text(record["source_excerpt"], label="Memory entry")
     created_at = _created_at(record["created_at"])
     status = record["status"]
-    if status not in _ENTRY_STATUSES:
+    if not isinstance(status, str) or status not in _ENTRY_STATUSES:
         raise MemoryError(f"Unknown memory entry status: {status!r}.")
     supersedes = record["supersedes"]
     if supersedes is not None:
