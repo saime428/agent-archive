@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 
 import pytest
 
@@ -175,6 +176,40 @@ def test_memory_legacy_jsonl_records_remain_readable(tmp_path) -> None:
     assert store.list_entries()[0].entry_id == "mem_legacy"
     revised = store.revise_entry("mem_legacy", "revised legacy parser memory")
     assert revised.supersedes == "mem_legacy"
+
+
+@pytest.mark.parametrize(
+    ("kind", "message"),
+    [("branch", "branches"), ("cycle", "cycle"), ("missing", "unknown entry")],
+)
+def test_memory_rejects_invalid_supersedes_graph_from_every_entry_path(tmp_path, kind: str, message: str) -> None:
+    store = MemoryStore(tmp_path)
+    candidate = store.add_candidate(source_run_id="run_1", source_excerpt="parser memory")
+    original = store.accept_candidate(candidate.candidate_id)
+    first = {**asdict(original), "entry_id": "mem_first", "supersedes": original.entry_id}
+    if kind == "branch":
+        records = [asdict(original), first, {**first, "entry_id": "mem_second"}]
+    elif kind == "cycle":
+        records = [
+            {**asdict(original), "supersedes": "mem_first"},
+            {**first, "supersedes": original.entry_id},
+        ]
+    else:
+        records = [{**asdict(original), "supersedes": "mem_missing"}]
+    store.entries_path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+    before = store.entries_path.read_bytes()
+
+    operations = [
+        lambda: store.list_entries(include_deleted=True),
+        lambda: store.retrieve("parser", max_items=5, max_chars=100),
+        lambda: store.revise_entry(original.entry_id, "revised parser memory"),
+        lambda: store.delete_entry(original.entry_id),
+        lambda: store.entry_history(original.entry_id),
+    ]
+    for operation in operations:
+        with pytest.raises(MemoryError, match=message):
+            operation()
+        assert store.entries_path.read_bytes() == before
 
 
 def test_memory_rejects_corrupt_and_linked_storage(tmp_path) -> None:

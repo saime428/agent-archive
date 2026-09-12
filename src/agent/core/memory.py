@@ -227,6 +227,7 @@ class MemoryStore:
     def _read_entries(self) -> list[MemoryEntry]:
         entries = [_entry_from_record(item) for item in self._read_jsonl(self.entries_path)]
         _require_unique((item.entry_id for item in entries), "entry")
+        _validate_entry_graph(entries)
         return entries
 
     def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
@@ -339,6 +340,33 @@ def _effective_candidates(
 def _current_active_entries(entries: list[MemoryEntry]) -> list[MemoryEntry]:
     superseded = {entry.supersedes for entry in entries if entry.supersedes is not None}
     return [entry for entry in entries if entry.status == "active" and entry.entry_id not in superseded]
+
+
+def _validate_entry_graph(entries: list[MemoryEntry]) -> None:
+    by_id = {entry.entry_id: entry for entry in entries}
+    children: dict[str, str] = {}
+    for entry in entries:
+        parent = entry.supersedes
+        if parent is None:
+            continue
+        if parent not in by_id:
+            raise MemoryError(f"Memory entry history references unknown entry: {parent}")
+        if parent in children:
+            raise MemoryError(f"Memory entry history branches at {parent}.")
+        children[parent] = entry.entry_id
+
+    resolved: set[str] = set()
+    for entry in entries:
+        current = entry
+        visiting: set[str] = set()
+        while current.entry_id not in resolved:
+            if current.entry_id in visiting:
+                raise MemoryError("Memory entry history contains a cycle.")
+            visiting.add(current.entry_id)
+            if current.supersedes is None:
+                break
+            current = by_id[current.supersedes]
+        resolved.update(visiting)
 
 
 def _find_candidate(candidates: list[MemoryCandidate], candidate_id: str) -> MemoryCandidate:
