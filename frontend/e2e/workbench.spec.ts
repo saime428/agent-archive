@@ -1456,6 +1456,101 @@ test.describe("runs", () => {
     await expect(index.getByRole("button", { name: "run_e2e", exact: true })).toHaveCount(0);
     await expect(index.getByRole("button", { name: "run_attn", exact: true })).toBeVisible();
   });
+
+  test("ignores an older run detail response that arrives last", async ({ page }) => {
+    let releaseFirst = () => {};
+    let releaseSecond = () => {};
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    await page.route("**/api/runs/run_*", async (route) => {
+      const runId = new URL(route.request().url()).pathname.split("/").pop() as string;
+      await (runId === "run_e2e" ? firstGate : secondGate);
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ...runDetailFixture(), run_id: runId, summary: `detail ${runId}` }),
+      });
+    });
+    await openRuns(page);
+
+    await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+    await page.getByRole("button", { name: "run_20260725_045603_309947", exact: true }).click();
+    releaseSecond();
+    await expect(page.getByText("detail run_20260725_045603_309947", { exact: true })).toBeVisible();
+    releaseFirst();
+
+    await expect(page.getByText("detail run_e2e", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("detail run_20260725_045603_309947", { exact: true })).toBeVisible();
+  });
+
+  test("clears old run actions and ignores its pending diff after switching", async ({ page }) => {
+    let releaseDiff = () => {};
+    let markDiffStarted = () => {};
+    let releaseNextRun = () => {};
+    const diffGate = new Promise<void>((resolve) => { releaseDiff = resolve; });
+    const diffStarted = new Promise<void>((resolve) => { markDiffStarted = resolve; });
+    const nextRunGate = new Promise<void>((resolve) => { releaseNextRun = resolve; });
+    await page.route("**/api/diff?*", async (route) => {
+      markDiffStarted();
+      await diffGate;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          path: "README.md",
+          snapshot_path: "snap_readme_1",
+          diff: "STALE RUN DIFF",
+          truncated: false,
+          current_exists: true,
+          snapshot_missing: false,
+        }),
+      });
+    });
+    await page.route("**/api/runs/run_attn", async (route) => {
+      await nextRunGate;
+      const detail = runDetailFixture();
+      detail.run_id = "run_attn";
+      detail.summary = "Command failed while verifying the change.";
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(detail) });
+    });
+    await openRuns(page);
+    await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+    await page.getByRole("button", { name: "查看 diff", exact: true }).click();
+    await diffStarted;
+
+    await page.getByRole("button", { name: "run_attn", exact: true }).click();
+    await expect(page.getByRole("button", { name: "恢复", exact: true })).toHaveCount(0);
+    releaseNextRun();
+    await expect(page.getByText("Command failed while verifying the change.", { exact: true })).toBeVisible();
+    releaseDiff();
+
+    await expect(page.getByText("STALE RUN DIFF", { exact: true })).toHaveCount(0);
+  });
+
+  test("does not return to a restored run after navigation changes", async ({ page }) => {
+    let releaseRestore = () => {};
+    let markRestoreStarted = () => {};
+    const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    const restoreStarted = new Promise<void>((resolve) => { markRestoreStarted = resolve; });
+    await page.route("**/api/snapshot/restore", async (route) => {
+      markRestoreStarted();
+      await restoreGate;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ status: "ok", action: "restored", path: "README.md", snapshot_path: "snap_readme_1" }),
+      });
+    });
+    await openRuns(page);
+    await page.getByRole("button", { name: "run_e2e", exact: true }).click();
+    await page.getByRole("button", { name: "恢复", exact: true }).click();
+    await page.getByRole("button", { name: "确认恢复", exact: true }).click();
+    await restoreStarted;
+
+    await page.getByRole("button", { name: "run_attn", exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+    await expect(page.getByRole("button", { name: "run_attn", exact: true })).toHaveAttribute("aria-current", "true");
+    releaseRestore();
+
+    await expect(page.getByText("Command failed while verifying the change.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "run_e2e", exact: true })).not.toHaveAttribute("aria-current", "true");
+  });
 });
 
 test.describe("system", () => {

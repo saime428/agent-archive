@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Copy, GitCompare, RotateCcw } from "lucide-react";
 
 import { api } from "../api/client";
@@ -34,19 +34,25 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [restoreResult, setRestoreResult] = useState<string | null>(null);
+  const detailSequence = useRef(0);
+  const diffSequence = useRef(0);
 
   const openRun = useCallback(async (runId: string) => {
+    const sequence = ++detailSequence.current;
+    diffSequence.current += 1;
     setSelectedId(runId);
+    setDetail(null);
     setDetailError(null);
     setDiff(null);
     setDiffError(null);
+    setRestoreTarget(null);
     setRestoreResult(null);
     setRestoreError(null);
     try {
-      setDetail(await api.getRun(runId));
+      const payload = await api.getRun(runId);
+      if (sequence === detailSequence.current) setDetail(payload);
     } catch (error) {
-      setDetail(null);
-      setDetailError(errorMessage(error));
+      if (sequence === detailSequence.current) setDetailError(errorMessage(error));
     }
   }, []);
 
@@ -58,29 +64,44 @@ export function RunsView({ runs, onGlobalRefresh, focusRunId }: RunsViewProps) {
     void openRun(focusRunId);
   }, [focusRunId, openRun]);
 
+  useEffect(() => () => {
+    detailSequence.current += 1;
+    diffSequence.current += 1;
+  }, []);
+
   const showDiff = useCallback(async (snapshot: RunSnapshot) => {
+    const sequence = ++diffSequence.current;
+    setDiff(null);
     setDiffError(null);
     try {
-      setDiff(await api.getDiff(snapshot.path, snapshot.snapshot_path));
+      const payload = await api.getDiff(snapshot.path, snapshot.snapshot_path);
+      if (sequence === diffSequence.current) setDiff(payload);
     } catch (error) {
-      setDiff(null);
-      setDiffError(errorMessage(error));
+      if (sequence === diffSequence.current) setDiffError(errorMessage(error));
     }
   }, []);
 
   const doRestore = useCallback(async () => {
     if (!restoreTarget || !selectedId) return;
+    const runId = selectedId;
+    const navigationSequence = detailSequence.current;
     setRestoring(true);
     setRestoreError(null);
     try {
       const result = await api.restoreSnapshot(restoreTarget.path, restoreTarget.snapshot_path);
+      if (navigationSequence !== detailSequence.current) {
+        void onGlobalRefresh();
+        return;
+      }
       setRestoreTarget(null);
       // openRun clears restoreResult on entry, so set the banner after the refresh.
-      await openRun(selectedId);
+      const refreshSequence = detailSequence.current + 1;
+      await openRun(runId);
+      if (refreshSequence !== detailSequence.current) return;
       setRestoreResult(`${result.action}: ${result.path}`);
       void onGlobalRefresh();
     } catch (error) {
-      setRestoreError(errorMessage(error));
+      if (navigationSequence === detailSequence.current) setRestoreError(errorMessage(error));
     } finally {
       setRestoring(false);
     }
