@@ -186,19 +186,19 @@ def _communicate(
     timeout_seconds: int,
     control: RunControl | None,
 ) -> tuple[bytes, bytes, StopReason | str | None]:
+    _prepare_pipe_readers(process)
     deadline = time.monotonic() + timeout_seconds
     while True:
         if process.poll() is not None:
-            return (*process.communicate(), None)
+            try:
+                return (*process.communicate(timeout=0), None)
+            except subprocess.TimeoutExpired:
+                pass
         stop_reason = None if control is None else control.stop_reason()
         if stop_reason is not None:
-            if process.poll() is not None:
-                continue
             return b"", b"", stop_reason
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            if process.poll() is not None:
-                continue
             return b"", b"", "tool_timeout"
         try:
             stdout, stderr = process.communicate(timeout=min(PROCESS_POLL_SECONDS, remaining))
@@ -265,15 +265,61 @@ def _collect_stopped_output(
     stdout: bytes,
     stderr: bytes,
 ) -> tuple[bytes, bytes, str | None]:
+    _prepare_pipe_readers(process)
     try:
-        return (*process.communicate(timeout=PROCESS_STOP_SECONDS), None)
+        return (*process.communicate(timeout=PROCESS_POLL_SECONDS), None)
     except subprocess.TimeoutExpired as exc:
         if process.poll() is None:
             process.kill()
+        _close_output_pipes(process)
+        return exc.stdout or stdout, exc.stderr or stderr, "process output pipes did not close after tree stop"
+
+
+def _prepare_pipe_readers(process: subprocess.Popen) -> None:
+    if os.name != "nt" or getattr(process, "_agent_pipe_readers", False):
+        return
+
+    def read_pipe(stream, buffer) -> None:
+        try:
+            buffer.append(stream.read())
+        except OSError:
+            buffer.append(b"")
+        finally:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+    process._readerthread = read_pipe
+    process._agent_pipe_readers = True
+
+
+def _close_output_pipes(process: subprocess.Popen) -> None:
+    threads = (getattr(process, "_stdout_thread", None), getattr(process, "_stderr_thread", None))
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+
+        kernel32 = ctypes.windll.kernel32
         for stream in (process.stdout, process.stderr):
             if stream is not None:
-                stream.close()
-        return exc.stdout or stdout, exc.stderr or stderr, "process output pipes did not close after tree stop"
+                kernel32.CancelIoEx(msvcrt.get_osfhandle(stream.fileno()), None)
+        for thread in threads:
+            native_id = None if thread is None else thread.native_id
+            if native_id is None:
+                continue
+            handle = kernel32.OpenThread(0x0001, False, native_id)
+            if handle:
+                try:
+                    kernel32.CancelSynchronousIo(handle)
+                finally:
+                    kernel32.CloseHandle(handle)
+        for thread in threads:
+            if thread is not None:
+                thread.join(timeout=PROCESS_POLL_SECONDS)
+    for stream, thread in zip((process.stdout, process.stderr), threads, strict=True):
+        if stream is not None and (thread is None or not thread.is_alive()):
+            stream.close()
 
 
 def _stopped_observation(

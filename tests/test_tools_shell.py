@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -376,6 +377,46 @@ def test_run_command_times_out(tmp_path) -> None:
     assert observation.error.details is not None
     assert observation.error.details["timeout_source"] == "tool_timeout"
     assert observation.error.details["stdout"] == "before\n"
+
+
+@pytest.mark.parametrize("stop_kind", ["timeout", "cancel"])
+def test_communicate_stays_bounded_when_an_exited_parent_leaves_inherited_pipes(tmp_path, stop_kind) -> None:
+    pid_path = tmp_path / "child-pid.txt"
+    code = (
+        "import pathlib,subprocess,sys;"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(3)']);"
+        "pathlib.Path(sys.argv[1]).write_text(str(child.pid),encoding='utf-8')"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, str(pid_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        **shell_tool.process_group_kwargs(),
+    )
+    child_pid = _read_pids(pid_path)[0]
+    control = RunControl()
+    if stop_kind == "cancel":
+        control.request_cancel()
+    try:
+        process.wait(timeout=2)
+        started = time.monotonic()
+        stdout, stderr, reason = shell_tool._communicate(process, 0.2, control)
+        communicate_elapsed = time.monotonic() - started
+        started = time.monotonic()
+        _, _, output_error = shell_tool._collect_stopped_output(process, stdout, stderr)
+        collect_elapsed = time.monotonic() - started
+
+        assert reason == ("cancelled" if stop_kind == "cancel" else "tool_timeout")
+        assert communicate_elapsed < 1
+        assert collect_elapsed < 1
+        assert output_error == "process output pipes did not close after tree stop"
+    finally:
+        for stream in (process.stdout, process.stderr):
+            if stream is not None and not stream.closed:
+                stream.close()
+        if _pid_exists(child_pid):
+            _terminate_pid(child_pid)
+        _wait_for_pid_exit(child_pid)
 
 
 def test_run_command_surfaces_tree_stop_failure(monkeypatch, tmp_path) -> None:
