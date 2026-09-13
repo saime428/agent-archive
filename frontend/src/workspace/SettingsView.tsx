@@ -39,7 +39,7 @@ type FormState = {
   default_skills: string;
 };
 
-const PROVIDERS = ["fake", "deepseek", "openai-compat"];
+const PROVIDERS = ["fake", "deepseek", "openai-compat", "anthropic"];
 const MODES = ["step", "guided", "auto", "plan-first"];
 // The browser may only narrow these; the backend rejects danger-full-access and never.
 const SANDBOXES = ["read-only", "workspace-write"];
@@ -87,6 +87,7 @@ export function SettingsView({
   const dirty = draft !== null && baseline !== null && JSON.stringify(draft) !== JSON.stringify(baseline);
   // approval=never can only come from the global config; the browser must not resend it.
   const approvalLocked = baseline?.approval === "never";
+  const sandboxLocked = baseline?.sandbox === "danger-full-access";
 
   const update = useCallback(
     <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -102,7 +103,7 @@ export function SettingsView({
     if (draft.provider !== baseline.provider) updates.provider = draft.provider;
     if (draft.model !== baseline.model) updates.model = draft.model;
     if (draft.mode !== baseline.mode) updates.mode = draft.mode;
-    if (draft.sandbox !== baseline.sandbox) updates.sandbox = draft.sandbox;
+    if (draft.sandbox !== baseline.sandbox && !sandboxLocked) updates.sandbox = draft.sandbox;
     if (draft.approval !== baseline.approval && !approvalLocked) updates.approval = draft.approval;
     if (draft.dry_run !== baseline.dry_run) updates.dry_run = draft.dry_run;
     if (draft.web_search_enabled !== baseline.web_search_enabled) updates.web_search_enabled = draft.web_search_enabled;
@@ -128,7 +129,7 @@ export function SettingsView({
     } finally {
       setSaving(false);
     }
-  }, [draft, baseline, approvalLocked, onSaved]);
+  }, [draft, baseline, approvalLocked, sandboxLocked, onSaved]);
 
   const readiness = health?.settings_readiness;
   const risk = health?.workspace_risk;
@@ -253,9 +254,15 @@ export function SettingsView({
             </label>
             <label className="settings-field">
               <span>sandbox</span>
-              <select aria-label="sandbox" value={form.sandbox} onChange={(e) => update("sandbox", e.target.value)}>
-                {SANDBOXES.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
+              {sandboxLocked ? (
+                <span className="overview-tag" data-tone="warning">
+                  当前为 danger-full-access（来自全局配置），浏览器不修改该值
+                </span>
+              ) : (
+                <select aria-label="sandbox" value={form.sandbox} onChange={(e) => update("sandbox", e.target.value)}>
+                  {SANDBOXES.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              )}
             </label>
             <label className="settings-field">
               <span>approval</span>

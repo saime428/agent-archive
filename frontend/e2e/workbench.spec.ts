@@ -20,6 +20,8 @@ let terminalInputRequests: Array<Record<string, unknown>> = [];
 let terminalStopRequests = 0;
 let terminalReadySent = false;
 let healthRequests = 0;
+let configProvider = "fake";
+let configSandbox = "workspace-write";
 const LONG_FILE_NAME = "an-extremely-long-windows-file-name-that-must-not-break-the-layout-000000.md";
 
 function terminalFixture(after = 0) {
@@ -511,7 +513,7 @@ function healthFixture() {
     status: "ok",
     app: "agent-workbench",
     workspace: "F:\\projects\\spatial-demo",
-    provider: "fake",
+    provider: configProvider,
     model: "fixture-v1",
     mode: "guided",
     deepseek_api_key_env: "DEEPSEEK_API_KEY",
@@ -525,7 +527,7 @@ function healthFixture() {
     settings_readiness: {
       mode: "read-only",
       status: "ready",
-      provider: "fake",
+      provider: configProvider,
       model: "fixture-v1",
       base_url: "",
       api_key_env: null,
@@ -572,10 +574,10 @@ function configFixture() {
   return {
     workspace: "F:\\projects\\spatial-demo",
     config: {
-      provider: "fake",
+      provider: configProvider,
       model: "fixture-v1",
       mode: "guided",
-      sandbox: "workspace-write",
+      sandbox: configSandbox,
       approval: "risky-confirm",
       dry_run: false,
       web_search_enabled: false,
@@ -728,6 +730,8 @@ test.beforeEach(async ({ page }) => {
   terminalStopRequests = 0;
   terminalReadySent = false;
   healthRequests = 0;
+  configProvider = "fake";
+  configSandbox = "workspace-write";
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installWorkbenchMocks(page);
 });
@@ -1487,6 +1491,19 @@ test.describe("system", () => {
     // sandbox must not offer the danger value the backend rejects.
     await expect(page.getByLabel("sandbox", { exact: true }).locator("option")).toHaveText(["read-only", "workspace-write"]);
     await expect(page.getByLabel("approval", { exact: true }).locator("option")).toHaveText(["risky-confirm", "always"]);
+  });
+
+  test("shows Anthropic and keeps global danger sandbox read-only", async ({ page }) => {
+    configProvider = "anthropic";
+    configSandbox = "danger-full-access";
+    await openSystem(page);
+
+    await expect(page.getByLabel("provider", { exact: true })).toHaveValue("anthropic");
+    await expect(page.getByText("当前为 danger-full-access（来自全局配置），浏览器不修改该值", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("sandbox", { exact: true })).toHaveCount(0);
+    await page.getByLabel("mode", { exact: true }).selectOption("auto");
+    await page.getByRole("button", { name: "保存设置", exact: true }).click();
+    expect(savedConfigUpdates).toEqual({ mode: "auto" });
   });
 
   test("saves only the changed whitelist keys", async ({ page }) => {
