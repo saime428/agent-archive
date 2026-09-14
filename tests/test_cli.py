@@ -1912,6 +1912,18 @@ def test_config_show_outputs_defaults_for_requested_cwd(tmp_path) -> None:
     assert "loaded files: none" in result.output
 
 
+def test_config_show_reports_non_string_enum_value(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    config_dir = workspace / ".agent"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.toml").write_text("provider = []\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+    assert result.exit_code == 1
+    assert "Invalid value for provider" in result.output
+
+
 def test_config_show_loads_workspace_secrets_before_reporting_key_presence(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     config_dir = workspace / ".agent"

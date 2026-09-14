@@ -249,7 +249,7 @@ def validate_value(key: str, value: Any, path: Path | None) -> None:
             raise _invalid_config_value(key, f"expected {type_name} of non-empty strings", path)
         return
     valid_values = VALID_VALUES[key]
-    if value not in valid_values:
+    if not isinstance(value, str) or value not in valid_values:
         expected = ", ".join(sorted(valid_values))
         raise _invalid_config_value(key, f"{value!r}. Expected one of: {expected}", path)
 

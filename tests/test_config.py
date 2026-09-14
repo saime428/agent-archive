@@ -153,6 +153,17 @@ def test_invalid_enum_value_raises_config_error(tmp_path) -> None:
     assert "Invalid value for mode" in str(exc_info.value)
 
 
+@pytest.mark.parametrize("key", ["provider", "mode", "sandbox", "approval"])
+@pytest.mark.parametrize("value", ["[]", "{ value = true }"])
+def test_enum_values_reject_non_string_toml_types(tmp_path, key: str, value: str) -> None:
+    project_config = tmp_path / ".agent" / "config.toml"
+    project_config.parent.mkdir(parents=True)
+    project_config.write_text(f"{key} = {value}\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError, match=f"Invalid value for {key}"):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
 def test_invalid_provider_raises_config_error(tmp_path) -> None:
     project_config = tmp_path / ".agent" / "config.toml"
     project_config.parent.mkdir(parents=True)
