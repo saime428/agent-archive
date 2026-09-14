@@ -287,7 +287,7 @@ def _prepare_pipe_readers(process: subprocess.Popen) -> None:
         finally:
             try:
                 stream.close()
-            except OSError:
+            except (OSError, ValueError):
                 pass
 
     process._readerthread = read_pipe
@@ -299,27 +299,27 @@ def _close_output_pipes(process: subprocess.Popen) -> None:
     if os.name == "nt":
         import ctypes
         import msvcrt
+        from ctypes import wintypes
 
-        kernel32 = ctypes.windll.kernel32
+        cancel_io = ctypes.windll.kernel32.CancelIoEx
+        cancel_io.argtypes = (wintypes.HANDLE, wintypes.LPVOID)
+        cancel_io.restype = wintypes.BOOL
         for stream in (process.stdout, process.stderr):
-            if stream is not None:
-                kernel32.CancelIoEx(msvcrt.get_osfhandle(stream.fileno()), None)
-        for thread in threads:
-            native_id = None if thread is None else thread.native_id
-            if native_id is None:
+            if stream is None:
                 continue
-            handle = kernel32.OpenThread(0x0001, False, native_id)
-            if handle:
-                try:
-                    kernel32.CancelSynchronousIo(handle)
-                finally:
-                    kernel32.CloseHandle(handle)
+            try:
+                cancel_io(msvcrt.get_osfhandle(stream.fileno()), None)
+            except (OSError, ValueError):
+                pass
         for thread in threads:
             if thread is not None:
                 thread.join(timeout=PROCESS_POLL_SECONDS)
     for stream, thread in zip((process.stdout, process.stderr), threads, strict=True):
         if stream is not None and (thread is None or not thread.is_alive()):
-            stream.close()
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                pass
 
 
 def _stopped_observation(
