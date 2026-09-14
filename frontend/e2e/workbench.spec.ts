@@ -815,6 +815,40 @@ test("locks synchronous duplicate sends and restores the draft when start fails"
   await expect(composer).toHaveValue("Keep this draft");
 });
 
+test("keeps chat and theme usable when browser storage throws", async ({ page }) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    const setItem = Storage.prototype.setItem;
+    const removeItem = Storage.prototype.removeItem;
+    const blocked = (key: string) => key.startsWith("agent.frontend.");
+    Storage.prototype.getItem = function (key: string) {
+      if (blocked(key)) throw new DOMException("Storage blocked", "SecurityError");
+      return getItem.call(this, key);
+    };
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (blocked(key)) throw new DOMException("Storage blocked", "SecurityError");
+      setItem.call(this, key, value);
+    };
+    Storage.prototype.removeItem = function (key: string) {
+      if (blocked(key)) throw new DOMException("Storage blocked", "SecurityError");
+      removeItem.call(this, key);
+    };
+  });
+  await page.goto("./#/new");
+  await expect(page.getByLabel("向 Agent 发送消息", { exact: true })).toBeVisible();
+
+  await page.getByLabel("主题", { exact: true }).selectOption("c");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "c");
+  await page.getByLabel("显示模式", { exact: true }).selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-mode", "light");
+
+  await startTurn(page);
+  await expect(page).toHaveURL(new RegExp(`#\\/chat\\/${SESSION_ID}$`));
+  await emit(page, "final", finalEvent(0, "Storage-independent result."));
+  await expect(page.getByText("Storage-independent result.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送", exact: true })).toBeVisible();
+});
+
 test("keeps a finished background job out of the current route", async ({ page }) => {
   await page.goto("./#/new");
   await page.getByLabel("向 Agent 发送消息", { exact: true }).fill("Background fixture");

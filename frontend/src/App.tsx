@@ -783,7 +783,11 @@ export function App() {
       } catch (nextError) {
         setError(displayError(nextError));
       } finally {
-        sessionStorage.removeItem(ACTIVE_JOB_KEY);
+        try {
+          sessionStorage.removeItem(ACTIVE_JOB_KEY);
+        } catch {
+          // The completed job can still be cleared from memory when storage is unavailable.
+        }
         setActiveJob((current) => current?.jobId === activeJob.jobId ? null : current);
         setPendingUser("");
         setLive(initialChatState);
@@ -868,7 +872,11 @@ export function App() {
         ? await api.resumeChat(resumeJobId, text)
         : await api.startChat(text, sessionId || undefined);
       const next = { jobId: started.job_id, sessionId: started.session_id };
-      sessionStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(next));
+      try {
+        sessionStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(next));
+      } catch {
+        // Continue streaming the already-started job without persisted recovery state.
+      }
       setActiveJob(next);
       setStarting(false);
       setCancelBusy(false);

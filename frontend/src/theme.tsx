@@ -33,9 +33,17 @@ function applyTheme(state: ThemeState) {
 }
 
 export function applyInitialTheme(): ThemeState {
+  let storedTheme: string | null = null;
+  let storedMode: string | null = null;
+  try {
+    storedTheme = localStorage.getItem(THEME_KEY);
+    storedMode = localStorage.getItem(MODE_KEY);
+  } catch {
+    // Storage may be unavailable in hardened or private browser contexts.
+  }
   const state = resolveTheme(
-    localStorage.getItem(THEME_KEY),
-    localStorage.getItem(MODE_KEY),
+    storedTheme,
+    storedMode,
     matchMedia("(prefers-color-scheme: dark)").matches,
   );
   applyTheme(state);
@@ -64,13 +72,21 @@ export function ThemeProvider({ initial, children }: { initial: ThemeState; chil
       mode,
       resolvedMode,
       setTheme(next) {
-        localStorage.setItem(THEME_KEY, next);
         setThemeState(next);
+        try {
+          localStorage.setItem(THEME_KEY, next);
+        } catch {
+          // Keep the in-memory preference when storage is unavailable.
+        }
       },
       setMode(next) {
-        if (next === "auto") localStorage.removeItem(MODE_KEY);
-        else localStorage.setItem(MODE_KEY, next);
         setModeState(next);
+        try {
+          if (next === "auto") localStorage.removeItem(MODE_KEY);
+          else localStorage.setItem(MODE_KEY, next);
+        } catch {
+          // Keep the in-memory preference when storage is unavailable.
+        }
       },
     }),
     [theme, mode, resolvedMode],
