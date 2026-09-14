@@ -328,7 +328,7 @@ function HistoryTurn({ turn, index, originalThinking }: { turn: ChatTurn; index:
         <div className="final-copy" data-payload>{turn.final || "本回合没有最终回答。"}</div>
         {turn.last_observation_summary ? <details className="thinking-block"><summary>观察摘要</summary><pre data-payload>{turn.last_observation_summary}</pre></details> : null}
         <span className="terminal-meta">
-          {turn.status === "completed" ? <CheckCircle2 aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
+          {turn.completed ? <CheckCircle2 aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
           {turn.status} / {turn.terminal_reason || "complete"}
         </span>
       </div>
@@ -527,6 +527,7 @@ function LiveTurn({
 function Composer({
   value,
   disabled,
+  starting,
   stopping,
   onChange,
   onSubmit,
@@ -534,6 +535,7 @@ function Composer({
 }: {
   value: string;
   disabled: boolean;
+  starting: boolean;
   stopping: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -566,21 +568,23 @@ function Composer({
         onKeyDown={keyDown}
         placeholder="描述目标、边界与验收方式"
         aria-label="向 Agent 发送消息"
-        disabled={disabled}
+        disabled={disabled || starting}
         rows={1}
       />
       <button
         className="send-button"
-        type={disabled ? "button" : "submit"}
+        type={disabled || starting ? "button" : "submit"}
         data-action={disabled ? "stop" : "send"}
-        disabled={disabled ? stopping : !value.trim()}
+        disabled={starting || (disabled ? stopping : !value.trim())}
         onClick={disabled ? onStop : undefined}
-        aria-label={disabled ? (stopping ? "正在停止当前任务" : "停止当前任务") : "发送"}
+        aria-label={starting ? "正在启动任务" : disabled ? (stopping ? "正在停止当前任务" : "停止当前任务") : "发送"}
       >
-        {disabled
+        {starting
+          ? <LoaderCircle className="spin" aria-hidden="true" />
+          : disabled
           ? stopping ? <LoaderCircle className="spin" aria-hidden="true" /> : <Square aria-hidden="true" />
           : <SendHorizontal aria-hidden="true" />}
-        <span>{disabled ? (stopping ? "正在停止" : "停止") : "发送"}</span>
+        <span>{starting ? "正在启动" : disabled ? (stopping ? "正在停止" : "停止") : "发送"}</span>
       </button>
       <span className="composer-hint">Enter 发送 / Shift + Enter 换行</span>
     </form>
@@ -652,6 +656,7 @@ export function App() {
   const [chat, setChat] = useState<ChatPayload | null>(null);
   const [loadingChat, setLoadingChat] = useState(Boolean(sessionId));
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(() => readActiveJob());
+  const [starting, setStarting] = useState(false);
   const [live, setLive] = useState<ChatState>(initialChatState);
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [pendingUser, setPendingUser] = useState("");
@@ -675,6 +680,7 @@ export function App() {
   // instead of only the backend's rebuilt "public work log".
   const [thinkingCache, setThinkingCache] = useState<Record<string, string>>({});
   const streamThinkingRef = useRef("");
+  const sendPendingRef = useRef(false);
   const stickToBottomRef = useRef(true);
 
   const refreshChats = useCallback(async () => {
@@ -770,6 +776,7 @@ export function App() {
 
   useEffect(() => {
     if (!activeJob) return;
+    sendPendingRef.current = false;
     const settleJob = async () => {
       try {
         await Promise.all([loadChat(activeJob.sessionId), refreshChats()]);
@@ -843,8 +850,11 @@ export function App() {
   };
 
   const send = async () => {
-    const text = message.trim();
-    if (!text || activeJob) return;
+    const draft = message;
+    const text = draft.trim();
+    if (!text || activeJob || sendPendingRef.current) return;
+    sendPendingRef.current = true;
+    setStarting(true);
     setError(null);
     setPendingUser(text);
     setMessage("");
@@ -860,11 +870,15 @@ export function App() {
       const next = { jobId: started.job_id, sessionId: started.session_id };
       sessionStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(next));
       setActiveJob(next);
+      setStarting(false);
       setCancelBusy(false);
       setSessionHash(next.sessionId);
       setSessionId(next.sessionId);
     } catch (nextError) {
+      sendPendingRef.current = false;
+      setStarting(false);
       setPendingUser("");
+      setMessage((current) => current || draft);
       setLive({ ...initialChatState, phase: "error", error: displayError(nextError) });
     }
   };
@@ -1082,6 +1096,7 @@ export function App() {
           <Composer
             value={message}
             disabled={Boolean(activeJob)}
+            starting={starting}
             stopping={cancelBusy}
             onChange={setMessage}
             onSubmit={send}

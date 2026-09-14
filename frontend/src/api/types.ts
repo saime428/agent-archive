@@ -359,6 +359,7 @@ export interface ChatTurn {
   user: string;
   final: string;
   status: string;
+  completed: boolean;
   run_id: string;
   terminal_reason: string;
   last_observation_summary: string;

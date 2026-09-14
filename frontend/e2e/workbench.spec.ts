@@ -455,6 +455,7 @@ async function installWorkbenchMocks(page: Page) {
         user: submittedMessage,
         final: persistedFinal.final,
         status: persistedFinal.status,
+        completed: persistedFinal.completed,
         run_id: persistedFinal.run_id,
         terminal_reason: persistedFinal.terminal_reason,
         last_observation_summary: persistedFinal.last_observation_summary,
@@ -784,7 +785,34 @@ test("streams a real turn into a durable final state", async ({ page }) => {
   await emit(page, "final", finalEvent(3));
 
   await expect(page.getByText("E2E final result.", { exact: true })).toBeVisible();
+  await expect(page.locator(".terminal-meta svg")).toHaveAttribute("class", /circle-check/);
   await expect(page.locator("canvas.context-field")).toHaveCount(0);
+});
+
+test("locks synchronous duplicate sends and restores the draft when start fails", async ({ page }) => {
+  let requests = 0;
+  let releaseStart = () => {};
+  const startGate = new Promise<void>((resolve) => { releaseStart = resolve; });
+  await page.route("**/api/chat/start", async (route) => {
+    requests += 1;
+    await startGate;
+    await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Start failed." }) });
+  });
+  await page.goto("./#/new");
+  const composer = page.getByLabel("向 Agent 发送消息", { exact: true });
+  await composer.fill("Keep this draft");
+
+  await composer.evaluate((element) => {
+    const form = element.closest("form") as HTMLFormElement;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  await expect(page.getByRole("button", { name: "正在启动任务", exact: true })).toBeDisabled();
+  await expect.poll(() => requests).toBe(1);
+  releaseStart();
+  await expect(page.getByText("Start failed.", { exact: true })).toBeVisible();
+  await expect(composer).toHaveValue("Keep this draft");
 });
 
 test("keeps a finished background job out of the current route", async ({ page }) => {
