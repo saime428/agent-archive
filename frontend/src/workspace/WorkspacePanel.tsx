@@ -72,6 +72,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
   const reducedMotion = useReducedMotion();
   const panelRef = useRef<HTMLDialogElement>(null);
   const filesRef = useRef<FilesViewHandle>(null);
+  const refreshSequences = useRef({ runs: 0, config: 0, tools: 0 });
   const [pendingNav, setPendingNav] = useState<{ kind: "view"; view: WorkspaceView } | { kind: "close" } | null>(null);
   const [focusRunId, setFocusRunId] = useState<string | undefined>(undefined);
 
@@ -112,6 +113,11 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
   }, [onViewChange]);
 
   const loadAll = useCallback(async () => {
+    const sequences = {
+      runs: ++refreshSequences.current.runs,
+      config: ++refreshSequences.current.config,
+      tools: ++refreshSequences.current.tools,
+    };
     setRuns((prev) => ({ ...prev, loading: true }));
     setConfig((prev) => ({ ...prev, loading: true }));
     setTools((prev) => ({ ...prev, loading: true }));
@@ -121,28 +127,34 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
       api.getConfig(),
       api.listTools(),
     ]);
-    setRuns((prev) =>
+    if (sequences.runs === refreshSequences.current.runs) setRuns((prev) =>
       runsResult.status === "fulfilled"
         ? { data: runsResult.value, error: null, loading: false }
         : { ...prev, error: errorMessage(runsResult.reason), loading: false },
     );
-    setConfig((prev) =>
+    if (sequences.config === refreshSequences.current.config) setConfig((prev) =>
       configResult.status === "fulfilled"
         ? { data: configResult.value, error: null, loading: false }
         : { ...prev, error: errorMessage(configResult.reason), loading: false },
     );
-    setTools((prev) =>
+    if (sequences.tools === refreshSequences.current.tools) setTools((prev) =>
       toolsResult.status === "fulfilled"
         ? { data: toolsResult.value, error: null, loading: false }
         : { ...prev, error: errorMessage(toolsResult.reason), loading: false },
     );
-    void onGlobalRefresh();
-    setLastRefresh(new Date().toLocaleTimeString());
+    const latest = sequences.runs === refreshSequences.current.runs
+      && sequences.config === refreshSequences.current.config
+      && sequences.tools === refreshSequences.current.tools;
+    if (latest) {
+      void onGlobalRefresh();
+      setLastRefresh(new Date().toLocaleTimeString());
+    }
   }, [onGlobalRefresh]);
 
   // First load on open; 10s safe refresh only while open and the tab is visible.
   useEffect(() => {
     if (!open) return;
+    const sequences = refreshSequences.current;
     // loadAll only calls setState after its awaited fetches, so it cannot cascade renders here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAll();
@@ -157,6 +169,9 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
+      sequences.runs += 1;
+      sequences.config += 1;
+      sequences.tools += 1;
     };
   }, [open, loadAll]);
 
@@ -244,6 +259,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
                       chats={chats}
                       runs={runs.data?.runs ?? []}
                       onSaved={(payload) => {
+                        refreshSequences.current.config += 1;
                         setConfig({ data: payload, error: null, loading: false });
                         void onGlobalRefresh();
                       }}

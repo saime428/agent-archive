@@ -1728,6 +1728,42 @@ test.describe("system", () => {
     await expect(page.getByLabel("model", { exact: true })).toHaveValue("bogus-model");
   });
 
+  test("ignores stale workspace config refreshes including after a save", async ({ page }) => {
+    await openSystem(page);
+    let configRequest = 0;
+    let releaseFirst = () => {};
+    let releaseAfterSave = () => {};
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const afterSaveGate = new Promise<void>((resolve) => { releaseAfterSave = resolve; });
+    await page.route("**/api/config", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      configRequest += 1;
+      const requestNumber = configRequest;
+      if (requestNumber === 1) await firstGate;
+      if (requestNumber === 3) await afterSaveGate;
+      const payload = configFixture();
+      payload.config.model = requestNumber === 2 ? "newest-refresh-model" : "stale-refresh-model";
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) });
+    });
+
+    const refresh = page.getByRole("button", { name: "刷新工作台", exact: true });
+    await refresh.click();
+    await refresh.click();
+    await expect(page.getByLabel("model", { exact: true })).toHaveValue("newest-refresh-model");
+    releaseFirst();
+    await expect(page.getByLabel("model", { exact: true })).toHaveValue("newest-refresh-model");
+
+    await refresh.click();
+    await page.getByLabel("model", { exact: true }).fill("saved-model");
+    await page.getByRole("button", { name: "保存设置", exact: true }).click();
+    await expect(page.getByText("设置已保存。", { exact: true })).toBeVisible();
+    releaseAfterSave();
+    await expect(page.getByLabel("model", { exact: true })).toHaveValue("saved-model");
+  });
+
   test("opens a run detail from the resource list", async ({ page }) => {
     await openSystem(page);
 
