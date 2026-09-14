@@ -272,13 +272,17 @@ def _validated_config_updates(request: dict[str, Any]) -> dict[str, Any]:
     for key, value in request.items():
         if key not in allowed:
             continue
-        if key == "provider" and value not in PROVIDER_REGISTRY:
+        if key == "provider" and (not isinstance(value, str) or value not in PROVIDER_REGISTRY):
             raise ValueError("provider must be fake, deepseek, openai-compat, or anthropic.")
         if key == "mode" and (not isinstance(value, str) or value not in VALID_VALUES["mode"]):
             raise ValueError("mode must be step, guided, auto, or plan-first.")
-        if key == "sandbox" and value not in {"read-only", "workspace-write"}:
+        if key == "sandbox" and (
+            not isinstance(value, str) or value not in {"read-only", "workspace-write"}
+        ):
             raise ValueError("sandbox must be read-only or workspace-write.")
         if key == "approval":
+            if not isinstance(value, str):
+                raise ValueError("approval must be risky-confirm or always.")
             if value == "never":
                 raise ValueError("browser config cannot disable approvals.")
             if value not in {"risky-confirm", "always"}:

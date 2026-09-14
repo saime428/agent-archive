@@ -997,6 +997,25 @@ def test_workbench_post_validation_errors(tmp_path, path: str, body: object, mes
     assert json.loads(response) == {"error": message}
 
 
+@pytest.mark.parametrize("key", ["provider", "sandbox", "approval"])
+@pytest.mark.parametrize("value", [[], {}], ids=["list", "object"])
+def test_workbench_config_rejects_non_string_enums(tmp_path, key: str, value: object) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    status, _headers, response = _http_request(workspace, "POST", "/api/config", {key: value})
+
+    assert status == 400
+    assert json.loads(response) == {
+        "error": {
+            "provider": "provider must be fake, deepseek, openai-compat, or anthropic.",
+            "sandbox": "sandbox must be read-only or workspace-write.",
+            "approval": "approval must be risky-confirm or always.",
+        }[key]
+    }
+    assert not (workspace / ".agent" / "config.toml").exists()
+
+
 def test_workbench_rejects_invalid_json(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
