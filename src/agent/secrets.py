@@ -3,13 +3,20 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from agent.config import ConfigError
+
 
 def load_workspace_secrets(workspace: Path) -> Path | None:
     path = workspace.resolve() / ".agent" / "secrets.env"
     if not path.exists():
         return None
 
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ConfigError(f"Could not read secrets file {path}.") from exc
+
+    for raw_line in lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

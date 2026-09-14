@@ -108,8 +108,8 @@ def _print_provider_capabilities(config) -> None:
 
 
 def _print_doctor(cwd: Path) -> None:
-    load_workspace_secrets(cwd)
     try:
+        load_workspace_secrets(cwd)
         config, diagnostics = load_config(cwd)
     except ConfigError as exc:
         console.print(f"config error: {exc}")
@@ -173,8 +173,8 @@ def release_doctor(
 ) -> None:
     """Report release readiness without running tests or network checks."""
     workspace = (cwd or Path.cwd()).resolve()
-    load_workspace_secrets(workspace)
     try:
+        load_workspace_secrets(workspace)
         config, diagnostics = load_config(workspace)
     except ConfigError as exc:
         console.print("config readable: false")
@@ -236,8 +236,8 @@ def run(
 ) -> None:
     """Run an agent task."""
     workspace = (cwd or Path.cwd()).resolve()
-    load_workspace_secrets(workspace)
     try:
+        load_workspace_secrets(workspace)
         config, diagnostics = load_config(
             workspace,
             overrides=ConfigOverrides(
@@ -346,8 +346,8 @@ def start(
 
 
 def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: bool = False) -> None:
-    load_workspace_secrets(workspace)
     try:
+        load_workspace_secrets(workspace)
         load_config(workspace)
     except ConfigError as exc:
         console.print(str(exc))
@@ -403,8 +403,8 @@ def chat(
 ) -> None:
     """Start an interactive agent chat."""
     workspace = (cwd or Path.cwd()).resolve()
-    load_workspace_secrets(workspace)
     try:
+        load_workspace_secrets(workspace)
         config, diagnostics = load_config(
             workspace,
             overrides=ConfigOverrides(
@@ -548,8 +548,8 @@ def tools_list() -> None:
 def config_show(cwd: Path | None = typer.Option(None, "--cwd", help="Workspace directory for project config.")) -> None:
     """Show the effective merged configuration."""
     workspace = (cwd or Path.cwd()).resolve()
-    load_workspace_secrets(workspace)
     try:
+        load_workspace_secrets(workspace)
         config, diagnostics = load_config(workspace)
     except ConfigError as exc:
         console.print(str(exc))
@@ -674,8 +674,8 @@ def provider_smoke(
         console.print(f"Unsupported provider smoke target: {provider_name}")
         raise typer.Exit(code=1)
     workspace = (cwd or Path.cwd()).resolve()
-    load_workspace_secrets(workspace)
     try:
+        load_workspace_secrets(workspace)
         config, diagnostics = load_config(workspace, overrides=ConfigOverrides(model=model))
     except ConfigError as exc:
         console.print(str(exc))

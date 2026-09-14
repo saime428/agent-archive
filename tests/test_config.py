@@ -186,6 +186,15 @@ def test_invalid_toml_raises_config_error(tmp_path) -> None:
     assert "Could not parse config file" in str(exc_info.value)
 
 
+def test_invalid_utf8_config_raises_config_error(tmp_path) -> None:
+    project_config = tmp_path / ".agent" / "config.toml"
+    project_config.parent.mkdir(parents=True)
+    project_config.write_bytes(b"mode = \"auto\"\n\xff")
+
+    with pytest.raises(ConfigError, match="Could not parse config file"):
+        load_config(tmp_path, home=tmp_path / "home")
+
+
 def test_config_accepts_utf8_bom_files_written_by_windows_powershell(tmp_path) -> None:
     project_config = tmp_path / ".agent" / "config.toml"
     project_config.parent.mkdir(parents=True)

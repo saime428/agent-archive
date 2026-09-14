@@ -1924,6 +1924,23 @@ def test_config_show_reports_non_string_enum_value(tmp_path) -> None:
     assert "Invalid value for provider" in result.output
 
 
+def test_config_show_reports_invalid_utf8_config_inputs(tmp_path) -> None:
+    for filename, expected in (
+        ("config.toml", "Could not parse config file"),
+        ("secrets.env", "Could not read secrets file"),
+    ):
+        workspace = tmp_path / filename
+        config_dir = workspace / ".agent"
+        config_dir.mkdir(parents=True)
+        (config_dir / filename).write_bytes(b"TOKEN=secret-value\n\xff")
+
+        result = CliRunner().invoke(app, ["config", "show", "--cwd", str(workspace)])
+
+        assert result.exit_code == 1
+        assert "secret-value" not in result.output
+        assert expected in result.output
+
+
 def test_config_show_loads_workspace_secrets_before_reporting_key_presence(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     config_dir = workspace / ".agent"

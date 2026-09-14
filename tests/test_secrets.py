@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
+from agent.config import ConfigError
 from agent.secrets import load_workspace_secrets
 
 
@@ -29,3 +32,15 @@ def test_load_workspace_secrets_missing_file_is_noop(monkeypatch, tmp_path) -> N
 
     assert loaded is None
     assert "DEEPSEEK_API_KEY" not in os.environ
+
+
+def test_load_workspace_secrets_reports_invalid_utf8_without_content(tmp_path) -> None:
+    path = tmp_path / ".agent" / "secrets.env"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"TOKEN=secret-value\n\xff")
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_workspace_secrets(tmp_path)
+
+    assert str(exc_info.value) == f"Could not read secrets file {path}."
+    assert "secret-value" not in str(exc_info.value)
