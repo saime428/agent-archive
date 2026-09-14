@@ -143,6 +143,7 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [jump, setJump] = useState<JumpTarget | null>(null);
+  const dirSequence = useRef(0);
   const openSequence = useRef(0);
   const searchSequence = useRef(0);
 
@@ -164,13 +165,15 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
   }, [dirty]);
 
   const loadDir = useCallback(async (path: string) => {
+    const sequence = ++dirSequence.current;
     try {
       const payload = await api.listFiles(path === "." ? undefined : path);
+      if (sequence !== dirSequence.current) return;
       setEntries(payload.entries);
       setDirPath(payload.path);
       setDirError(null);
     } catch (error) {
-      setDirError(errorMessage(error));
+      if (sequence === dirSequence.current) setDirError(errorMessage(error));
     }
   }, []);
 
@@ -178,6 +181,9 @@ export const FilesView = forwardRef<FilesViewHandle>(function FilesView(_props, 
     // loadDir only updates state after its awaited request resolves.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadDir(".");
+    return () => {
+      dirSequence.current += 1;
+    };
   }, [loadDir]);
 
   const activateTab = (path: string) => {

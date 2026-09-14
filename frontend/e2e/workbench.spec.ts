@@ -1239,6 +1239,50 @@ test.describe("files", () => {
     await expect(editorWorkerRequest).resolves.toBeDefined();
   });
 
+  for (const olderOutcome of ["success", "error"] as const) {
+    test(`keeps the latest directory when an older ${olderOutcome} response arrives last`, async ({ page }) => {
+      let releaseOlder = () => {};
+      const olderGate = new Promise<void>((resolve) => { releaseOlder = resolve; });
+      await page.route("**/api/files**", async (route) => {
+        const requested = new URL(route.request().url()).searchParams.get("path");
+        if (!requested) {
+          await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+            path: ".",
+            entries: [
+              { name: "older", path: "older", kind: "dir", size: null },
+              { name: "latest", path: "latest", kind: "dir", size: null },
+            ],
+          }) });
+          return;
+        }
+        if (requested === "older") {
+          await olderGate;
+          await route.fulfill({
+            status: olderOutcome === "success" ? 200 : 500,
+            contentType: "application/json",
+            body: JSON.stringify(olderOutcome === "success"
+              ? { path: "older", entries: [{ name: "old.txt", path: "older/old.txt", kind: "file", size: 1 }] }
+              : { error: "Old directory failed." }),
+          });
+          return;
+        }
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+          path: "latest",
+          entries: [{ name: "latest.txt", path: "latest/latest.txt", kind: "file", size: 1 }],
+        }) });
+      });
+
+      await openFiles(page);
+      await page.getByRole("button", { name: "older", exact: true }).click();
+      await page.getByRole("button", { name: "latest", exact: true }).click();
+      await expect(page.getByRole("button", { name: "latest.txt", exact: true })).toBeVisible();
+      releaseOlder();
+      await expect(page.getByRole("button", { name: "latest.txt", exact: true })).toBeVisible();
+      await expect(page.getByText("Old directory failed.", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "old.txt", exact: true })).toHaveCount(0);
+    });
+  }
+
   test("edits and saves through snapshot confirmation", async ({ page }) => {
     await openFiles(page);
     await page.getByRole("button", { name: "README.md", exact: true }).click();
