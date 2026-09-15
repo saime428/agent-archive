@@ -509,6 +509,14 @@ async function emit(page: Page, name: string, payload: object) {
   );
 }
 
+async function finishResponseAndRender(page: Page, responsePromise: ReturnType<Page["waitForResponse"]>) {
+  const response = await responsePromise;
+  await response.finished();
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 function healthFixture() {
   return {
     status: "ok",
@@ -1276,7 +1284,11 @@ test.describe("files", () => {
       await page.getByRole("button", { name: "older", exact: true }).click();
       await page.getByRole("button", { name: "latest", exact: true }).click();
       await expect(page.getByRole("button", { name: "latest.txt", exact: true })).toBeVisible();
+      const olderResponse = page.waitForResponse((response) =>
+        new URL(response.url()).searchParams.get("path") === "older",
+      );
       releaseOlder();
+      await finishResponseAndRender(page, olderResponse);
       await expect(page.getByRole("button", { name: "latest.txt", exact: true })).toBeVisible();
       await expect(page.getByText("Old directory failed.", { exact: true })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "old.txt", exact: true })).toHaveCount(0);
@@ -1753,15 +1765,54 @@ test.describe("system", () => {
     await refresh.click();
     await refresh.click();
     await expect(page.getByLabel("model", { exact: true })).toHaveValue("newest-refresh-model");
+    const firstResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/config" && response.request().method() === "GET",
+    );
     releaseFirst();
+    await finishResponseAndRender(page, firstResponse);
     await expect(page.getByLabel("model", { exact: true })).toHaveValue("newest-refresh-model");
 
     await refresh.click();
     await page.getByLabel("model", { exact: true }).fill("saved-model");
     await page.getByRole("button", { name: "保存设置", exact: true }).click();
     await expect(page.getByText("设置已保存。", { exact: true })).toBeVisible();
+    const afterSaveResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/config" && response.request().method() === "GET",
+    );
     releaseAfterSave();
+    await finishResponseAndRender(page, afterSaveResponse);
     await expect(page.getByLabel("model", { exact: true })).toHaveValue("saved-model");
+  });
+
+  test("skips an automatic workspace refresh while another refresh is running", async ({ page }) => {
+    await openSystem(page);
+    let configRequests = 0;
+    let releaseRefresh = () => {};
+    const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    await page.route("**/api/config", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      configRequests += 1;
+      await refreshGate;
+      const payload = configFixture();
+      payload.config.model = "completed-slow-refresh";
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) });
+    });
+
+    await page.getByRole("button", { name: "刷新工作台", exact: true }).click();
+    await expect.poll(() => configRequests).toBe(1);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await page.waitForTimeout(100);
+    expect(configRequests).toBe(1);
+
+    const response = page.waitForResponse((next) =>
+      new URL(next.url()).pathname === "/api/config" && next.request().method() === "GET",
+    );
+    releaseRefresh();
+    await finishResponseAndRender(page, response);
+    await expect(page.getByLabel("model", { exact: true })).toHaveValue("completed-slow-refresh");
   });
 
   test("opens a run detail from the resource list", async ({ page }) => {

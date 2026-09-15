@@ -73,6 +73,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
   const panelRef = useRef<HTMLDialogElement>(null);
   const filesRef = useRef<FilesViewHandle>(null);
   const refreshSequences = useRef({ runs: 0, config: 0, tools: 0 });
+  const refreshesInFlight = useRef(0);
   const [pendingNav, setPendingNav] = useState<{ kind: "view"; view: WorkspaceView } | { kind: "close" } | null>(null);
   const [focusRunId, setFocusRunId] = useState<string | undefined>(undefined);
 
@@ -113,6 +114,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
   }, [onViewChange]);
 
   const loadAll = useCallback(async () => {
+    refreshesInFlight.current += 1;
     const sequences = {
       runs: ++refreshSequences.current.runs,
       config: ++refreshSequences.current.config,
@@ -121,49 +123,55 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
     setRuns((prev) => ({ ...prev, loading: true }));
     setConfig((prev) => ({ ...prev, loading: true }));
     setTools((prev) => ({ ...prev, loading: true }));
-    // Each resource keeps its last success on failure; one failure never blanks the others.
-    const [runsResult, configResult, toolsResult] = await Promise.allSettled([
-      api.listRuns(),
-      api.getConfig(),
-      api.listTools(),
-    ]);
-    if (sequences.runs === refreshSequences.current.runs) setRuns((prev) =>
-      runsResult.status === "fulfilled"
-        ? { data: runsResult.value, error: null, loading: false }
-        : { ...prev, error: errorMessage(runsResult.reason), loading: false },
-    );
-    if (sequences.config === refreshSequences.current.config) setConfig((prev) =>
-      configResult.status === "fulfilled"
-        ? { data: configResult.value, error: null, loading: false }
-        : { ...prev, error: errorMessage(configResult.reason), loading: false },
-    );
-    if (sequences.tools === refreshSequences.current.tools) setTools((prev) =>
-      toolsResult.status === "fulfilled"
-        ? { data: toolsResult.value, error: null, loading: false }
-        : { ...prev, error: errorMessage(toolsResult.reason), loading: false },
-    );
-    const latest = sequences.runs === refreshSequences.current.runs
-      && sequences.config === refreshSequences.current.config
-      && sequences.tools === refreshSequences.current.tools;
-    if (latest) {
-      void onGlobalRefresh();
-      setLastRefresh(new Date().toLocaleTimeString());
+    try {
+      // Each resource keeps its last success on failure; one failure never blanks the others.
+      const [runsResult, configResult, toolsResult] = await Promise.allSettled([
+        api.listRuns(),
+        api.getConfig(),
+        api.listTools(),
+      ]);
+      if (sequences.runs === refreshSequences.current.runs) setRuns((prev) =>
+        runsResult.status === "fulfilled"
+          ? { data: runsResult.value, error: null, loading: false }
+          : { ...prev, error: errorMessage(runsResult.reason), loading: false },
+      );
+      if (sequences.config === refreshSequences.current.config) setConfig((prev) =>
+        configResult.status === "fulfilled"
+          ? { data: configResult.value, error: null, loading: false }
+          : { ...prev, error: errorMessage(configResult.reason), loading: false },
+      );
+      if (sequences.tools === refreshSequences.current.tools) setTools((prev) =>
+        toolsResult.status === "fulfilled"
+          ? { data: toolsResult.value, error: null, loading: false }
+          : { ...prev, error: errorMessage(toolsResult.reason), loading: false },
+      );
+      const latest = sequences.runs === refreshSequences.current.runs
+        && sequences.config === refreshSequences.current.config
+        && sequences.tools === refreshSequences.current.tools;
+      if (latest) {
+        void onGlobalRefresh();
+        setLastRefresh(new Date().toLocaleTimeString());
+      }
+    } finally {
+      refreshesInFlight.current -= 1;
     }
   }, [onGlobalRefresh]);
+
+  const loadAutomatically = useCallback(() => {
+    if (refreshesInFlight.current === 0) void loadAll();
+  }, [loadAll]);
 
   // First load on open; 10s safe refresh only while open and the tab is visible.
   useEffect(() => {
     if (!open) return;
     const sequences = refreshSequences.current;
-    // loadAll only calls setState after its awaited fetches, so it cannot cascade renders here.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadAll();
+    loadAutomatically();
     const tick = () => {
-      if (document.visibilityState === "visible") void loadAll();
+      if (document.visibilityState === "visible") loadAutomatically();
     };
     const timer = window.setInterval(tick, REFRESH_INTERVAL_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void loadAll();
+      if (document.visibilityState === "visible") loadAutomatically();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -173,7 +181,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, WorkspacePanelPro
       sequences.config += 1;
       sequences.tools += 1;
     };
-  }, [open, loadAll]);
+  }, [open, loadAutomatically]);
 
   // Leaving a dirty Files edit (tab switch or panel close) must be confirmed first.
   const leavingDirtyFiles = () => view === "files" && Boolean(filesRef.current?.isDirty());
