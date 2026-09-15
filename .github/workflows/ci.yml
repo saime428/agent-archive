@@ -51,4 +51,5 @@ jobs:
       - run: npm run lint
       - run: npm run check:ui
       - run: npm run test:run
+      - run: npm run build
       # Playwright e2e 与视觉基线是 win32 截图，跨平台必挂，留给本地验收矩阵
