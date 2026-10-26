@@ -1047,6 +1047,32 @@ def test_run_once_truncates_observation_feedback(tmp_path) -> None:
     assert len(feedback) < 1000
 
 
+def test_run_once_feedback_echoes_previous_message_and_args(tmp_path) -> None:
+    (tmp_path / "notes.txt").write_text("hello\n", encoding="utf-8")
+    llm = ObservationFeedbackLLM(
+        {
+            "message": "Plan: 1) read notes.txt 2) answer. key sk-abcdefgh12345678",
+            "action": {
+                "name": "read_file",
+                "args": {"path": "notes.txt", "start_line": 1, "max_lines": 7},
+            },
+        },
+        final="hello",
+    )
+
+    run_once("read notes", llm, cwd=tmp_path, run_id="run_feedback_echo", config=AgentConfig(mode="plan-first"))
+
+    feedback = next(
+        message["content"]
+        for message in llm.messages_by_call[1]
+        if "UNTRUSTED TOOL OBSERVATION" in message["content"]
+    )
+    assert feedback.startswith("UNTRUSTED TOOL OBSERVATION\n")
+    assert "Plan: 1) read notes.txt 2) answer." in feedback
+    assert '{"max_lines": 7, "path": "notes.txt", "start_line": 1}' in feedback
+    assert "sk-abcdefgh12345678" not in feedback
+
+
 def test_run_once_stops_after_tool_error_when_budget_is_one(tmp_path) -> None:
     llm = ObservationFeedbackLLM(
         {
