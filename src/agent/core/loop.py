@@ -1234,11 +1234,13 @@ def _build_observation_feedback_message(
     observation_excerpt = truncate_text(observation_json, context.budget.observation_data_chars).value
     # The model's own reply is never appended as a message, so echo its message and
     # args here; otherwise e.g. the plan-first plan is lost after the first step.
+    # Args stay short: this message persists for the rest of the run, and write_file
+    # content would otherwise be resent on every later model call.
     previous = redact_value({"message": action.message, "args": action.action.args}).value
     message_excerpt = truncate_text(previous["message"], context.budget.observation_summary_chars).value
     args_excerpt = truncate_text(
         json.dumps(previous["args"], ensure_ascii=True, sort_keys=True, default=str),
-        context.budget.observation_data_chars,
+        context.budget.observation_summary_chars,
     ).value
     if observation.status == "error":
         error_code = observation.error.code.value if observation.error is not None else "UNKNOWN"

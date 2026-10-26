@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- 修复 agent 循环的上下文缺口：`run_once` 每步只回传观察结果，模型自己的回复从不进入 `messages`，下一步看不到上一步写的 `message` 和动作参数（读了哪个路径、写了什么），plan-first 模式要求写在第一条 `message` 里的计划第一步后就丢了。现在观察反馈消息（仍在 UNTRUSTED 区块内）一并回显上一步的 `message`（按 `observation_summary_chars` 截断）与参数 JSON（按 `observation_data_chars` 截断），两者都先过 `redact_value` 脱敏。不引入 assistant/tool 角色，Anthropic 严格交替、原生工具调用与修复流程均不受影响。
+- 修复 agent 循环的上下文缺口：`run_once` 每步只回传观察结果，模型自己的回复从不进入 `messages`，下一步看不到上一步写的 `message` 和动作参数（读了哪个路径、写了什么），plan-first 模式要求写在第一条 `message` 里的计划第一步后就丢了。现在观察反馈消息（仍在 UNTRUSTED 区块内）一并回显上一步的 `message`（按 `observation_summary_chars` 截断）与参数 JSON（同样按 `observation_summary_chars` 截断：这条反馈会留到本次 run 结束，`write_file` 的整段内容不该在之后每次模型调用里重发），两者都先过 `redact_value` 脱敏。不引入 assistant/tool 角色，Anthropic 严格交替、原生工具调用与修复流程均不受影响。
 
 - 对话上下文压缩（参考 Reflection Mirror 的 compactor）：多轮对话的历史预算从 8000 提到 16000 字符，并改为只按字符数判断（删除 `conversation_max_turns`）；放不下时先丢最旧的轮次、最新一轮总保留，修掉旧实现截断时保留开头、反而截掉最新几轮的问题。历史放不下时，下一轮开始前用一次独立的模型调用把较早轮次连同上次摘要折成结构化检查点摘要（目标 / 下一步 / 关键上下文 / 约束 / 进度 / 关键决定），只保留最近轮次原文；摘要与 `summarized_turns` 存进 `session.json`，原始轮次一条不删。摘要失败（Provider 错误、返回非文本或空串）时状态不变、本轮照常运行；压缩途中 Ctrl+C 记为本轮取消，不再让命令行对话退出。CLI 打印 `activity:` 提示行并在 `/status` 显示 `compacted_turns`，Workbench 只在 job 事件日志记 `context_compaction`，前端暂不展示。FakeLLM 直接应答摘要请求，不消耗脚本化动作。连带变化：`@文件` 引用上限随同一预算从 8000 涨到 16000 字符。
 

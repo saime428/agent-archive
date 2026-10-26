@@ -1073,6 +1073,28 @@ def test_run_once_feedback_echoes_previous_message_and_args(tmp_path) -> None:
     assert "sk-abcdefgh12345678" not in feedback
 
 
+def test_run_once_feedback_caps_echoed_args(tmp_path) -> None:
+    llm = ObservationFeedbackLLM(
+        {
+            "message": "Write.",
+            "action": {
+                "name": "write_file",
+                "args": {"path": "notes.txt", "content": "x" * 5_000, "create_parents": False},
+            },
+        },
+    )
+
+    run_once("write notes", llm, cwd=tmp_path, run_id="run_feedback_args_cap", config=AgentConfig(dry_run=True))
+
+    feedback = next(
+        message["content"]
+        for message in llm.messages_by_call[1]
+        if "UNTRUSTED TOOL OBSERVATION" in message["content"]
+    )
+    assert '"content": "' + "x" * 900 in feedback
+    assert "x" * ContextBudget().observation_summary_chars not in feedback
+
+
 def test_run_once_stops_after_tool_error_when_budget_is_one(tmp_path) -> None:
     llm = ObservationFeedbackLLM(
         {
