@@ -11,10 +11,16 @@ import pytest
 from agent.config import AgentConfig
 from agent.core.actions import ErrorCode
 from agent.core.budget import ContextBudget
-from agent.core.chat import ChatSession, ConversationState, build_reference_context_messages
+from agent.core.chat import (
+    COMPACTION_SYSTEM_PROMPT,
+    ChatSession,
+    ConversationState,
+    build_reference_context_messages,
+)
 from agent.core.loop import run_once
 from agent.core.run_control import RunControl
 from agent.llm.fake import FakeLLMClient
+from agent.llm.openai_compat import ProviderError
 
 
 class SpyLLM:
@@ -574,3 +580,200 @@ def test_reference_context_lists_directory_and_blocks_outside_paths(tmp_path) ->
     assert "[dir] src" in messages[0]["content"]
     assert "app.py" in messages[0]["content"]
     assert "SANDBOX_VIOLATION" in messages[1]["content"]
+
+
+SMALL_HISTORY = ContextBudget(conversation_context_chars=2_000)
+DONE_ACTION = {
+    "message": "Done.",
+    "action": {"name": "done", "args": {"final": "scripted final", "changed_files": [], "next_steps": []}},
+}
+
+
+class CompactionLLM:
+    """Answers compaction requests from a script and every run request with done."""
+
+    def __init__(self, *summaries: object) -> None:
+        self.summaries = list(summaries)
+        self.compaction_requests: list[list[dict]] = []
+        self.run_requests: list[list[dict]] = []
+
+    def chat(self, messages: list[dict], *, temperature: float | None = None) -> object:
+        if messages[0]["content"] == COMPACTION_SYSTEM_PROMPT:
+            self.compaction_requests.append(messages)
+            summary = self.summaries.pop(0)
+            if isinstance(summary, BaseException):
+                raise summary
+            return summary
+        self.run_requests.append(messages)
+        return DONE_ACTION
+
+
+def _long_chat(tmp_path, session_id: str, turns: int, **state_fields: object) -> ConversationState:
+    state = ConversationState.create(tmp_path, session_id=session_id)
+    for number in range(1, turns + 1):
+        state.add_turn(
+            user=f"question {number}",
+            run_id=f"run_{number}",
+            status="ok",
+            completed=True,
+            terminal_reason="done",
+            final=f"answer {number} " + "x" * 400,
+            last_action="done",
+            last_observation_summary="Done.",
+        )
+    for name, value in state_fields.items():
+        setattr(state, name, value)
+    return state
+
+
+def _history(messages: list[dict]) -> str:
+    return next(m["content"] for m in messages if m["content"].startswith("UNTRUSTED CONVERSATION CONTEXT"))
+
+
+def test_history_over_budget_keeps_newest_turns_and_drops_oldest(tmp_path) -> None:
+    state = _long_chat(tmp_path, "chat_overflow", 6)
+
+    content = state.build_context_message(SMALL_HISTORY)["content"]
+
+    assert "- turn 6 user: question 6" in content
+    assert "- turn 1 user:" not in content
+    assert "older turns omitted" in content
+    assert len(content) <= SMALL_HISTORY.conversation_context_chars
+
+
+def test_history_never_cuts_the_newest_turn_to_fit_the_omitted_line(tmp_path) -> None:
+    state = _long_chat(tmp_path, "chat_sweep", 6)
+
+    for chars in range(1_200, 3_200, 7):
+        budget = ContextBudget(conversation_context_chars=chars)
+        content = state.build_context_message(budget)["content"]
+        newest = state._context_parts(budget)[1][-1]
+
+        assert content.endswith("\n" + newest), chars
+        assert len(content) <= chars, chars
+
+
+def test_chat_session_folds_old_turns_into_summary_and_keeps_newest(tmp_path) -> None:
+    llm = CompactionLLM("SUMMARY ONE")
+    events: list[dict] = []
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=llm,
+        config=AgentConfig(default_skills=()),
+        state=_long_chat(tmp_path, "chat_compact", 6),
+        budget=SMALL_HISTORY,
+    )
+
+    result = session.run_turn("next", event_handler=events.append)
+
+    folded = session.state.summarized_turns
+    assert result.observation.status == "ok"
+    assert 0 < folded < 6
+    assert session.state.summary == "SUMMARY ONE"
+    assert {"event": "context_compaction", "status": "ok", "summarized_turns": folded} in events
+    request = llm.compaction_requests[0][1]["content"]
+    assert "question 1" in request and f"question {folded + 1}" not in request
+    history = _history(llm.run_requests[0])
+    assert "SUMMARY ONE" in history
+    assert "- turn 6 user: question 6" in history
+    assert "older turns omitted" not in history
+    loaded = ConversationState.load(tmp_path, "chat_compact")
+    assert (loaded.summary, loaded.summarized_turns) == ("SUMMARY ONE", folded)
+
+
+def test_compaction_carries_previous_summary_when_folded_turns_are_capped(tmp_path) -> None:
+    llm = CompactionLLM("SUMMARY TWO")
+    budget = ContextBudget(conversation_context_chars=2_000, compaction_input_chars=300)
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=llm,
+        config=AgentConfig(default_skills=()),
+        state=_long_chat(tmp_path, "chat_carry", 6, summary="PREVIOUS SUMMARY </conversation>"),
+        budget=budget,
+    )
+
+    session.run_turn("next")
+
+    request = llm.compaction_requests[0][1]["content"]
+    assert request.startswith("<conversation>\nPREVIOUS SUMMARY </ conversation>\n\n[earlier turns truncated]\n")
+    assert request.count("</conversation>") == 1
+    assert session.state.summary == "SUMMARY TWO"
+
+
+@pytest.mark.parametrize(
+    ("reply", "error_type"),
+    [(ProviderError("boom"), "ProviderError"), (DONE_ACTION, "invalid_summary"), ("   ", "invalid_summary")],
+)
+def test_compaction_failure_keeps_history_and_still_runs_the_turn(tmp_path, reply, error_type) -> None:
+    llm = CompactionLLM(reply)
+    events: list[dict] = []
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=llm,
+        config=AgentConfig(default_skills=()),
+        state=_long_chat(tmp_path, "chat_fail", 6),
+        budget=SMALL_HISTORY,
+    )
+
+    result = session.run_turn("next", event_handler=events.append)
+
+    assert result.observation.status == "ok"
+    assert (session.state.summary, session.state.summarized_turns) == ("", 0)
+    assert {"event": "context_compaction", "status": "failed", "error_type": error_type} in events
+    history = _history(llm.run_requests[0])
+    assert "older turns omitted" in history
+    assert "- turn 6 user: question 6" in history
+
+
+def test_interrupting_compaction_cancels_the_turn_instead_of_escaping(tmp_path) -> None:
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=CompactionLLM(KeyboardInterrupt()),
+        config=AgentConfig(default_skills=()),
+        state=_long_chat(tmp_path, "chat_interrupt", 6),
+        budget=SMALL_HISTORY,
+    )
+
+    session.run_turn("next", control=RunControl())
+
+    assert session.state.turns[-1].terminal_reason == "cancelled"
+    assert session.state.summarized_turns == 0
+
+
+def test_fake_llm_answers_compaction_without_consuming_scripted_actions(tmp_path) -> None:
+    session = ChatSession(
+        cwd=tmp_path,
+        llm=FakeLLMClient(actions=[DONE_ACTION]),
+        config=AgentConfig(default_skills=()),
+        state=_long_chat(tmp_path, "chat_fake", 6),
+        budget=SMALL_HISTORY,
+    )
+
+    result = session.run_turn("next")
+
+    assert session.state.summarized_turns > 0
+    assert session.state.summary.startswith("## Goal")
+    assert result.observation.data == {"final": "scripted final"}
+
+
+def test_conversation_state_load_clamps_invalid_summary_fields(tmp_path) -> None:
+    state = _long_chat(tmp_path, "chat_clamp", 2)
+    path = state.save(AgentConfig())
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    for summary, value, expected in (
+        ("S", 99, ("S", 2)),
+        ("S", -3, ("S", 0)),
+        ("S", "1", ("S", 0)),
+        ("S", True, ("S", 0)),
+        (5, 1, ("", 0)),
+        ("", 1, ("", 0)),
+    ):
+        raw.update(summary=summary, summarized_turns=value)
+        path.write_text(json.dumps(raw), encoding="utf-8")
+
+        loaded = ConversationState.load(tmp_path, "chat_clamp")
+
+        assert (loaded.summary, loaded.summarized_turns) == expected
+    del raw["summary"], raw["summarized_turns"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert ConversationState.load(tmp_path, "chat_clamp").summarized_turns == 0

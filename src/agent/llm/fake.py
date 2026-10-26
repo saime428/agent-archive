@@ -23,7 +23,10 @@ class FakeLLMClient:
         messages: list[dict],
         *,
         temperature: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | str:
+        # Chat history compaction asks for plain text; answer it without consuming scripted actions.
+        if messages and "context summarization assistant" in str(messages[0].get("content", "")):
+            return "## Goal\nFakeLLM summary of earlier turns."
         if self._index < len(self.actions):
             action = self.actions[self._index]
             self._index += 1

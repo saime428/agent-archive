@@ -1456,6 +1456,13 @@ def _chat_event_handler(event: dict) -> None:
             f"capability warning: {event.get('requested')} unavailable; "
             f"falling back to {event.get('fallback')}"
         )
+    elif name == "context_compaction":
+        if event.get("status") == "ok":
+            console.print(f"activity: summarized the first {event.get('summarized_turns')} turns of this chat")
+        else:
+            console.print(
+                f"activity: chat summary failed ({event.get('error_type')}); keeping only the newest turns that fit"
+            )
 
 
 def _make_chat_stream_handler(enabled: bool):
@@ -1511,6 +1518,7 @@ def _print_chat_status(session: ChatSession, config) -> None:
     console.print(f"provider: {config.provider}")
     console.print(f"model: {config.model}")
     console.print(f"turns: {len(turns)}")
+    console.print(f"compacted_turns: {session.state.summarized_turns}")
     console.print(f"session_file: {session.cwd / '.agent' / 'chats' / session.state.session_id / 'session.json'}")
     if not turns:
         console.print("last_status: none")

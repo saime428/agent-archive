@@ -608,6 +608,17 @@ Chat sessions are stored under `.agent/chats/<chat-id>/`. Saved session JSON is
 redacted before it is written. Each chat turn still creates a normal
 `.agent/runs/<run-id>/` directory.
 
+Earlier turns reach the model as one untrusted history message of at most
+16,000 characters (each turn's prompt and final answer are capped at a quarter
+of that). When the turns no longer fit, the next turn first asks the model for a
+structured checkpoint summary of the older turns, adapted from Reflection's
+Mirror compactor, and keeps only the newest turns verbatim; the next compaction
+folds the previous summary in. The summary is stored in `session.json` next to
+the full turn list, which is never trimmed, and `/status` shows
+`compacted_turns`. If the summary request fails, the turn still runs with the
+newest turns that fit and the oldest are omitted. Chat reports either outcome as
+an `activity:` line; Workbench records it as a `context_compaction` job event.
+
 When a write, patch, shell, or report action needs confirmation, chat prints
 `approval required` and asks for `approve? [y/N]`. Confirming executes the
 same action; denying returns a standard approval-denied observation. Non-chat
