@@ -8,6 +8,7 @@ dist/
 .agent/chats/
 .agent/memory/
 .agent/automations/
+.agent/chat-jobs/
 .agent/evals/
 .agent/pytest-tmp/
 .agent/*.log
