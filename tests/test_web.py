@@ -5,13 +5,14 @@ import io
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from contextlib import contextmanager
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Iterator
 
 import pytest
@@ -24,6 +25,7 @@ from agent.llm.fake import FakeLLMClient
 from agent.llm.openai_compat import ProviderError
 from agent.web import chat_runtime
 from agent.web import chats
+from agent.web import desktop
 from agent.web import server
 from agent.web import settings
 from agent.web.chat_runtime import ChatRuntime
@@ -638,6 +640,167 @@ def test_serve_workbench_uses_daemon_request_threads(monkeypatch, tmp_path) -> N
     server.serve_workbench(workspace=tmp_path)
 
     assert captured["server"].daemon_threads is True
+
+
+@pytest.mark.parametrize("window_fails", [False, True])
+def test_serve_workbench_window_mode_stops_server_when_window_closes(monkeypatch, tmp_path, window_fails: bool) -> None:
+    events: list[str] = []
+    captured: dict[str, ThreadingHTTPServer] = {}
+
+    class Runtime:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            events.append(f"{self.name}_close")
+
+    class CapturingServer(ThreadingHTTPServer):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            captured["server"] = self
+
+    def window(url: str) -> None:
+        port = captured["server"].server_address[1]
+        assert url.startswith("http://127.0.0.1:")
+        connection = HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("GET", "/api/health")
+        events.append(f"health_{connection.getresponse().status}")
+        connection.close()
+        if window_fails:
+            raise RuntimeError("window crashed")
+
+    monkeypatch.setattr(server, "McpStdioRuntime", lambda _root: Runtime("mcp"))
+    monkeypatch.setattr(server, "TerminalRuntime", lambda _root: Runtime("terminal"))
+    monkeypatch.setattr(server, "ThreadingHTTPServer", CapturingServer)
+
+    if window_fails:
+        with pytest.raises(RuntimeError, match="window crashed"):
+            server.serve_workbench(workspace=tmp_path, port=0, window=window)
+    else:
+        server.serve_workbench(workspace=tmp_path, port=0, window=window)
+
+    assert events == ["health_200", "terminal_close", "mcp_close"]
+    with pytest.raises(OSError):
+        HTTPConnection("127.0.0.1", captured["server"].server_address[1], timeout=1).connect()
+
+
+class _FakeClosingEvent:
+    def __init__(self) -> None:
+        self.handlers: list = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self) -> list:
+        return [handler() for handler in self.handlers]
+
+
+class _FakeDesktopWindow:
+    def __init__(self, *, loaded: bool = True, page_result: object = False, confirm: bool = True) -> None:
+        self.events = SimpleNamespace(closing=_FakeClosingEvent(), loaded=threading.Event())
+        if loaded:
+            self.events.loaded.set()
+        self.page_result = page_result
+        self.confirm = confirm
+        self.dialogs: list[str] = []
+        self.destroyed = False
+        self.done = threading.Event()
+
+    def evaluate_js(self, script: str) -> object:
+        assert script == desktop.PAGE_BLOCKS_UNLOAD_JS
+        if isinstance(self.page_result, threading.Event):
+            self.page_result.wait(5)  # a hung renderer that never answers
+        if isinstance(self.page_result, Exception):
+            raise self.page_result
+        return self.page_result
+
+    def create_confirmation_dialog(self, _title: str, message: str) -> bool:
+        self.dialogs.append(message)
+        if not self.confirm:
+            self.done.set()
+        return self.confirm
+
+    def destroy(self) -> None:
+        self.destroyed = True
+        # pywebview's destroy re-enters the closing handler, which must now let the window go.
+        assert self.events.closing.fire() == [True]
+        self.done.set()
+
+
+@pytest.mark.parametrize(
+    ("window", "dialogs", "destroyed"),
+    [
+        (_FakeDesktopWindow(page_result=False), 0, True),
+        (_FakeDesktopWindow(page_result=True, confirm=False), 1, False),
+        (_FakeDesktopWindow(page_result=True, confirm=True), 1, True),
+        (_FakeDesktopWindow(page_result=RuntimeError("page gone")), 1, True),
+        (_FakeDesktopWindow(loaded=False, page_result=AssertionError("must not wait for load")), 0, True),
+    ],
+    ids=["clean", "dirty-cancel", "dirty-confirm", "unreadable-asks", "not-loaded"],
+)
+def test_desktop_window_asks_before_closing_with_unsaved_edits(window, dialogs: int, destroyed: bool) -> None:
+    desktop.guard_unsaved_close(window)
+
+    assert window.events.closing.fire() == [False]
+    assert window.done.wait(5)
+    assert len(window.dialogs) == dialogs
+    assert window.destroyed is destroyed
+
+
+def test_desktop_window_asks_once_when_page_hangs(monkeypatch) -> None:
+    monkeypatch.setattr(desktop, "PAGE_ANSWER_SECONDS", 0.2)
+    window = _FakeDesktopWindow(page_result=threading.Event(), confirm=True)
+    desktop.guard_unsaved_close(window)
+
+    # Repeated closes while the page is still being asked must not stack dialogs.
+    assert window.events.closing.fire() == [False]
+    assert window.events.closing.fire() == [False]
+    assert window.done.wait(5)
+    assert window.dialogs == ["有未保存的文件修改，仍要关闭窗口吗？"]
+    assert window.destroyed is True
+    window.page_result.set()
+
+
+def test_load_desktop_window_reports_missing_pywebview(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "webview", None)
+
+    with pytest.raises(desktop.DesktopUnavailable, match="pywebview"):
+        desktop.load_desktop_window()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the WebView2 check only runs on Windows")
+@pytest.mark.parametrize("renderer", ["edgechromium", "mshtml"])
+def test_load_desktop_window_requires_webview2_and_keeps_text_selectable(monkeypatch, renderer: str) -> None:
+    window = _FakeDesktopWindow()
+    calls: dict[str, object] = {}
+    def create_window(*args, **kwargs):
+        calls["create"] = (args, kwargs)
+        return window
+
+    def start(**kwargs) -> None:
+        calls["start"] = kwargs
+
+    webview = ModuleType("webview")
+    webview.create_window = create_window
+    webview.start = start
+    platforms = ModuleType("webview.platforms")
+    platforms.winforms = SimpleNamespace(renderer=renderer)
+    monkeypatch.setitem(sys.modules, "webview", webview)
+    monkeypatch.setitem(sys.modules, "webview.platforms", platforms)
+
+    if renderer != "edgechromium":
+        with pytest.raises(desktop.DesktopUnavailable, match="WebView2"):
+            desktop.load_desktop_window()
+        return
+
+    desktop.load_desktop_window()("http://127.0.0.1:8000")
+
+    args, kwargs = calls["create"]
+    assert args == ("Agent Workbench", "http://127.0.0.1:8000")
+    assert kwargs["text_select"] is True
+    assert calls["start"] == {"private_mode": False}
+    assert len(window.events.closing.handlers) == 1
 
 
 def test_workbench_sse_route_reuses_preflight_and_closes_after_done_batch(monkeypatch, tmp_path) -> None:

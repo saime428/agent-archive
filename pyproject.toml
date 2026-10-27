@@ -21,6 +21,10 @@ documents = [
     "python-docx>=1.2,<2",
     "python-pptx>=1.0.2,<2",
 ]
+desktop = [
+    # Native Workbench window (`agent start --window`); Windows renders through WebView2.
+    "pywebview>=6.2,<7",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

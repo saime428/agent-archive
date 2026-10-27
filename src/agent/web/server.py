@@ -5,6 +5,7 @@ import json
 import mimetypes
 import threading
 import webbrowser
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
@@ -65,7 +66,14 @@ def static_file_path(relative_path: str) -> Path:
     return candidate
 
 
-def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
+def serve_workbench(
+    *,
+    workspace: Path,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = False,
+    window: Callable[[str], None] | None = None,
+) -> None:
     if not _is_loopback_host(host):
         raise ValueError("Agent Workbench host must be a loopback address.")
     root = workspace.resolve()
@@ -87,6 +95,16 @@ def serve_workbench(*, workspace: Path, host: str = "127.0.0.1", port: int = 876
         print(f"workspace: {root}", flush=True)
         if open_browser:
             threading.Timer(0.2, webbrowser.open, args=(url,)).start()
+        if window is not None:
+            # GUI toolkits own the calling thread; closing the window stops the server and
+            # falls through to the same cleanup below, so no server or child process outlives it.
+            serving = threading.Thread(target=server.serve_forever, daemon=True)
+            serving.start()
+            try:
+                window(url)
+            finally:
+                server.shutdown()
+            return
         try:
             server.serve_forever()
         except KeyboardInterrupt:

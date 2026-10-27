@@ -37,6 +37,7 @@ from agent.llm.openai_compat import ProviderError
 from agent.mcp_config import McpConfigStore, McpInventoryItem, McpRuntimeError
 from agent.mcp_runtime import McpStdioRuntime
 from agent.secrets import load_workspace_secrets
+from agent.web.desktop import DesktopUnavailable, load_desktop_window
 from agent.web.server import serve_workbench
 
 app = typer.Typer(help="Minimal Python CLI agent.")
@@ -339,17 +340,30 @@ def start(
     host: str = typer.Option("127.0.0.1", "--host", help="Host interface for the local workbench."),
     port: int = typer.Option(8000, "--port", help="Port for the local workbench."),
     open_browser: bool = typer.Option(False, "--open-browser/--no-open-browser", help="Open the selected workbench URL."),
+    window: bool = typer.Option(
+        False,
+        "--window/--no-window",
+        help="Open a desktop window (needs the desktop extra); closing it stops the server.",
+    ),
 ) -> None:
     """Start Agent Workbench."""
     workspace = (cwd or Path.cwd()).resolve()
-    _start_workbench(workspace, host, port, open_browser=open_browser)
+    _start_workbench(workspace, host, port, open_browser=open_browser, window=window)
 
 
-def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: bool = False) -> None:
+def _start_workbench(
+    workspace: Path,
+    host: str,
+    port: int,
+    *,
+    open_browser: bool = False,
+    window: bool = False,
+) -> None:
     try:
         load_workspace_secrets(workspace)
         load_config(workspace)
-    except ConfigError as exc:
+        open_window = load_desktop_window() if window else None
+    except (ConfigError, DesktopUnavailable) as exc:
         console.print(str(exc))
         raise typer.Exit(code=1) from exc
     last_error: OSError | None = None
@@ -357,7 +371,13 @@ def _start_workbench(workspace: Path, host: str, port: int, *, open_browser: boo
         try:
             if candidate != port:
                 console.print(f"Port {candidate - 1} is busy; trying {candidate}.")
-            serve_workbench(workspace=workspace, host=host, port=candidate, open_browser=open_browser)
+            serve_workbench(
+                workspace=workspace,
+                host=host,
+                port=candidate,
+                open_browser=open_browser,
+                window=open_window,
+            )
             return
         except McpRuntimeError as exc:
             console.print(str(exc))

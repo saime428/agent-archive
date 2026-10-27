@@ -19,6 +19,7 @@ from agent.core.run_lease import WorkspaceRunLease
 from agent.llm.deepseek import DeepSeekError
 from agent.llm.fake import FakeLLMClient
 from agent.mcp_runtime import McpRuntimeError, McpStdioRuntime
+from agent.web.desktop import DesktopUnavailable
 
 _MCP_FIXTURE = (Path(__file__).parent / "fixtures" / "mcp_stdio_server.py").resolve()
 
@@ -561,6 +562,47 @@ def test_start_command_is_workbench_start_alias(monkeypatch, tmp_path) -> None:
     assert calls[0]["open_browser"] is False
 
 
+def test_start_window_hands_desktop_window_to_workbench_server(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    calls = []
+
+    def open_window(_url: str) -> None:
+        pass
+
+    monkeypatch.setattr("agent.cli.serve_workbench", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("agent.cli.load_desktop_window", lambda: open_window)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--window"])
+    plain = runner.invoke(app, ["start", "--cwd", str(workspace)])
+
+    assert result.exit_code == 0
+    assert plain.exit_code == 0
+    assert calls[0]["window"] is open_window
+    assert calls[1]["window"] is None
+
+
+def test_start_window_reports_missing_desktop_support_before_serving(monkeypatch, tmp_path) -> None:
+    runner = CliRunner()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    def unavailable():
+        raise DesktopUnavailable('Desktop window needs pywebview: pip install -e ".[desktop]"')
+
+    def fail_serve(**_kwargs) -> None:
+        raise AssertionError("server must not start without desktop support")
+
+    monkeypatch.setattr("agent.cli.serve_workbench", fail_serve)
+    monkeypatch.setattr("agent.cli.load_desktop_window", unavailable)
+
+    result = runner.invoke(app, ["start", "--cwd", str(workspace), "--window"])
+
+    assert result.exit_code == 1
+    assert "pip install -e" in result.output
+
+
 def test_start_command_defaults_to_safe_workbench_port(monkeypatch, tmp_path) -> None:
     runner = CliRunner()
     workspace = tmp_path / "workspace"
@@ -677,11 +719,35 @@ def test_start_agent_launcher_points_at_workbench() -> None:
     assert "netstat -ano" not in script
     assert ":found_port" not in script
     assert 'start ""' not in script
-    assert '"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% --open-browser >> "%AGENT_LOG%" 2>&1' in script
+    assert 'set "AGENT_OPEN=--open-browser"' in script
+    assert 'if /I "%~1"=="--window" set "AGENT_OPEN=--window"' in script
+    assert '"%AGENT_PYTHON%" -m agent.cli start --cwd "%CD%" --port %AGENT_PORT% %AGENT_OPEN% >> "%AGENT_LOG%" 2>&1' in script
     assert 'python -m agent.cli start --cwd "%CD%" --port %AGENT_PORT%' not in script
     assert "Agent Workbench exited with code %AGENT_EXIT%." in script
     assert "Python exited with code %AGENT_EXIT%." in script
     assert "exit /b %AGENT_EXIT%" in script
+    # A hidden console cannot take a keypress: window mode must never reach a bare pause.
+    for line in script.splitlines():
+        if "pause >nul" in line:
+            assert line.strip() == "pause >nul" or '"%AGENT_OPEN%"=="--window" (notepad "%AGENT_LOG%")' in line
+    window_exit = (
+        'if "%AGENT_OPEN%"=="--window" (\n'
+        '  if not "%AGENT_EXIT%"=="0" notepad "%AGENT_LOG%"\n'
+        "  exit /b %AGENT_EXIT%\n"
+        ")"
+    )
+    assert script.index(window_exit) < script.rindex("pause >nul")
+    # LF-only batch files can mis-resolve labels, so the launcher must not depend on any.
+    assert "call :" not in script and "goto " not in script
+
+
+def test_start_agent_window_launcher_reruns_launcher_hidden() -> None:
+    launcher = Path(__file__).resolve().parents[1] / "start-agent-window.cmd"
+    script = launcher.read_text(encoding="utf-8")
+
+    assert 'set "AGENT_LAUNCHER=%~dp0start-agent.cmd"' in script
+    assert "-WindowStyle Hidden" in script
+    assert "Start-Process -FilePath $env:AGENT_LAUNCHER -ArgumentList '--window' -WindowStyle Hidden" in script
 
 
 def test_chat_runs_two_fake_turns_and_persists_session(tmp_path) -> None:

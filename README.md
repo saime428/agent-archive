@@ -13,7 +13,7 @@ a durable, redacted record.
 | Providers | Anthropic-native, DeepSeek, any OpenAI-compatible endpoint (including local Ollama), plus a FakeLLM so end-to-end tests need no network |
 | MCP | Local stdio Model Context Protocol servers via the official SDK 1.28.1; every exposed tool call is separately approval-gated |
 | Safety | Workspace sandbox, approval gates, dry-run, snapshots before writes, redacted durable logs, per-source context budgets — see [Safety Model](#safety-model) |
-| Interfaces | `agent run` (one-shot), `agent chat` (terminal, resumable), `agent start` (local React Workbench with SSE streaming) |
+| Interfaces | `agent run` (one-shot), `agent chat` (terminal, resumable), `agent start` (local React Workbench with SSE streaming, in the browser or an optional [desktop window](#desktop-window)) |
 | Extensions | Managed skills and MCP configuration with atomic, crash-recoverable writes under `~/.agent/` |
 
 > This README doubles as the working document for each release slice. Start with
@@ -287,6 +287,38 @@ mode = "auto"
 ```
 
 `auto` raises the action budget to ten without changing approval or sandbox rules.
+
+## Desktop window
+
+`agent start` serves the Workbench to a browser tab. With the optional `desktop`
+extra it opens the same React Workbench in its own native window instead
+(pywebview; on Windows it renders through the Microsoft Edge WebView2 Runtime,
+which Windows 11 ships and most Windows 10 machines already have):
+
+```powershell
+pip install -e ".[desktop]"
+agent start --cwd F:\agent --window
+```
+
+Closing the window stops the local server and its terminal and MCP child
+processes; nothing keeps running in the background. If a Files editor tab still
+has unsaved changes, closing asks first: WebView2 skips the page's
+`beforeunload` guard when its host window closes, so the window asks the page
+the same question itself. Without pywebview or WebView2, `--window` stops with
+an error before the server starts instead of showing a blank window.
+
+To open it without a terminal, double-click `start-agent-window.cmd` in the
+repository root (or right-click it → Send to → Desktop to get a desktop
+shortcut). It reruns `start-agent.cmd --window` with a hidden console, so
+commands the agent runs never flash a console window; if startup fails, it opens
+`.agent\start-agent.log` in Notepad. `start-agent.cmd` on its own keeps the
+browser behavior.
+
+The window is the "desktop shell" that `docs/v1.0-acceptance.md` deferred until
+a browser tab stopped being enough. It wraps the same server and packaged
+frontend: no frontend change, no Electron/Tauri (still deferred per
+`docs/v0.7-shell-decision.md`), and no binary packaging, so the v1.0 Packaging
+Decision below still stands.
 
 ## v1.0 Release Prep
 
